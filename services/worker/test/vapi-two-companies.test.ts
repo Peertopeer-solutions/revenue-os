@@ -136,6 +136,28 @@ describe("one call event that can't be filed", () => {
       { status: "completed", lines: ["Sunday evening works"] },
     ]);
   });
+
+  it("whose call id is too long for the call-id key is marked failed on the first run, and the company's other events are filed", async () => {
+    // Random, so the database can't compress it to fit the key.
+    const tooLong = `call-${Array.from({ length: 400 }, () => randomUUID()).join("")}`;
+    const callId = `call-${randomUUID()}`;
+    // It sorts first, so it is filed before the other call's line.
+    await post(a, {
+      type: "status-update",
+      id: `${callId}-long`,
+      call: { id: tooLong },
+      timestamp: "2026-10-11T09:00:00Z",
+    });
+    await post(a, said(callId, `${callId}-t1`, "Sunday works"));
+    await processVapiEvents(pool, a);
+    const long = await filed(a, tooLong);
+    expect(long.events.map((e) => e.status)).toEqual(["failed"]);
+    expect(long.events[0]?.error).toContain("index row");
+    expect(await filed(a, callId)).toEqual({
+      events: [{ status: "processed", error: null }],
+      conversations: [{ status: "active", lines: ["Sunday works"] }],
+    });
+  });
 });
 
 /**

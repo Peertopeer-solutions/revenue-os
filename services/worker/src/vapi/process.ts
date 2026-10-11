@@ -114,13 +114,16 @@ async function fileEvent(
 }
 
 /**
- * Did the event cause this failure? The database's data and rule errors (classes 22 and 23: a timestamp that names no
- * time, a broken key) and our own errors are the event's; every other database error (a lost connection, a deadlock,
- * a cancelled or timed-out statement, no resources) is the database's, and a later run may well get through.
+ * Did the event cause this failure? Only the database's own trouble is not the event's, as a later run may get
+ * through it: a lost connection (08), a deadlock or serialization failure (40), no resources (53), a cancelled or
+ * timed-out statement (57), a system or internal error (58, XX), a lock wait that timed out (55P03). Anything else
+ * fails the same way on every run (a timestamp that names no time, a broken key, a call id too long for its key, an
+ * error of our own code), so retrying it would block the company's other events for good. A dead connection also
+ * fails the savepoint's rollback, whatever its error says.
  */
 function eventsFault(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
-  return typeof code !== "string" || /^2[23]/.test(code);
+  return typeof code !== "string" || !/^(08|40|53|57|58|XX)|^55P03$/.test(code);
 }
 
 /** Files every 'received' Vapi event of the company, ordered by payload timestamp, each on its own. */
@@ -138,9 +141,8 @@ export async function processVapiEvents(
     );
 
     for (const row of events.rows) {
-      // A failure the event causes undoes only that event's writes and marks it failed. Any other fails the whole
-      // job, so pg-boss runs it again and no event is marked failed for it; a lost connection also fails this
-      // savepoint's rollback.
+      // A failure the event causes undoes only that event's writes and marks it failed. The database's own trouble
+      // fails the whole job, so pg-boss runs it again and no event is marked failed for it.
       await tx.query("savepoint vapi_event");
       let status: string;
       let error: string | null = null;
