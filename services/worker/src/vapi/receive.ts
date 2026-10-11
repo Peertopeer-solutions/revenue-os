@@ -49,7 +49,7 @@ export const vapiWebhook = new Hono().post(
       await tx.query(
         `insert into webhook_events (org_id, provider, event_type, dedupe_key, payload)
 			 values ($1, 'vapi', $2, $3, $4)
-			 on conflict (dedupe_key) do nothing`,
+			 on conflict (org_id, provider, dedupe_key) do nothing`,
         [orgId, m.type, dedupeKey, raw],
       );
     });

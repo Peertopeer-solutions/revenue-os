@@ -7,8 +7,8 @@ description: Use BEFORE touching services/worker — webhook receivers or proces
 
 ## Read first, in this order
 1. `docs/security.md` S6 — all five controls (webhooks are "the doors that open themselves") + S5.1 (Zod on every boundary) + S5.8 (error hygiene).
-2. `docs/db-design.md` §8 — `webhook_events` + the **org-resolution rule**: resolve `org_id` BEFORE insert; NULL-org rows are unreachable under RLS.
-3. `AGENTS.md` Gotchas — webhooks arrive out of order: upsert by `provider_ref` (partial UNIQUE index, migration 012), order by `messages.seq`; pgboss schema has no RLS (by design); the `workflow_runs (status, wake_at)` scheduler index is sacred.
+2. `docs/db-design.md` §8 — `webhook_events` + the **org-resolution rule**: resolve `org_id` BEFORE insert (a row can't be stored without one).
+3. `AGENTS.md` Gotchas — webhooks arrive out of order, the pgboss schema has no RLS (by design), the scheduler index is sacred; the keys behind them are in `supabase/migrations/`.
 4. `docs/patterns/zod-boundary.md` (excerpts of real code) · `docs/patterns/hono-route.md` and `docs/patterns/pgboss-worker.md` (no example yet: what a route and a job must still do by hand, and the roadmap lines that bring the real code).
 5. `AGENTS.md` Conventions — write ownership: the worker's write set vs the console's; they never cross.
 6. `docs/tech-stack.md` T26.4/T26.5 if touching jobs (design intent — check `STATE.md → What works today` for what is real): idempotency as the handler's first lines, the 800ms p95 mid-call tool budget.

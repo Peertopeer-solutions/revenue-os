@@ -25,7 +25,9 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    the same PR (RLS is enforced on all tables by `tests/rls_coverage.sql`; denial tests do not yet
    cover every older table). DB access only through `packages/db` `withOrg` (the `app_service`
    role + `request.org_id`). Never the Supabase service-role key in app code. Only `agents`, `workflows` and `eval_scenarios` may
-   hold global template rows with a null `org_id`.
+   hold global template rows with a null `org_id`. A link between two companies' records pairs `org_id` with
+   `org_id` (a link to a template table carries `app.same_company_or_template` instead), and every
+   duplicate-protection key includes `org_id`; `tests/rls_coverage.sql` fails any other (migration 019 shows how).
 4. **History** — migrations are append-only (expand–contract); never edit an applied one (`rules-from-main`
    refuses a PR that edits, renames or deletes a migration already on main or reuses a migration number:
    `scripts/done-gate/migrations.ts`); never force-push a shared branch.
@@ -272,8 +274,8 @@ settings) · `bun run dev` · `bun run db:reset`
 ## Gotchas
 - The `pgboss.*` schema has no RLS by design; its jobs carry ids only and every handler
   re-enters `withOrg`. The `workflow_runs (status, wake_at)` index is sacred.
-- Vapi webhooks arrive out of order: upsert the conversation by `provider_ref`, order
-  transcripts by `messages.seq`. The receiver compares the `x-vapi-secret` header (one shared
+- Vapi webhooks arrive out of order: upsert the company's conversation by `provider_ref` (a call
+  id is unique per company, not across companies), order transcripts by `messages.seq`. The receiver compares the `x-vapi-secret` header (one shared
   secret today) in a timing-safe way — it is not a body signature — and the org comes from the
   URL. `webhook_events` is a lifecycle table: `payload` never changes; status and processed_at do.
 - Worktrees live under `.claude/worktrees/` and must never enter lint scope. Local database URLs
