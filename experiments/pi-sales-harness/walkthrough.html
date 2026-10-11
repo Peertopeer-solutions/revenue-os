@@ -111,6 +111,7 @@
   .edge { fill: none; stroke: var(--ink-soft); stroke-width: 1.6; }
   .edge.deny { stroke: var(--danger); stroke-dasharray: 5 4; }
   .edge.ok { stroke: var(--ok); }
+  .edge.gold { stroke: var(--accent); }
   .head { fill: var(--ink-soft); }
   .head.deny { fill: var(--danger); }
   .head.ok { fill: var(--ok); }
@@ -171,7 +172,7 @@
   <div class="label">Revenue OS · experiments/pi-sales-harness · prototype</div>
   <h1>One lead event, one fresh Pi run, three tools.</h1>
   <p class="lede">A sketch of how a multi-company sales agent built on the <strong>Pi coding-agent SDK</strong> would work a lead: the
-  database tells it who the company, member and lead are; the model <strong>only proposes</strong> the next step; the law, the company's
+  database tells it who the company, member and lead are and where the lead is in the sales cycle; the model <strong>only proposes</strong> the next step; the law, the company's
   rules and the member's preferences decide; the worker writes what happened as rows. Nothing here runs a model or sends anything.</p>
   <div class="chips">
     <span class="chip gold">Prototype: not wired into the product</span>
@@ -184,6 +185,7 @@
       <li><a href="#flow">The flow</a></li>
       <li><a href="#scopes">Memory scopes</a></li>
       <li><a href="#state">Kinds of state</a></li>
+      <li><a href="#cycle">Sales cycle</a></li>
       <li><a href="#guardrails">Guardrails</a></li>
       <li><a href="#call">Phone-call path</a></li>
       <li><a href="#isolation">Isolation</a></li>
@@ -334,7 +336,7 @@
     <div class="card" id="card-company">
       <div class="scopehead"><i class="swatch" style="background:var(--scope-company)"></i><h3>Company</h3></div>
       <dl class="kv">
-        <dt>Holds</dt><dd>Goal, rules (approval setting per action, calling window, weekly call cap, playbook per intent), product knowledge.</dd>
+        <dt>Holds</dt><dd>Goal, rules (approval setting per action, calling window, weekly call cap, playbook per stage and intent, stages that need a person), product knowledge.</dd>
         <dt>Tables today</dt><dd><code>guardrail_policies</code>, <code>agents</code>, <code>knowledge_documents</code>, <code>knowledge_chunks</code></dd>
         <dt>Who writes</dt><dd>Admins, in the console. The model may only <em>suggest</em>; that becomes a review task.</dd>
         <dt>Enters a run</dt><dd>Rules as rows; only knowledge matching the lead's last message, at most three hits.</dd>
@@ -379,6 +381,69 @@
   </div>
 </section>
 
+<section id="cycle">
+  <div class="q">How does it know where a lead is, and what comes next?</div>
+  <h2>The sales cycle</h2>
+  <p class="answer">The cycle runs over the stages contacts already carry (<code>app.lifecycle_stage</code>). The code fixes which stage may
+  follow which (<code>SALES_CYCLE</code>); the company's playbook lists the nurturing moves for each stage <em>and</em> each intent, and a move
+  fits only when both list it. The model never changes a stage itself: it names the stage a step moves the lead to, the checks judge that
+  move with the step, and the worker writes it.</p>
+  <figure class="figure" style="margin:0">
+    <div class="scroll">
+    <svg id="fig-cycle" viewBox="0 0 1000 330" role="img" aria-labelledby="fig-cycle-title">
+      <title id="fig-cycle-title">The stages from new lead to customer, the moves allowed between them, the playbook's moves at each stage, and the lost and do-not-call stages</title>
+      <defs>
+        <marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+        <marker id="ah4-deny" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head deny" d="M0,0 L10,5 L0,10 z"/></marker>
+      </defs>
+      <g id="st-new"><title>new: a lead nobody has reached yet</title><rect class="box" x="15" y="40" width="140" height="56" rx="12"/>
+        <text class="t1" x="29" y="64">New lead</text><text class="t3" x="29" y="83">new</text></g>
+      <g id="st-contacted"><title>contacted: reached at least once</title><rect class="box" x="181" y="40" width="140" height="56" rx="12"/>
+        <text class="t1" x="195" y="64">Contacted</text><text class="t3" x="195" y="83">contacted</text></g>
+      <g id="st-qualified"><title>qualified: budget, need and timing fit</title><rect class="box" x="347" y="40" width="140" height="56" rx="12"/>
+        <text class="t1" x="361" y="64">Qualified</text><text class="t3" x="361" y="83">qualified</text></g>
+      <g id="st-visit"><title>meeting_scheduled: a site visit is booked, the slice's goal</title><rect class="box" x="513" y="40" width="140" height="56" rx="12"/>
+        <text class="t1" x="527" y="64">Visit booked</text><text class="t3" x="527" y="83">meeting_scheduled</text></g>
+      <g id="st-opportunity"><title>opportunity: visited, a deal is possible; a closer takes over</title><rect class="box" x="679" y="40" width="140" height="56" rx="12"/>
+        <text class="t1" x="693" y="64">Opportunity</text><text class="t3" x="693" y="83">opportunity</text></g>
+      <g id="st-customer"><title>customer: bought. Moving a lead here needs a person in the made-up companies (approveStages)</title><rect class="box" x="845" y="40" width="140" height="56" rx="12"/>
+        <text class="t1" x="859" y="64">Customer</text><text class="t3" x="859" y="83">customer</text></g>
+      <path class="edge gold" d="M155,68 H179" marker-end="url(#ah4)"/>
+      <path class="edge gold" d="M321,68 H345" marker-end="url(#ah4)"/>
+      <path class="edge gold" d="M487,68 H511" marker-end="url(#ah4)"/>
+      <path class="edge gold" d="M653,68 H677" marker-end="url(#ah4)"/>
+      <path class="edge gold" d="M819,68 H843" marker-end="url(#ah4)"/>
+      <path id="cy-skip" class="edge gold" d="M251,40 C251,8 583,8 583,38" marker-end="url(#ah4)"><title>contacted may go straight to a booked visit when the lead agrees one</title></path>
+      <text class="elabel" x="417" y="32" text-anchor="middle">a visit agreed</text>
+      <path id="cy-missed" class="edge gold" d="M583,96 C583,124 417,124 417,98" marker-end="url(#ah4)"><title>a missed visit goes back to qualified</title></path>
+      <text class="elabel" x="500" y="134" text-anchor="middle">a missed visit</text>
+      <g id="cy-moves"><title>The made-up companies' playbook by stage (src/fixtures.ts); a move must also be listed for the lead's intent</title>
+        <text class="t3" x="29" y="160">call · chat · wait</text>
+        <text class="t3" x="195" y="160">call · chat · wait</text>
+        <text class="t3" x="361" y="160">call · chat ·</text><text class="t3" x="361" y="175">hand over · wait</text>
+        <text class="t3" x="527" y="160">reminders · wait</text>
+        <text class="t3" x="693" y="160">closer · wait</text>
+        <text class="t3" x="859" y="160">wait; moving here</text><text class="t3" x="859" y="175">needs a person</text></g>
+      <path id="cy-any" class="edge" d="M85,196 H915" style="stroke-dasharray:3 4"><title>From any stage</title></path>
+      <text class="elabel" x="85" y="190">from any stage</text>
+      <path class="edge" d="M320,196 V238" marker-end="url(#ah4)"/>
+      <path class="edge deny" d="M690,196 V238" marker-end="url(#ah4-deny)"/>
+      <g id="st-lost"><title>lost: needs a person in the made-up companies; a lost lead may be won back (to contacted)</title><rect class="box" x="200" y="240" width="240" height="70" rx="12"/>
+        <text class="t1" x="216" y="266">Lost</text><text class="t2" x="216" y="285">moving here needs a person</text><text class="t3" x="216" y="301">may be won back: contacted</text></g>
+      <g id="st-dnc"><title>dnc: any run may add a block; no run lifts one; only the lead's own written yes does</title><rect class="box stub" x="560" y="240" width="260" height="70" rx="12"/>
+        <text class="t1" x="576" y="266">Do-not-call</text><text class="t2" x="576" y="285">a run may add it, never lift it</text><text class="t3" x="576" y="301">only the lead's written yes does</text></g>
+    </svg>
+    </div>
+    <div class="hint">Scroll sideways to see the whole figure.</div>
+    <figcaption>Stage names exist today; the arrows are <code>SALES_CYCLE</code> in <code>src/policy.ts</code> and the moves are the made-up playbook in <code>src/fixtures.ts</code>. Red marks the one stage no run can leave.</figcaption>
+  </figure>
+  <div class="grid g3" style="margin-top:14px">
+    <div class="card"><h3>Stage and intent together</h3><p class="why">Priya is <code>contacted</code> and needs more details: both lists hold a call, so a call fits. Were she an <code>opportunity</code>, the same intent leaves only "wait", and a call would need a person.</p></div>
+    <div class="card"><h3>A stage moves with a step</h3><p class="why"><code>propose_next_action</code> takes an optional <code>stage</code>. Confirming an agreed visit by WhatsApp with <code>meeting_scheduled</code> is permitted; jumping from <code>contacted</code> to <code>customer</code> is refused by the cycle.</p></div>
+    <div class="card"><h3>Who writes it</h3><p class="why">The worker, after the run, as the lead's stage plus an <code>outcomes</code> row: future work. Moves the company wants to see (here: <code>customer</code>, <code>lost</code>) wait for a person first.</p></div>
+  </div>
+</section>
+
 <section id="guardrails">
   <div class="q">Where does the agent's freedom end?</div>
   <h2>Every proposal passes three layers</h2>
@@ -396,14 +461,15 @@
       <g id="gate-proposal"><title>Proposal: kind, time and reason (the Proposal type in src/policy.ts)</title>
         <rect class="box proposed" x="16" y="112" width="150" height="76" rx="12"/>
         <text class="t1" x="30" y="140">Proposal</text><text class="t2" x="30" y="160">kind · time ·</text><text class="t2" x="30" y="176">reason</text></g>
-      <g id="gate-law"><title>Legal floor, in code: do-not-call, WhatsApp opt-in, calling hours 09:00 to 21:00 in the lead's own time zone (LEGAL_CALL_WINDOW). It can only refuse.</title>
+      <g id="gate-law"><title>Legal floor, in code: do-not-call, WhatsApp opt-in, calling hours 09:00 to 21:00 in the lead's own time zone (LEGAL_CALL_WINDOW), and the sales cycle's stage order (SALES_CYCLE). It can only refuse.</title>
         <rect class="gate law" x="196" y="30" width="200" height="240" rx="14"/>
-        <text class="t1" x="214" y="60">Legal floor</text><text class="t3" x="214" y="78">in code · refuses only</text>
-        <text class="t2" x="214" y="112">do-not-call</text><text class="t2" x="214" y="136">WhatsApp opt-in</text><text class="t2" x="214" y="160">calling hours 09-21,</text><text class="t2" x="214" y="178">lead's own time zone</text></g>
-      <g id="gate-company"><title>Company policy, from its settings: approval setting per action (auto, approval, forbidden), calling window, weekly call cap, playbook for the lead's intent</title>
+        <text class="t1" x="214" y="60">Legal floor, cycle</text><text class="t3" x="214" y="78">in code · refuses only</text>
+        <text class="t2" x="214" y="112">do-not-call</text><text class="t2" x="214" y="136">WhatsApp opt-in</text><text class="t2" x="214" y="160">calling hours 09-21,</text><text class="t2" x="214" y="178">lead's own time zone</text>
+        <text class="t2" x="214" y="202">stage order of the</text><text class="t2" x="214" y="220">sales cycle</text></g>
+      <g id="gate-company"><title>Company policy, from its settings: approval setting per action (auto, approval, forbidden), calling window, weekly call cap, playbook for the lead's stage and intent, stages that need a person</title>
         <rect class="gate company" x="416" y="30" width="200" height="240" rx="14"/>
         <text class="t1" x="434" y="60">Company policy</text><text class="t3" x="434" y="78">settings · approval or refuse</text>
-        <text class="t2" x="434" y="112">approval setting</text><text class="t2" x="434" y="136">calling window</text><text class="t2" x="434" y="160">calls per week</text><text class="t2" x="434" y="184">playbook for intent</text></g>
+        <text class="t2" x="434" y="112">approval setting</text><text class="t2" x="434" y="136">calling window</text><text class="t2" x="434" y="160">calls per week</text><text class="t2" x="434" y="184">playbook for stage</text><text class="t2" x="434" y="202">and intent</text><text class="t2" x="434" y="226">stage approvals</text></g>
       <g id="gate-member"><title>Member preference: actions this member wants to approve first. It can only add an approval.</title>
         <rect class="gate" x="636" y="30" width="160" height="240" rx="14"/>
         <text class="t1" x="654" y="60">Member</text><text class="t3" x="654" y="78">tightens only</text>
@@ -436,7 +502,10 @@
         <tr id="sc-2"><td>2</td><td>The same ask at a company that approves every call</td><td>Riverbend · Meera · Kabir</td><td>needs_more_info</td><td>call, 12:00</td><td><span class="outcome approval">needs approval</span><div class="why">company policy: schedule_call is set to "approval"</div></td></tr>
         <tr id="sc-3"><td>3</td><td>A member who approves every call first</td><td>Skyline · Vikram · Priya</td><td>needs_more_info</td><td>call, 18:30</td><td><span class="outcome approval">needs approval</span><div class="why">member preference: approves every schedule_call first</div></td></tr>
         <tr id="sc-4"><td>4</td><td>A call at 22:15</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>call, 22:15</td><td><span class="outcome deny">refused</span><div class="why">legal floor: outside 09:00-21:00; company window 10:00-20:00</div></td></tr>
-        <tr id="sc-5"><td>5</td><td>A lead who said stop</td><td>Skyline · Asha · Rohan</td><td>opted_out</td><td>WhatsApp, 11:00</td><td><span class="outcome deny">refused</span><div class="why">legal floor: do-not-call, no WhatsApp opt-in; the playbook lists nothing for opted_out</div></td></tr>
+        <tr id="sc-5"><td>5</td><td>A lead who said stop</td><td>Skyline · Asha · Rohan</td><td>opted_out</td><td>WhatsApp, 11:00</td><td><span class="outcome deny">refused</span><div class="why">legal floor: do-not-call, no WhatsApp opt-in; the playbook lists nothing at stage dnc</div></td></tr>
+        <tr id="sc-6"><td>6</td><td>A visit agreed: confirm it and move the lead to meeting_scheduled</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>WhatsApp, 11:00; stage to meeting_scheduled</td><td><span class="outcome permit">permit</span><div class="why">the cycle allows contacted to meeting_scheduled</div></td></tr>
+        <tr id="sc-7"><td>7</td><td>Skipping the cycle: straight to customer</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>wait; stage to customer</td><td><span class="outcome deny">refused</span><div class="why">sales cycle: contacted may move to qualified, meeting_scheduled, lost or dnc, not customer</div></td></tr>
+        <tr id="sc-8"><td>8</td><td>Bought elsewhere: marking the lead lost</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>wait; stage to lost</td><td><span class="outcome approval">needs approval</span><div class="why">company policy: every move to lost is approved by a person</div></td></tr>
       </tbody>
     </table>
   </div>
@@ -445,7 +514,7 @@
 <section id="call">
   <div class="q">What happens when a lead needs more details?</div>
   <h2>The phone-call path, end to end</h2>
-  <p class="answer">The captain's example: a lead asks things a message can't carry well. Intent and stage point the playbook at a call;
+  <p class="answer">Devesh's example: a lead asks things a message can't carry well. Intent and stage point the playbook at a call;
   the lead's memory says when; the checks decide. Everything after "next step saved" is either existing code or a stub, so this prototype
   stops at the proposal.</p>
   <figure class="figure" style="margin:0">
@@ -459,8 +528,8 @@
         <text class="t1" x="40" y="48">Lead: "price? loan? EMI?"</text><text class="t2" x="40" y="70">a messages row</text></g>
       <g id="call-intent"><title>Placeholder: keyword rules label it needs_more_info (src/intent.ts placeholderIntent)</title><rect class="box proposed" x="268" y="20" width="220" height="72" rx="12"/>
         <text class="t1" x="284" y="48">Intent: needs_more_info</text><text class="t2" x="284" y="70">placeholder rules, no score</text></g>
-      <g id="call-playbook"><title>The company's playbook for needs_more_info lists schedule_call and send_whatsapp (OrgPolicy.playbook)</title><rect class="box proposed" x="512" y="20" width="220" height="72" rx="12"/>
-        <text class="t1" x="528" y="48">Playbook: call or chat</text><text class="t2" x="528" y="70">company setting</text></g>
+      <g id="call-playbook"><title>At stage contacted with intent needs_more_info, the company's playbook lists schedule_call, send_whatsapp and wait (OrgPolicy.playbook)</title><rect class="box proposed" x="512" y="20" width="220" height="72" rx="12"/>
+        <text class="t1" x="528" y="48">Playbook: call or chat</text><text class="t2" x="528" y="70">for this stage and intent</text></g>
       <g id="call-propose"><title>The model proposes a call at 18:30 lead time because the lead's memory says "free after 6 pm"</title><rect class="box proposed" x="756" y="20" width="220" height="72" rx="12"/>
         <text class="t1" x="772" y="48">Propose a call, 18:30</text><text class="t2" x="772" y="70">memory: free after 6 pm</text></g>
       <g id="call-checks"><title>checkProposal: legal hours, company window, weekly cap, approval setting, playbook, member preference</title><rect class="box proposed" x="756" y="158" width="220" height="72" rx="12"/>
@@ -488,8 +557,8 @@
 <section id="isolation">
   <div class="q">How can one company's data never reach another's run?</div>
   <h2>Isolation, at every door</h2>
-  <p class="answer">The run's identity comes from the job, never from the model, and every door is built around it. There is no tool
-  parameter where an id could even be typed.</p>
+  <p class="answer">The run's identity comes from the job, never from the model, and every door is built around it. No tool takes an id, and a call carrying
+  one anyway is refused before the tool runs.</p>
   <div class="grid g4">
     <div class="card"><h3>Repository and tools</h3><p class="why"><code>openScope</code> refuses a lead of another company or a user outside it. The reader it returns takes no ids, and every tool closes over it, so the model cannot name another lead. In the product: <code>withOrg</code> plus <code>org_id</code> in every query.</p></div>
     <div class="card"><h3>Retrieval</h3><p class="why">Knowledge search filters by company first, then ranks; memories by company and lead. Retrieved text enters fenced as data, and no line can close its fence.</p></div>
@@ -554,7 +623,7 @@
       <tbody>
         <tr><td class="name"><code>createAgentSession</code></td><td>Called only in <code>openLeadSession</code>, which returns the session unprompted</td><td>The host decides whether and when to run the model; nothing here calls it</td></tr>
         <tr><td class="name"><code>tools</code> + <code>customTools</code></td><td>Allowlist of the three lead tools, defined with <code>defineTool</code> and TypeBox schemas</td><td>Pi's own read, bash, edit and write tools are not on the list; no sending tool exists</td></tr>
-        <tr><td class="name"><code>ResourceLoader</code></td><td>Hand-written: no extensions, skills, prompt templates, themes or AGENTS.md; fixed instructions plus fenced context</td><td>Nothing on the machine can change what the agent is told</td></tr>
+        <tr><td class="name"><code>ResourceLoader</code></td><td>Hand-written: no extensions, skills, prompt templates, themes or AGENTS.md; fixed instructions plus fenced context</td><td>Nothing on the machine can change what the agent is told; Pi adds only the working directory, fixed to <code>/lead-run</code></td></tr>
         <tr><td class="name"><code>SessionManager</code></td><td><code>inMemory()</code></td><td>One run's scratch history; the database is the record</td></tr>
         <tr><td class="name"><code>SettingsManager</code></td><td><code>inMemory()</code>: compaction on (keep 8,000, reserve 4,096), cache warming off</td><td>No settings files read; no model request the host did not ask for</td></tr>
         <tr><td class="name"><code>model</code>, <code>modelRuntime</code></td><td>Brought by the host</td><td>The prototype holds no credentials and picks no model</td></tr>
@@ -571,6 +640,7 @@
       <ul class="tight">
         <li>Tenant-scoped reader that takes no ids</li>
         <li>Proposal checks: law, company, member</li>
+        <li>Sales cycle: stage order, a playbook per stage and intent, stage approvals</li>
         <li>Context per scope, budgeted, fenced</li>
         <li>Memory write rules per scope</li>
         <li>Pi options: tool allowlist, loader, in-memory session and settings</li>
@@ -621,10 +691,10 @@
         <tr><td>3 · Build context; budget figure</td><td><code>src/context.ts</code></td><td><code>assembleLeadContext</code>, <code>renderContext</code>, <code>BUDGET</code></td></tr>
         <tr><td>4 · Fresh Pi session; Pi pieces</td><td><code>src/session.ts</code></td><td><code>leadSessionOptions</code>, <code>leadResourceLoader</code>, <code>openLeadSession</code>, <code>INSTRUCTIONS</code></td></tr>
         <tr><td>5 · Model uses tools</td><td><code>src/session.ts</code>, <code>src/intent.ts</code></td><td><code>leadTools</code>, <code>proposeNextAction</code>, <code>rememberAboutLead</code>, <code>placeholderIntent</code>, <code>intentInputOf</code></td></tr>
-        <tr><td>6 · Proposal checks; guardrails figure</td><td><code>src/policy.ts</code></td><td><code>checkProposal</code>, <code>LEGAL_CALL_WINDOW</code></td></tr>
+        <tr><td>6 · Proposal checks; guardrails figure</td><td><code>src/policy.ts</code></td><td><code>checkProposal</code>, <code>LEGAL_CALL_WINDOW</code>, <code>SALES_CYCLE</code></td></tr>
         <tr><td>7 · Save the outbox; memory rules</td><td><code>src/session.ts</code>, <code>src/context.ts</code></td><td><code>Outbox</code>, <code>MEMORY_WRITES</code></td></tr>
         <tr><td>Scenarios and made-up rows</td><td><code>src/fixtures.ts</code>, <code>src/inspect.ts</code></td><td><code>ROWS</code>, <code>SCENARIOS</code></td></tr>
-        <tr><td>Tests for all of the above</td><td><code>pi-sales-harness.test.ts</code></td><td>20 tests, no model and no network</td></tr>
+        <tr><td>Tests for all of the above</td><td><code>pi-sales-harness.test.ts</code></td><td>25 tests, no model and no network</td></tr>
         <tr><td>One company's rows (existing)</td><td><code>packages/db/src/client.ts</code>, <code>supabase/migrations/003_crm.sql</code>, <code>004_conversations.sql</code>, <code>006_harness.sql</code></td><td><code>withOrg</code>; contacts, messages, contact_memories, knowledge_chunks, guardrail_policies, tasks</td></tr>
         <tr><td>8 · When it is due (existing)</td><td><code>packages/channels/src/voice.ts</code>, <code>packages/channels/src/whatsapp.ts</code>, <code>packages/harness/src/policies.ts</code></td><td><code>place</code>, <code>send</code>, <code>guard</code></td></tr>
         <tr><td>Fenced memory today (existing)</td><td><code>packages/harness/src/retrieval.ts</code></td><td><code>retrieveMemories</code>, <code>memoryBlock</code></td></tr>

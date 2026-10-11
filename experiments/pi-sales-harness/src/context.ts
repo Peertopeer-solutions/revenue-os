@@ -2,6 +2,7 @@
 // Every event (a reply, a call ended, a timer) starts a fresh run whose context is assembled from the database,
 // each section within its own budget, and retrieved text enters fenced and labelled as data, as
 // packages/harness/src/retrieval.ts already does for contact memories. Pi's session history lasts one run.
+import { SALES_CYCLE } from "./policy";
 import type { ScopedReader } from "./tenancy";
 
 export type Scope = "company" | "member" | "lead";
@@ -71,6 +72,7 @@ export function assembleLeadContext(reader: ScopedReader): Section[] {
         `Company: ${org.name}`,
         `Goal: ${org.goal}`,
         `Calls between ${org.callingWindow.start} and ${org.callingWindow.end}, at most ${org.maxCallsPerWeek} a week`,
+        `Moves at this lead's stage: ${org.playbook.byStage[lead.stage].join(", ") || "none"}`,
       ],
       BUDGET.rules,
     ),
@@ -94,7 +96,7 @@ export function assembleLeadContext(reader: ScopedReader): Section[] {
       "authoritative row",
       [
         `Name: ${lead.name}`,
-        `Stage: ${lead.stage}`,
+        `Stage: ${lead.stage}; the cycle allows next: ${SALES_CYCLE[lead.stage].join(", ") || "nothing"}`,
         `Time zone: ${lead.timezone}`,
         `Do-not-call: ${lead.consent.dnc}; WhatsApp opt-in: ${lead.consent.whatsappOptIn}`,
         ...Object.entries(lead.facts).map(([k, v]) => `${k}: ${v}`),

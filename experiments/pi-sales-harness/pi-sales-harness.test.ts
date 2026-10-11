@@ -1,5 +1,6 @@
 // The prototype's contracts and boundaries, offline: no model, no credentials, no database rows, nothing sent.
 import { describe, expect, test } from "bun:test";
+import { Value } from "typebox/value";
 import {
   assembleLeadContext,
   MEMORY_WRITES,
@@ -16,6 +17,7 @@ import {
   leadTools,
   openLeadSession,
   proposeNextAction,
+  RUN_CWD,
   rememberAboutLead,
 } from "./src/session";
 import { openScope, type Rows, type TrustedScope } from "./src/tenancy";
@@ -92,6 +94,9 @@ describe("guardrail boundary: permit, approval or refusal for each proposal", ()
       "needs_approval", // the member approves every call
       "deny", // 22:15
       "deny", // do-not-call
+      "permit", // a visit agreed: contacted to meeting_scheduled
+      "deny", // contacted straight to customer
+      "needs_approval", // marking the lead lost
     ]);
   });
 
@@ -183,6 +188,74 @@ describe("guardrail boundary: permit, approval or refusal for each proposal", ()
     );
     expect(result.ok).toBe(false);
     expect(outbox.proposals).toEqual([]);
+  });
+});
+
+describe("sales cycle: stage and intent together pick the moves; stage changes are checked, never taken", () => {
+  const wait = (stage: Proposal["stage"]): Proposal => ({
+    kind: "wait",
+    at: "2026-10-12T11:00:00+05:30",
+    reason: "stage change",
+    stage,
+  });
+  const stageOf = (lead: string, stage: Rows["leads"][number]["stage"]) =>
+    rowsWith((r) => {
+      const row = r.leads.find((l) => l.id === lead);
+      if (row) row.stage = stage;
+    });
+
+  test("the same intent allows a call while the lead is contacted, but not once they are an opportunity", () => {
+    const at = "2026-10-12T18:30:00+05:30";
+    expect(
+      checkProposal(openScope(ROWS, PRIYA), call(at), "needs_more_info")
+        .outcome,
+    ).toBe("permit");
+    const later = checkProposal(
+      openScope(stageOf("lead-priya", "opportunity"), PRIYA),
+      call(at),
+      "needs_more_info",
+    );
+    expect(later.outcome).toBe("needs_approval");
+    expect(later.checks.find((c) => c.result !== "pass")?.why).toContain(
+      'stage "opportunity"',
+    );
+  });
+
+  test("a move the cycle does not allow is refused, and one the company wants to see needs a person", () => {
+    const priya = openScope(ROWS, PRIYA);
+    const skip = checkProposal(priya, wait("customer"), "needs_more_info");
+    expect(
+      skip.checks.filter((c) => c.result === "deny").map((c) => c.rule),
+    ).toEqual(["stage order"]);
+    expect(checkProposal(priya, wait("lost"), "needs_more_info").outcome).toBe(
+      "needs_approval",
+    );
+    expect(
+      checkProposal(priya, wait("qualified"), "needs_more_info").outcome,
+    ).toBe("permit");
+  });
+
+  test("a lead may be blocked from any stage, but no run moves a lead out of do-not-call", () => {
+    expect(
+      checkProposal(openScope(ROWS, PRIYA), wait("dnc"), "needs_more_info")
+        .outcome,
+    ).toBe("permit");
+    const rohan = openScope(ROWS, { ...PRIYA, leadId: "lead-rohan" });
+    expect(checkProposal(rohan, wait("contacted"), "opted_out").outcome).toBe(
+      "deny",
+    );
+  });
+
+  test("the lead's context says where they are in the cycle and what may come next", () => {
+    const prompt = renderContext(
+      assembleLeadContext(openScope(ROWS, PRIYA)),
+    ).join("\n");
+    expect(prompt).toContain(
+      "Stage: contacted; the cycle allows next: qualified, meeting_scheduled, lost, dnc",
+    );
+    expect(prompt).toContain(
+      "Moves at this lead's stage: schedule_call, send_whatsapp, wait",
+    );
   });
 });
 
@@ -295,10 +368,34 @@ describe("Pi session seam: the intended tools only, nothing discovered, nothing 
       "kind",
       "at",
       "reason",
+      "stage",
       "kind",
       "text",
       "companyWide",
     ]);
+  });
+
+  test("a call that smuggles in a company or lead id is refused by its schema, and no id reaches the outbox", () => {
+    const outbox = emptyOutbox();
+    const propose = leadTools(reader, outbox).find(
+      (t) => t.name === "propose_next_action",
+    );
+    const smuggled = {
+      ...call("2026-10-12T18:30:00+05:30"),
+      orgId: "org-riverbend",
+      leadId: "lead-kabir",
+    };
+    expect(
+      Value.Check(
+        propose?.parameters as never,
+        call("2026-10-12T18:30:00+05:30"),
+      ),
+    ).toBe(true);
+    expect(Value.Check(propose?.parameters as never, smuggled)).toBe(false);
+    proposeNextAction(reader, outbox, smuggled);
+    expect(outbox.proposals[0]?.proposal).toEqual(
+      call("2026-10-12T18:30:00+05:30"),
+    );
   });
 
   test("instructions and context come from this code; no extension, skill, prompt, theme or AGENTS.md is loaded", () => {
@@ -317,6 +414,7 @@ describe("Pi session seam: the intended tools only, nothing discovered, nothing 
       renderContext(assembleLeadContext(reader)),
     );
     expect(sessionManager?.isPersisted()).toBe(false);
+    expect(sessionManager?.getCwd()).toBe(RUN_CWD); // Pi puts it in the prompt; no machine path goes with it
     expect(settingsManager?.getCacheWarmingMode()).toBe("off");
   });
 

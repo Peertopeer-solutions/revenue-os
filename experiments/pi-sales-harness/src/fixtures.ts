@@ -4,12 +4,25 @@ import type { Proposal } from "./policy";
 import type { OrgPolicy, Rows, TrustedScope } from "./tenancy";
 
 const playbook: OrgPolicy["playbook"] = {
-  ready_to_visit: ["schedule_call", "send_whatsapp", "hand_to_human"],
-  needs_more_info: ["schedule_call", "send_whatsapp"],
-  not_now: ["wait", "send_whatsapp"],
-  opted_out: [],
-  unclear: ["send_whatsapp", "wait"],
+  byStage: {
+    new: ["send_whatsapp", "schedule_call", "wait"],
+    contacted: ["schedule_call", "send_whatsapp", "wait"],
+    qualified: ["schedule_call", "send_whatsapp", "hand_to_human", "wait"],
+    meeting_scheduled: ["send_whatsapp", "wait"], // reminders before the visit
+    opportunity: ["hand_to_human", "wait"], // a closer takes over
+    customer: ["wait"],
+    lost: ["wait"],
+    dnc: [],
+  },
+  byIntent: {
+    ready_to_visit: ["schedule_call", "send_whatsapp", "hand_to_human", "wait"],
+    needs_more_info: ["schedule_call", "send_whatsapp", "wait"],
+    not_now: ["wait", "send_whatsapp"],
+    opted_out: ["wait"],
+    unclear: ["send_whatsapp", "wait"],
+  },
 };
+const approveStages: OrgPolicy["approveStages"] = ["customer", "lost"];
 
 export const ROWS: Rows = {
   orgs: [
@@ -26,6 +39,7 @@ export const ROWS: Rows = {
       callingWindow: { start: "10:00", end: "20:00" },
       maxCallsPerWeek: 3,
       playbook,
+      approveStages,
     },
     {
       orgId: "org-riverbend",
@@ -40,6 +54,7 @@ export const ROWS: Rows = {
       callingWindow: { start: "11:00", end: "19:00" },
       maxCallsPerWeek: 2,
       playbook,
+      approveStages,
     },
   ],
   knowledge: [
@@ -238,6 +253,36 @@ export const SCENARIOS: {
       kind: "send_whatsapp",
       at: "2026-10-12T11:00:00+05:30",
       reason: "Follow up",
+    },
+  },
+  {
+    title: "A visit agreed: confirm it and move the lead to meeting_scheduled",
+    scope: { orgId: "org-skyline", userId: "user-asha", leadId: "lead-priya" },
+    proposal: {
+      kind: "send_whatsapp",
+      at: "2026-10-12T11:00:00+05:30",
+      reason: "Confirm Sunday's site visit",
+      stage: "meeting_scheduled",
+    },
+  },
+  {
+    title: "Skipping the cycle: straight to customer",
+    scope: { orgId: "org-skyline", userId: "user-asha", leadId: "lead-priya" },
+    proposal: {
+      kind: "wait",
+      at: "2026-10-12T11:00:00+05:30",
+      reason: "Sounds keen",
+      stage: "customer",
+    },
+  },
+  {
+    title: "Bought elsewhere: marking the lead lost",
+    scope: { orgId: "org-skyline", userId: "user-asha", leadId: "lead-priya" },
+    proposal: {
+      kind: "wait",
+      at: "2026-10-12T11:00:00+05:30",
+      reason: "Says they bought elsewhere",
+      stage: "lost",
     },
   },
 ];

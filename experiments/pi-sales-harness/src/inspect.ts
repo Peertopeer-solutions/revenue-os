@@ -52,7 +52,10 @@ for (const [i, s] of SCENARIOS.entries()) {
   console.log(
     `   intent (placeholder, not a prediction): ${intent.label} · ${intent.signals.join("; ")}`,
   );
-  console.log(`   proposal: ${s.proposal.kind} at ${s.proposal.at}`);
+  const move = s.proposal.stage
+    ? `, moving the lead to ${s.proposal.stage}`
+    : "";
+  console.log(`   proposal: ${s.proposal.kind} at ${s.proposal.at}${move}`);
   console.log(`   ${result.text.replaceAll("\n", "\n   ")}`);
 }
 

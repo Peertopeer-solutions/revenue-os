@@ -44,7 +44,12 @@ export type OrgPolicy = {
   autonomy: Record<ActionKind, Autonomy>; // runs on its own, needs a person's approval, or is off
   callingWindow: { start: string; end: string }; // HH:MM in the lead's time zone; tightens the legal window only
   maxCallsPerWeek: number;
-  playbook: Record<IntentLabel, ActionKind[]>; // the nurturing moves the company expects for each intent
+  // The nurturing moves the company expects: a move fits when both the lead's stage and its intent list it.
+  playbook: {
+    byStage: Record<LifecycleStage, ActionKind[]>;
+    byIntent: Record<IntentLabel, ActionKind[]>;
+  };
+  approveStages: LifecycleStage[]; // moving a lead into one of these needs a person
 };
 export type OrgKnowledge = {
   orgId: string;

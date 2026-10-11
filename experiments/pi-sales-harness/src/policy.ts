@@ -3,11 +3,22 @@
 // is still only a saved next step. When the worker later carries it out, the packages/channels doorways run the
 // product's guard() again (packages/harness/src/policies.ts), the last check before anything reaches a lead.
 import type { Autonomy } from "@revenue-os/harness";
-import type { ActionKind, IntentLabel, ScopedReader } from "./tenancy";
+import type {
+  ActionKind,
+  IntentLabel,
+  LifecycleStage,
+  ScopedReader,
+} from "./tenancy";
 
-export type Proposal = { kind: ActionKind; at: string; reason: string }; // at: an ISO 8601 instant
+/** at: an ISO 8601 instant. stage: where this step moves the lead in the sales cycle, when it moves it. */
+export type Proposal = {
+  kind: ActionKind;
+  at: string;
+  reason: string;
+  stage?: LifecycleStage;
+};
 export type Check = {
-  layer: "legal floor" | "company policy" | "member preference";
+  layer: "legal floor" | "sales cycle" | "company policy" | "member preference";
   rule: string;
   result: "pass" | "approval" | "deny";
   why: string;
@@ -20,6 +31,19 @@ export type Decision = {
 /** The legal floor is code, not a setting (docs/NORTH-STAR.md, principle 4): a company's window can only narrow
  *  it. Lead-local HH:MM, start included, end excluded. */
 export const LEGAL_CALL_WINDOW = { start: "09:00", end: "21:00" };
+
+/** The sales cycle over the stages contacts already carry (app.lifecycle_stage): where a lead may move next. Code,
+ *  like the legal floor. Any lead may be blocked (dnc); only the lead's own written yes lifts a block, never a run. */
+export const SALES_CYCLE: Record<LifecycleStage, LifecycleStage[]> = {
+  new: ["contacted", "lost", "dnc"],
+  contacted: ["qualified", "meeting_scheduled", "lost", "dnc"],
+  qualified: ["meeting_scheduled", "lost", "dnc"],
+  meeting_scheduled: ["opportunity", "qualified", "lost", "dnc"], // a missed visit goes back to qualified
+  opportunity: ["customer", "lost", "dnc"],
+  customer: ["dnc"],
+  lost: ["contacted", "dnc"], // a lost lead may be won back
+  dnc: [],
+};
 
 const localTime = (at: string, timeZone: string) =>
   new Intl.DateTimeFormat("en-GB", {
@@ -100,14 +124,33 @@ export function checkProposal(
     tier === "forbidden" ? "deny" : "approval",
     `the company set ${kind} to "${tier}"`,
   );
-  const moves = org.playbook[intent];
+  const moves = org.playbook.byStage[lead.stage].filter((m) =>
+    org.playbook.byIntent[intent].includes(m),
+  );
   check(
     "company policy",
     "playbook",
     moves.includes(kind),
     "approval",
-    `for "${intent}" the playbook lists ${moves.join(", ") || "nothing"}`,
+    `at stage "${lead.stage}" with intent "${intent}" the playbook lists ${moves.join(", ") || "nothing"}`,
   );
+  const to = proposal.stage;
+  if (to && to !== lead.stage) {
+    check(
+      "sales cycle",
+      "stage order",
+      SALES_CYCLE[lead.stage].includes(to),
+      "deny",
+      `${lead.stage} may move to ${SALES_CYCLE[lead.stage].join(", ") || "nothing"}, not ${to}`,
+    );
+    check(
+      "company policy",
+      "stage approval",
+      !org.approveStages.includes(to),
+      "approval",
+      `the company approves every move to ${to}`,
+    );
+  }
   const asks = reader.member().preferences.requireApprovalFor.includes(kind);
   check(
     "member preference",
