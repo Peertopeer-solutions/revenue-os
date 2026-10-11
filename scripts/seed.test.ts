@@ -1,7 +1,6 @@
 // After `db:seed <pack>`, dispositions / pipelines /
 // guardrails / agent v1 / workflow v1 / field definitions / eval personas exist — idempotently.
 import { afterAll, describe, expect, it } from "bun:test";
-import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { ConversationIdSchema } from "../packages/shared/src/schemas";
 import { testCompanies } from "../tests/test-companies";
@@ -141,8 +140,6 @@ const rowIds = async (orgId: string) =>
       [orgId],
     )
   ).rows;
-const exists = async (table: string, id: string) =>
-  (await admin.query(`select 1 from ${table} where id = $1`, [id])).rowCount;
 const newOrg = async () =>
   (await companies.add("Seed test — other workspace")).id;
 
@@ -252,46 +249,6 @@ describe.each([
     expect(
       rows.filter((r) => !ConversationIdSchema.safeParse(r.id).success),
     ).toEqual([]);
-  });
-
-  // Nothing in the schema stops a row of one workspace pointing at a contact or conversation of
-  // another (the foreign keys are single-column), so the cleanup must not follow such a link out.
-  it("rows another workspace links to the seeded people all survive a re-seed", async () => {
-    const { orgId, again } = await workspace(pack);
-    const other = await newOrg();
-    // Old copies linked from the other workspace three ways, each alone: a message written into
-    // the copy's conversation (a conversation delete cascades to it); the other workspace's own
-    // conversation, task and outcome for the copy; an identity, memory and score (a contact
-    // delete cascades to these). Plus the other workspace's history with the seeded person.
-    const viaConversation = await addCopy(orgId);
-    await admin.query(
-      `insert into messages (org_id, conversation_id, seq, role, content) values ($1, $2, 2, 'agent', 'x')`,
-      [other, viaConversation.conversation],
-    );
-    const viaHistory = await addCopy(orgId);
-    await addHistory(other, viaHistory.contact);
-    const viaProfile = await addCopy(orgId);
-    await admin.query(
-      `insert into contact_identities (org_id, contact_id, kind, value) values ($1, $2, 'email', $3)`,
-      [other, viaProfile.contact, `${randomUUID()}@example.test`],
-    );
-    await admin.query(
-      `insert into contact_memories (org_id, contact_id, kind, content, source_conversation_id)
-         values ($1, $2, 'fact', 'x', $3)`,
-      [other, viaProfile.contact, viaProfile.conversation],
-    );
-    await admin.query(
-      `insert into contact_scores (org_id, contact_id, model_version, score) values ($1, $2, 'v1', 50)`,
-      [other, viaProfile.contact],
-    );
-    await addHistory(other, viaProfile.seeded);
-    const otherBefore = await rowIds(other);
-    expect(otherBefore).toHaveLength(12);
-
-    await again();
-    expect(await rowIds(other)).toEqual(otherBefore);
-    for (const copy of [viaConversation, viaHistory, viaProfile])
-      expect(await exists("contacts", copy.contact)).toBe(1); // linked from outside: kept
   });
 
   // An existing local database can hold an old copy that later work picked up (a booked

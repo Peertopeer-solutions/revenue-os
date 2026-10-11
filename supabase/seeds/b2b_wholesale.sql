@@ -1,4 +1,4 @@
--- Vertical pack: b2b_wholesale — ceramic pilot (db-design §9). Applied by scripts/seed.ts, which
+-- Vertical pack: b2b_wholesale — ceramic pilot (docs/db-design.md, "Seed templates"). Applied by scripts/seed.ts, which
 -- sets seed.org_id for the transaction. Idempotent: template rows by their natural keys, demo rows
 -- by fixed ids (see the demo data block).
 
@@ -29,7 +29,7 @@ from pipelines p,
     ('repeat',       'Repeat buyer',    6, true,  false)
   ) as s(key, name, position, is_won, is_lost)
 where p.org_id = current_setting('seed.org_id')::uuid and p.key = 'orders'
-on conflict (pipeline_id, key) do nothing;
+on conflict (org_id, pipeline_id, key) do nothing;
 
 insert into field_definitions (org_id, entity, key, label, field_type, options, required) values
   (current_setting('seed.org_id')::uuid, 'contact', 'business_type',  'Business type',   'enum',    '["retailer","architect","builder","horeca"]', false),
@@ -118,8 +118,9 @@ from (values
 -- Copies of these people that older runs of this pack left in this workspace (same name and
 -- source, another id) go, with the conversations, messages, tasks and outcomes those runs made
 -- for them. Every delete is limited to this workspace, and a copy that anything else points at —
--- a row of another workspace, or later work such as an appointment, deal, run or memory — is
--- kept as it is: the seed neither fails on it nor reaches past this workspace through it. Copies
+-- later work such as an appointment, deal, run or memory — is kept as it is: the seed neither
+-- fails on it nor reaches past this workspace through it (no row of another workspace can point
+-- at it: migration 019). Copies
 -- are found by name and source alone, so hand-made rows in a seed workspace are NOT safe here:
 -- keep real work in a workspace of its own. (Removing their outcomes steps around "outcomes are
 -- append-only"; it only ever touches these local demo copies.)
@@ -137,11 +138,11 @@ begin
   loop
     convos := array(select id from conversations where org_id = org and contact_id = stale);
     -- Every foreign key into contacts or conversations, read from the catalog so tables added
-    -- later count too. Only rows of this workspace in the four tables the old seed wrote may
-    -- point at the copy.
+    -- later count too, by its linking column (each also names the workspace, org_id). Only rows
+    -- of the four tables the old seed wrote may point at the copy.
     for fk in
       select conrelid::regclass as tbl, attname as col, confrelid = 'contacts'::regclass as to_contact
-      from pg_constraint join pg_attribute on attrelid = conrelid and attnum = conkey[1]
+      from pg_constraint join pg_attribute on attrelid = conrelid and attnum = any (conkey) and attname <> 'org_id'
       where contype = 'f' and confrelid in ('contacts'::regclass, 'conversations'::regclass)
     loop
       execute format('select exists (select from %s where %I = any($1) and (org_id is distinct from $2 or not $3))',
@@ -190,7 +191,7 @@ from (values
   (5, 'agent',   'Great, that qualifies you for our retailer tier. Shall I send a sample kit?'),
   (6, 'contact', 'Yes please, send it over.')
 ) as s(seq, role, content)
-on conflict (conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do nothing;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:meena'), s.seq, s.role, s.content,
@@ -199,7 +200,7 @@ from (values
   (1, 'contact', 'Hi, I got your number from a trade fair. Do you supply floor tiles in bulk?'),
   (2, 'agent',   'Hello! Yes we do — could you share your business type and typical monthly volume?')
 ) as s(seq, role, content)
-on conflict (conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do nothing;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:arjun'), s.seq, s.role, s.content,
@@ -209,7 +210,7 @@ from (values
   (2, 'contact', 'Your rates look higher than the competitor. Can you do better?'),
   (3, 'agent',   'I cannot commit to pricing on this call, but I will have a rep call you back with a quote.')
 ) as s(seq, role, content)
-on conflict (conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do nothing;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:lakshmi'), s.seq, s.role, s.content,
@@ -218,7 +219,7 @@ from (values
   (1, 'agent',   'Hi Lakshmi, confirming the sample kit is on its way — arriving Thursday.'),
   (2, 'contact', 'Perfect, thank you. I will call once we review it.')
 ) as s(seq, role, content)
-on conflict (conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do nothing;
 
 insert into tasks (id, org_id, contact_id, conversation_id, kind, status, priority, title, due_at, completed_at)
 select pg_temp.seed_id('task:' || who), current_setting('seed.org_id')::uuid, pg_temp.seed_id('contact:' || who),

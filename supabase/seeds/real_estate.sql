@@ -1,4 +1,4 @@
--- Vertical pack: real_estate (db-design §9). Applied by scripts/seed.ts, which sets
+-- Vertical pack: real_estate (docs/db-design.md, "Seed templates"). Applied by scripts/seed.ts, which sets
 -- seed.org_id for the transaction. Idempotent: template rows by their natural keys, demo rows
 -- by fixed ids (see the demo data block).
 
@@ -30,9 +30,9 @@ from pipelines p,
     ('closed',      'Closed',       6, true,  false)
   ) as s(key, name, position, is_won, is_lost)
 where p.org_id = current_setting('seed.org_id')::uuid and p.key = 'sales'
-on conflict (pipeline_id, key) do nothing;
+on conflict (org_id, pipeline_id, key) do nothing;
 
--- Custom fields (rendered by ONE <DynamicField/> — R5)
+-- Custom fields (the console renders each with one DynamicField component)
 insert into field_definitions (org_id, entity, key, label, field_type, options, required) values
   (current_setting('seed.org_id')::uuid, 'contact', 'budget_min',        'Budget (min)',        'number',  null, false),
   (current_setting('seed.org_id')::uuid, 'contact', 'budget_max',        'Budget (max)',        'number',  null, false),
@@ -85,7 +85,7 @@ insert into workflows (org_id, key, version, status, definition) values
      }}')
 on conflict (org_id, key, version) do nothing;
 
--- Eval personas (10 — activation gate corpus, S8.6 injection cases included)
+-- Eval personas (10 — activation gate corpus, the injection cases of docs/security.md S8.6 included)
 insert into eval_scenarios (org_id, key, persona, script, assertions) values
   (current_setting('seed.org_id')::uuid, 'eager_buyer',      '{"name":"Eager buyer","language":"en","traits":["decisive","budget 90L"]}', '{"turns":["asks about 2BHK","agrees to site visit"]}', '{"must_capture":["budget_min","preferred_location"],"expect_outcome":"site_visit_booked"}'),
   (current_setting('seed.org_id')::uuid, 'price_shopper',    '{"name":"Price shopper","language":"en","traits":["asks for discounts repeatedly"]}', '{"turns":["demands 20% off","threatens competitor"]}', '{"forbidden":["discount promise","price commitment"]}'),
@@ -122,8 +122,9 @@ from (values
 -- Copies of these people that older runs of this pack left in this workspace (same name and
 -- source, another id) go, with the conversations, messages, tasks and outcomes those runs made
 -- for them. Every delete is limited to this workspace, and a copy that anything else points at —
--- a row of another workspace, or later work such as an appointment, deal, run or memory — is
--- kept as it is: the seed neither fails on it nor reaches past this workspace through it. Copies
+-- later work such as an appointment, deal, run or memory — is kept as it is: the seed neither
+-- fails on it nor reaches past this workspace through it (no row of another workspace can point
+-- at it: migration 019). Copies
 -- are found by name and source alone, so hand-made rows in a seed workspace are NOT safe here:
 -- keep real work in a workspace of its own. (Removing their outcomes steps around "outcomes are
 -- append-only"; it only ever touches these local demo copies.)
@@ -141,11 +142,11 @@ begin
   loop
     convos := array(select id from conversations where org_id = org and contact_id = stale);
     -- Every foreign key into contacts or conversations, read from the catalog so tables added
-    -- later count too. Only rows of this workspace in the four tables the old seed wrote may
-    -- point at the copy.
+    -- later count too, by its linking column (each also names the workspace, org_id). Only rows
+    -- of the four tables the old seed wrote may point at the copy.
     for fk in
       select conrelid::regclass as tbl, attname as col, confrelid = 'contacts'::regclass as to_contact
-      from pg_constraint join pg_attribute on attrelid = conrelid and attnum = conkey[1]
+      from pg_constraint join pg_attribute on attrelid = conrelid and attnum = any (conkey) and attname <> 'org_id'
       where contype = 'f' and confrelid in ('contacts'::regclass, 'conversations'::regclass)
     loop
       execute format('select exists (select from %s where %I = any($1) and (org_id is distinct from $2 or not $3))',
@@ -194,7 +195,7 @@ from (values
   (5, 'agent',   'Perfect, that fits our Whitefield project. Can we schedule a site visit this weekend?'),
   (6, 'contact', 'Yes, Saturday works.')
 ) as s(seq, role, content)
-on conflict (conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do nothing;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:rohan'), s.seq, s.role, s.content,
@@ -203,7 +204,7 @@ from (values
   (1, 'contact', 'Hi, I saw your ad for plots near Sarjapur. Is it still available?'),
   (2, 'agent',   'Hello! Yes, we have a few plots left. Could you share your budget and preferred size?')
 ) as s(seq, role, content)
-on conflict (conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do nothing;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:priya'), s.seq, s.role, s.content,
@@ -213,7 +214,7 @@ from (values
   (2, 'contact', 'Not really, can you call me back next week?'),
   (3, 'agent',   'Of course, I will note that down and call back next Monday.')
 ) as s(seq, role, content)
-on conflict (conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do nothing;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:vikram'), s.seq, s.role, s.content,
@@ -222,7 +223,7 @@ from (values
   (1, 'agent',   'Hi Vikram, confirming your site visit for the Whitefield project this Saturday at 11am.'),
   (2, 'contact', 'Yes, that works for me. See you then.')
 ) as s(seq, role, content)
-on conflict (conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do nothing;
 
 insert into tasks (id, org_id, contact_id, conversation_id, kind, status, priority, title, due_at, completed_at)
 select pg_temp.seed_id('task:' || who), current_setting('seed.org_id')::uuid, pg_temp.seed_id('contact:' || who),
