@@ -1,8 +1,8 @@
 // Call events through the Vapi webhook (the receiver, then the processor the job runs) when two companies' events
 // share an event id or a call id, and when one event can't be filed (ROADMAP.md, Slice 1): each company's events
 // are its own, so neither is dropped as the other's duplicate nor filed on the other's conversation, and a bad event
-// is marked failed with its reason while the company's other events are filed. A lost database connection is no
-// event's fault: the whole job fails and the next run files every event.
+// is marked failed with its reason while the company's other events are filed. A failure of the database itself (a
+// lost connection, a cancelled statement) is no event's fault: the whole job fails and the next run files every event.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
@@ -138,58 +138,72 @@ describe("one call event that can't be filed", () => {
   });
 });
 
-describe("a database connection lost while an event is filed", () => {
-  // behaviour already on main: a lost connection always failed the whole job; this shows filing each event on its own keeps that, so no event is marked failed for the database's fault
-  it("fails the whole job, files nothing, and the next run files every event", async () => {
-    const callId = `call-${randomUUID()}`;
-    await post(a, said(callId, `${callId}-t1`, "Haan ji"));
-    await processVapiEvents(pool, a);
-    await post(a, said(callId, `${callId}-t2`, "Saturday at 11"));
-    // Hold the call's conversation, so the next run waits on it inside the event, then end that run's connection.
-    const holder = await admin.connect();
-    try {
-      await holder.query("begin");
-      await holder.query(
-        `select 1 from conversations where org_id = $1 and provider_ref = $2 for update`,
-        [a, callId],
-      );
-      const { pid } = (
-        await holder.query<{ pid: number }>("select pg_backend_pid() as pid")
-      ).rows[0] ?? { pid: 0 };
-      const run = processVapiEvents(pool, a).then(
-        () => "finished",
-        (err: Error) => `failed: ${err.message}`,
-      );
-      let waiting: number[] = [];
-      for (let i = 0; i < 200 && !waiting.length; i++) {
-        await Bun.sleep(50);
-        waiting = (
-          await admin.query<{ pid: number }>(
-            `select pid from pg_stat_activity where $1 = any (pg_blocking_pids(pid))`,
-            [pid],
-          )
-        ).rows.map((r) => r.pid);
-      }
-      expect(waiting).toHaveLength(1);
-      await admin.query("select pg_terminate_backend($1)", [waiting[0]]);
-      expect(await run).toStartWith("failed: ");
-    } finally {
-      await holder.query("rollback");
-      holder.release();
+/**
+ * Files a company's second line of a call while the database fails under it: another session holds the call's
+ * conversation, so the run waits on it inside the event, and then `stop` (pg_terminate_backend ends the run's
+ * connection, pg_cancel_backend cancels its statement) is called on the waiting run. The whole job must fail,
+ * mark nothing failed, and leave the line to the next run, which files it.
+ */
+async function databaseFailsMidEvent(
+  stop: "pg_terminate_backend" | "pg_cancel_backend",
+) {
+  const callId = `call-${randomUUID()}`;
+  await post(a, said(callId, `${callId}-t1`, "Haan ji"));
+  await processVapiEvents(pool, a);
+  await post(a, said(callId, `${callId}-t2`, "Saturday at 11"));
+  const holder = await admin.connect();
+  try {
+    await holder.query("begin");
+    await holder.query(
+      `select 1 from conversations where org_id = $1 and provider_ref = $2 for update`,
+      [a, callId],
+    );
+    const { pid } = (
+      await holder.query<{ pid: number }>("select pg_backend_pid() as pid")
+    ).rows[0] ?? { pid: 0 };
+    const run = processVapiEvents(pool, a).then(
+      () => "finished",
+      (err: Error) => `failed: ${err.message}`,
+    );
+    let waiting: number[] = [];
+    for (let i = 0; i < 200 && !waiting.length; i++) {
+      await Bun.sleep(50);
+      waiting = (
+        await admin.query<{ pid: number }>(
+          `select pid from pg_stat_activity where $1 = any (pg_blocking_pids(pid))`,
+          [pid],
+        )
+      ).rows.map((r) => r.pid);
     }
-    expect((await filed(a, callId)).events.map((e) => e.status)).toEqual([
-      "processed",
-      "received",
-    ]);
-    await processVapiEvents(pool, a);
-    expect(await filed(a, callId)).toEqual({
-      events: [
-        { status: "processed", error: null },
-        { status: "processed", error: null },
-      ],
-      conversations: [
-        { status: "active", lines: ["Haan ji", "Saturday at 11"] },
-      ],
-    });
+    expect(waiting).toHaveLength(1);
+    await admin.query(`select ${stop}($1)`, [waiting[0]]);
+    expect(await run).toStartWith("failed: ");
+  } finally {
+    await holder.query("rollback");
+    holder.release();
+  }
+  expect((await filed(a, callId)).events.map((e) => e.status)).toEqual([
+    "processed",
+    "received",
+  ]);
+  await processVapiEvents(pool, a);
+  expect(await filed(a, callId)).toEqual({
+    events: [
+      { status: "processed", error: null },
+      { status: "processed", error: null },
+    ],
+    conversations: [{ status: "active", lines: ["Haan ji", "Saturday at 11"] }],
+  });
+}
+
+describe("a database failure while an event is filed, which is no event's fault", () => {
+  // behaviour already on main: a lost connection always failed the whole job; this shows filing each event on its own keeps that
+  it("a lost connection fails the whole job, marks nothing failed, and the next run files every event", async () => {
+    await databaseFailsMidEvent("pg_terminate_backend");
+  });
+
+  // behaviour already on main: main's one transaction failed the whole job on any error; this shows filing each event on its own still leaves a database failure to the next run
+  it("a cancelled statement fails the whole job, marks nothing failed, and the next run files every event", async () => {
+    await databaseFailsMidEvent("pg_cancel_backend");
   });
 });

@@ -367,7 +367,7 @@ describe("the database check every PR runs (tests/rls_coverage.sql)", () => {
      alter table ${t}_c enable row level security;`;
 
   // behaviour already on main: tests/rls_coverage.sql sits in tests/, so main's copy of the code runs this change's check too; main's check passed every one of these
-  it("fails a link that could cross companies, a duplicate key without the company and a company that may be empty", async () => {
+  it("fails a link that could cross companies, a duplicate key without the company, a key two shared templates may share and a company that may be empty", async () => {
     const crossing = await checkAfter(
       parent + child(`p_id uuid references ${t}_p (id)`),
     );
@@ -379,6 +379,12 @@ describe("the database check every PR runs (tests/rls_coverage.sql)", () => {
     const unguardedTemplate = await checkAfter(
       child("agent_id uuid references agents (id)"),
     );
+    // The agents key as it was before migration 019: two shared templates, both with no company, could share it.
+    const templatesShareKey = await checkAfter(
+      `alter table agents drop constraint agents_org_id_key_version_key,
+         add constraint agents_org_id_key_version_key unique (org_id, key, version);`,
+    );
+    expect(templatesShareKey).toContain("agents (org_id, key, version)");
     expect(crossing).toContain(`${t}_c.p_id → ${t}_p`);
     expect(globalKey).toContain(`${t}_c (ref)`);
     expect(emptyCompany).toContain(`${t}_n.org_id`);

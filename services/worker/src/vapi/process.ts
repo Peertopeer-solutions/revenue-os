@@ -113,6 +113,16 @@ async function fileEvent(
   return "processed";
 }
 
+/**
+ * Did the event cause this failure? The database's data and rule errors (classes 22 and 23: a timestamp that names no
+ * time, a broken key) and our own errors are the event's; every other database error (a lost connection, a deadlock,
+ * a cancelled or timed-out statement, no resources) is the database's, and a later run may well get through.
+ */
+function eventsFault(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code !== "string" || /^2[23]/.test(code);
+}
+
 /** Files every 'received' Vapi event of the company, ordered by payload timestamp, each on its own. */
 export async function processVapiEvents(
   pool: pg.Pool,
@@ -128,14 +138,16 @@ export async function processVapiEvents(
     );
 
     for (const row of events.rows) {
-      // A failure inside one event undoes only that event's writes; a lost connection fails this savepoint's
-      // rollback too, so the job runs again later.
+      // A failure the event causes undoes only that event's writes and marks it failed. Any other fails the whole
+      // job, so pg-boss runs it again and no event is marked failed for it; a lost connection also fails this
+      // savepoint's rollback.
       await tx.query("savepoint vapi_event");
       let status: string;
       let error: string | null = null;
       try {
         status = await fileEvent(tx, orgId, row.payload);
       } catch (err) {
+        if (!eventsFault(err)) throw err;
         await tx.query("rollback to savepoint vapi_event");
         status = "failed";
         error = err instanceof Error ? err.message : String(err);
