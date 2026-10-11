@@ -18,7 +18,8 @@
   "include": [
     "packages/*/src/**/*.ts",
     "services/*/src/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "experiments/*/src/**/*.ts"
   ],
   "exclude": ["**/*.test.ts"]
 }
