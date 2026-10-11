@@ -246,6 +246,28 @@ describe("sales cycle: stage and intent together pick the moves; stage changes a
     );
   });
 
+  test("a stage change must fit the lead's intent: no visit for a lead not ready, nothing but lost for one who opted out", () => {
+    const priya = openScope(ROWS, PRIYA);
+    const refusals = (
+      intent: Parameters<typeof checkProposal>[2],
+      stage: Proposal["stage"],
+    ) =>
+      checkProposal(priya, wait(stage), intent)
+        .checks.filter((c) => c.result === "deny")
+        .map((c) => c.rule);
+    expect(refusals("opted_out", "meeting_scheduled")).toEqual([
+      "intent fits the move",
+    ]);
+    expect(refusals("needs_more_info", "meeting_scheduled")).toEqual([
+      "intent fits the move",
+    ]);
+    expect(refusals("opted_out", "qualified")).toEqual([
+      "intent fits the move",
+    ]);
+    expect(refusals("ready_to_visit", "meeting_scheduled")).toEqual([]);
+    expect(refusals("opted_out", "lost")).toEqual([]);
+  });
+
   test("the lead's context says where they are in the cycle and what may come next", () => {
     const prompt = renderContext(
       assembleLeadContext(openScope(ROWS, PRIYA)),
@@ -286,6 +308,8 @@ describe("tenancy: one company, one member, one lead per run", () => {
       "metro",
       "Rohan",
       "stop calling",
+      "Anil",
+      "bought a flat",
     ])
       expect(prompt).not.toContain(other);
   });

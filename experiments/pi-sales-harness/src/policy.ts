@@ -45,6 +45,12 @@ export const SALES_CYCLE: Record<LifecycleStage, LifecycleStage[]> = {
   dnc: [],
 };
 
+/** A stage change must also fit what the lead said: one who opted out can only be lost or blocked, and only a lead
+ *  ready to visit is booked one (checked beside this map). Intents not listed allow whatever the cycle allows. */
+const STAGES_FOR_INTENT: Partial<Record<IntentLabel, LifecycleStage[]>> = {
+  opted_out: ["lost", "dnc"],
+};
+
 const localTime = (at: string, timeZone: string) =>
   new Intl.DateTimeFormat("en-GB", {
     timeZone,
@@ -142,6 +148,20 @@ export function checkProposal(
       SALES_CYCLE[lead.stage].includes(to),
       "deny",
       `${lead.stage} may move to ${SALES_CYCLE[lead.stage].join(", ") || "nothing"}, not ${to}`,
+    );
+    const fits = STAGES_FOR_INTENT[intent];
+    const unready = to === "meeting_scheduled" && intent !== "ready_to_visit";
+    const misfit = fits && !fits.includes(to);
+    check(
+      "sales cycle",
+      "intent fits the move",
+      !unready && !misfit,
+      "deny",
+      unready
+        ? `a visit is booked only for a lead ready to visit, not "${intent}"`
+        : misfit
+          ? `a lead whose intent is "${intent}" may only move to ${fits.join(" or ")}`
+          : `"${intent}" fits a move to ${to}`,
     );
     check(
       "company policy",

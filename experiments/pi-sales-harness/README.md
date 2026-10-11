@@ -22,7 +22,7 @@ Without a model or credentials:
 ```
 bun install
 bun experiments/pi-sales-harness/src/inspect.ts   # Pi options, context by scope, each scenario's decision
-bun test experiments/pi-sales-harness              # 25 offline tests (the repo's test setup checks the local stack first)
+bun test experiments/pi-sales-harness              # 26 offline tests (the repo's test setup checks the local stack first)
 bun run typecheck                                   # checked against Pi's real declarations
 ```
 

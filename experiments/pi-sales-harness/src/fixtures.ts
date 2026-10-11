@@ -137,6 +137,26 @@ export const ROWS: Rows = {
       facts: { "Looking for": "3BHK" },
       callsThisWeek: 0,
     },
+    {
+      orgId: "org-skyline",
+      id: "lead-anil",
+      name: "Anil (made up)",
+      stage: "contacted",
+      timezone: "Asia/Kolkata",
+      consent: { dnc: false, whatsappOptIn: true },
+      facts: { "Looking for": "2BHK" },
+      callsThisWeek: 1,
+    },
+    {
+      orgId: "org-skyline",
+      id: "lead-sunil",
+      name: "Sunil (made up)",
+      stage: "qualified",
+      timezone: "Asia/Kolkata",
+      consent: { dnc: false, whatsappOptIn: true },
+      facts: { "Looking for": "3BHK" },
+      callsThisWeek: 0,
+    },
   ],
   interactions: [
     {
@@ -173,6 +193,20 @@ export const ROWS: Rows = {
       at: "2026-10-11T11:15:00+05:30",
       from: "lead",
       text: "What is the 3BHK price? Need details on the loan.",
+    },
+    {
+      orgId: "org-skyline",
+      leadId: "lead-anil",
+      at: "2026-10-11T19:05:00+05:30",
+      from: "lead",
+      text: "Sunday works for a site visit; the whole family will come.",
+    },
+    {
+      orgId: "org-skyline",
+      leadId: "lead-sunil",
+      at: "2026-10-11T16:20:00+05:30",
+      from: "lead",
+      text: "Not interested any more, we bought a flat elsewhere.",
     },
   ],
   memories: [
@@ -257,7 +291,7 @@ export const SCENARIOS: {
   },
   {
     title: "A visit agreed: confirm it and move the lead to meeting_scheduled",
-    scope: { orgId: "org-skyline", userId: "user-asha", leadId: "lead-priya" },
+    scope: { orgId: "org-skyline", userId: "user-asha", leadId: "lead-anil" },
     proposal: {
       kind: "send_whatsapp",
       at: "2026-10-12T11:00:00+05:30",
@@ -266,8 +300,8 @@ export const SCENARIOS: {
     },
   },
   {
-    title: "Skipping the cycle: straight to customer",
-    scope: { orgId: "org-skyline", userId: "user-asha", leadId: "lead-priya" },
+    title: "Keen to visit, but marked a customer straight away",
+    scope: { orgId: "org-skyline", userId: "user-asha", leadId: "lead-anil" },
     proposal: {
       kind: "wait",
       at: "2026-10-12T11:00:00+05:30",
@@ -277,7 +311,7 @@ export const SCENARIOS: {
   },
   {
     title: "Bought elsewhere: marking the lead lost",
-    scope: { orgId: "org-skyline", userId: "user-asha", leadId: "lead-priya" },
+    scope: { orgId: "org-skyline", userId: "user-asha", leadId: "lead-sunil" },
     proposal: {
       kind: "wait",
       at: "2026-10-12T11:00:00+05:30",

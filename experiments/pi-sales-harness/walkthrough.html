@@ -424,8 +424,8 @@
         <text class="t3" x="527" y="160">reminders · wait</text>
         <text class="t3" x="693" y="160">closer · wait</text>
         <text class="t3" x="859" y="160">wait; moving here</text><text class="t3" x="859" y="175">needs a person</text></g>
-      <path id="cy-any" class="edge" d="M85,196 H915" style="stroke-dasharray:3 4"><title>From any stage</title></path>
-      <text class="elabel" x="85" y="190">from any stage</text>
+      <path id="cy-any" class="edge" d="M85,196 H915" style="stroke-dasharray:3 4"><title>Lost from any stage but customer (a customer can only be blocked); do-not-call from any stage</title></path>
+      <text class="elabel" x="85" y="190">to lost: from any stage but customer · to do-not-call: from any stage</text>
       <path class="edge" d="M320,196 V238" marker-end="url(#ah4)"/>
       <path class="edge deny" d="M690,196 V238" marker-end="url(#ah4-deny)"/>
       <g id="st-lost"><title>lost: needs a person in the made-up companies; a lost lead may be won back (to contacted)</title><rect class="box" x="200" y="240" width="240" height="70" rx="12"/>
@@ -439,16 +439,16 @@
   </figure>
   <div class="grid g3" style="margin-top:14px">
     <div class="card"><h3>Stage and intent together</h3><p class="why">Priya is <code>contacted</code> and needs more details: both lists hold a call, so a call fits. Were she an <code>opportunity</code>, the same intent leaves only "wait", and a call would need a person.</p></div>
-    <div class="card"><h3>A stage moves with a step</h3><p class="why"><code>propose_next_action</code> takes an optional <code>stage</code>. Confirming an agreed visit by WhatsApp with <code>meeting_scheduled</code> is permitted; jumping from <code>contacted</code> to <code>customer</code> is refused by the cycle.</p></div>
+    <div class="card"><h3>A stage moves with a step</h3><p class="why"><code>propose_next_action</code> takes an optional <code>stage</code>. Confirming an agreed visit by WhatsApp with <code>meeting_scheduled</code> is permitted for a lead ready to visit; jumping from <code>contacted</code> to <code>customer</code> is refused by the cycle, and a lead who opted out can only be moved to lost or do-not-call.</p></div>
     <div class="card"><h3>Who writes it</h3><p class="why">The worker, after the run, as the lead's stage plus an <code>outcomes</code> row: future work. Moves the company wants to see (here: <code>customer</code>, <code>lost</code>) wait for a person first.</p></div>
   </div>
 </section>
 
 <section id="guardrails">
   <div class="q">Where does the agent's freedom end?</div>
-  <h2>Every proposal passes three layers</h2>
-  <p class="answer">The model never acts; it proposes. A proposal meets the <strong>legal floor</strong> (code, which no setting can loosen),
-  then the <strong>company's policy</strong>, then the <strong>member's preference</strong>, which can only add approvals. Any refusal wins;
+  <h2>Every proposal passes the law, the cycle, the company and the member</h2>
+  <p class="answer">The model never acts; it proposes. A proposal meets the <strong>legal floor</strong> and the <strong>sales cycle</strong> (code, which no setting
+  can loosen; a stage change must follow the cycle and fit the lead's intent), then the <strong>company's policy</strong>, then the <strong>member's preference</strong>, which can only add approvals. Any refusal wins;
   otherwise any approval wins; otherwise it is permitted, and even then it is only a saved step that the product's existing
   <code>guard()</code> checks again at the moment of sending.</p>
   <figure class="figure" style="margin:0">
@@ -458,14 +458,14 @@
       <defs>
         <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
       </defs>
-      <g id="gate-proposal"><title>Proposal: kind, time and reason (the Proposal type in src/policy.ts)</title>
+      <g id="gate-proposal"><title>Proposal: kind, time, reason, and the stage it moves the lead to, if any (the Proposal type in src/policy.ts)</title>
         <rect class="box proposed" x="16" y="112" width="150" height="76" rx="12"/>
-        <text class="t1" x="30" y="140">Proposal</text><text class="t2" x="30" y="160">kind · time ·</text><text class="t2" x="30" y="176">reason</text></g>
+        <text class="t1" x="30" y="136">Proposal</text><text class="t2" x="30" y="156">kind · time ·</text><text class="t2" x="30" y="172">reason · stage?</text></g>
       <g id="gate-law"><title>Legal floor, in code: do-not-call, WhatsApp opt-in, calling hours 09:00 to 21:00 in the lead's own time zone (LEGAL_CALL_WINDOW), and the sales cycle's stage order (SALES_CYCLE). It can only refuse.</title>
         <rect class="gate law" x="196" y="30" width="200" height="240" rx="14"/>
         <text class="t1" x="214" y="60">Legal floor, cycle</text><text class="t3" x="214" y="78">in code · refuses only</text>
         <text class="t2" x="214" y="112">do-not-call</text><text class="t2" x="214" y="136">WhatsApp opt-in</text><text class="t2" x="214" y="160">calling hours 09-21,</text><text class="t2" x="214" y="178">lead's own time zone</text>
-        <text class="t2" x="214" y="202">stage order of the</text><text class="t2" x="214" y="220">sales cycle</text></g>
+        <text class="t2" x="214" y="202">stage order, and the</text><text class="t2" x="214" y="220">intent fits the move</text></g>
       <g id="gate-company"><title>Company policy, from its settings: approval setting per action (auto, approval, forbidden), calling window, weekly call cap, playbook for the lead's stage and intent, stages that need a person</title>
         <rect class="gate company" x="416" y="30" width="200" height="240" rx="14"/>
         <text class="t1" x="434" y="60">Company policy</text><text class="t3" x="434" y="78">settings · approval or refuse</text>
@@ -503,9 +503,9 @@
         <tr id="sc-3"><td>3</td><td>A member who approves every call first</td><td>Skyline · Vikram · Priya</td><td>needs_more_info</td><td>call, 18:30</td><td><span class="outcome approval">needs approval</span><div class="why">member preference: approves every schedule_call first</div></td></tr>
         <tr id="sc-4"><td>4</td><td>A call at 22:15</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>call, 22:15</td><td><span class="outcome deny">refused</span><div class="why">legal floor: outside 09:00-21:00; company window 10:00-20:00</div></td></tr>
         <tr id="sc-5"><td>5</td><td>A lead who said stop</td><td>Skyline · Asha · Rohan</td><td>opted_out</td><td>WhatsApp, 11:00</td><td><span class="outcome deny">refused</span><div class="why">legal floor: do-not-call, no WhatsApp opt-in; the playbook lists nothing at stage dnc</div></td></tr>
-        <tr id="sc-6"><td>6</td><td>A visit agreed: confirm it and move the lead to meeting_scheduled</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>WhatsApp, 11:00; stage to meeting_scheduled</td><td><span class="outcome permit">permit</span><div class="why">the cycle allows contacted to meeting_scheduled</div></td></tr>
-        <tr id="sc-7"><td>7</td><td>Skipping the cycle: straight to customer</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>wait; stage to customer</td><td><span class="outcome deny">refused</span><div class="why">sales cycle: contacted may move to qualified, meeting_scheduled, lost or dnc, not customer</div></td></tr>
-        <tr id="sc-8"><td>8</td><td>Bought elsewhere: marking the lead lost</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>wait; stage to lost</td><td><span class="outcome approval">needs approval</span><div class="why">company policy: every move to lost is approved by a person</div></td></tr>
+        <tr id="sc-6"><td>6</td><td>A visit agreed: confirm it and move the lead to meeting_scheduled</td><td>Skyline · Asha · Anil</td><td>ready_to_visit</td><td>WhatsApp, 11:00; stage to meeting_scheduled</td><td><span class="outcome permit">permit</span><div class="why">the cycle allows contacted to meeting_scheduled, and the lead is ready to visit</div></td></tr>
+        <tr id="sc-7"><td>7</td><td>Keen to visit, but marked a customer straight away</td><td>Skyline · Asha · Anil</td><td>ready_to_visit</td><td>wait; stage to customer</td><td><span class="outcome deny">refused</span><div class="why">sales cycle: contacted may move to qualified, meeting_scheduled, lost or dnc, not customer</div></td></tr>
+        <tr id="sc-8"><td>8</td><td>Bought elsewhere: marking the lead lost</td><td>Skyline · Asha · Sunil</td><td>opted_out</td><td>wait; stage to lost</td><td><span class="outcome approval">needs approval</span><div class="why">company policy: every move to lost is approved by a person</div></td></tr>
       </tbody>
     </table>
   </div>
@@ -576,14 +576,14 @@
     <div class="scroll">
     <svg id="fig-budget" viewBox="0 0 1000 250" role="img" aria-labelledby="fig-budget-title">
       <title id="fig-budget-title">Token budget per context section, and how Pi's compaction shortens one run's history</title>
-      <text class="t3" x="16" y="22">WHAT EVERY REQUEST STARTS WITH · about 1,550 tokens at most (BUDGET in src/context.ts)</text>
-      <g id="seg-ins"><title>Instructions (INSTRUCTIONS in src/session.ts): about 170 tokens</title><rect class="seg-ins" x="16" y="34" width="117" height="54" rx="6"/><text class="t2" x="26" y="58">instructions</text><text class="t3" x="26" y="76">~170</text></g>
-      <g id="seg-rules"><title>Company goal and rules: 200 tokens</title><rect class="seg-company" x="133" y="34" width="123" height="54"/><text class="t2" x="143" y="58">rules</text><text class="t3" x="143" y="76">200</text></g>
-      <g id="seg-knowledge"><title>Product knowledge matching the last message: 300 tokens</title><rect class="seg-company" x="256" y="34" width="185" height="54"/><text class="t2" x="266" y="58">knowledge</text><text class="t3" x="266" y="76">300</text></g>
-      <g id="seg-member"><title>Member: 80 tokens</title><rect class="seg-member" x="441" y="34" width="49" height="54"/><text class="t3" x="449" y="66">80</text></g>
-      <g id="seg-facts"><title>Lead facts and consent: 200 tokens, separate from the conversation</title><rect class="seg-lead" x="490" y="34" width="123" height="54"/><text class="t2" x="500" y="58">facts</text><text class="t3" x="500" y="76">200</text></g>
-      <g id="seg-memories"><title>Lead memories: 200 tokens</title><rect class="seg-lead" x="613" y="34" width="123" height="54"/><text class="t2" x="623" y="58">memories</text><text class="t3" x="623" y="76">200</text></g>
-      <g id="seg-talk"><title>Conversation, newest first: 400 tokens</title><rect class="seg-lead" x="736" y="34" width="248" height="54" rx="6"/><text class="t2" x="746" y="58">conversation, newest first</text><text class="t3" x="746" y="76">400</text></g>
+      <text class="t3" x="16" y="22">WHAT EVERY REQUEST STARTS WITH · about 1,610 tokens at most (BUDGET in src/context.ts)</text>
+      <g id="seg-ins"><title>Instructions (INSTRUCTIONS in src/session.ts): about 227 tokens</title><rect class="seg-ins" x="16" y="34" width="137" height="54" rx="6"/><text class="t2" x="26" y="58">instructions</text><text class="t3" x="26" y="76">~227</text></g>
+      <g id="seg-rules"><title>Company goal and rules: 200 tokens</title><rect class="seg-company" x="153" y="34" width="120" height="54"/><text class="t2" x="163" y="58">rules</text><text class="t3" x="163" y="76">200</text></g>
+      <g id="seg-knowledge"><title>Product knowledge matching the last message: 300 tokens</title><rect class="seg-company" x="273" y="34" width="181" height="54"/><text class="t2" x="283" y="58">knowledge</text><text class="t3" x="283" y="76">300</text></g>
+      <g id="seg-member"><title>Member: 80 tokens</title><rect class="seg-member" x="454" y="34" width="48" height="54"/><text class="t3" x="462" y="66">80</text></g>
+      <g id="seg-facts"><title>Lead facts and consent: 200 tokens, separate from the conversation</title><rect class="seg-lead" x="502" y="34" width="120" height="54"/><text class="t2" x="512" y="58">facts</text><text class="t3" x="512" y="76">200</text></g>
+      <g id="seg-memories"><title>Lead memories: 200 tokens</title><rect class="seg-lead" x="622" y="34" width="120" height="54"/><text class="t2" x="632" y="58">memories</text><text class="t3" x="632" y="76">200</text></g>
+      <g id="seg-talk"><title>Conversation, newest first: 400 tokens</title><rect class="seg-lead" x="742" y="34" width="242" height="54" rx="6"/><text class="t2" x="752" y="58">conversation, newest first</text><text class="t3" x="752" y="76">400</text></g>
 
       <text class="t3" x="16" y="134">INSIDE ONE LONG RUN · Pi's compaction (settings in leadSessionOptions)</text>
       <g id="cmp-system"><title>The system prompt above is sent with every request and is never compacted</title><rect class="seg-ins" x="16" y="146" width="160" height="54" rx="6"/><text class="t2" x="26" y="170">system prompt</text><text class="t3" x="26" y="188">sent every time</text></g>
@@ -694,7 +694,7 @@
         <tr><td>6 · Proposal checks; guardrails figure</td><td><code>src/policy.ts</code></td><td><code>checkProposal</code>, <code>LEGAL_CALL_WINDOW</code>, <code>SALES_CYCLE</code></td></tr>
         <tr><td>7 · Save the outbox; memory rules</td><td><code>src/session.ts</code>, <code>src/context.ts</code></td><td><code>Outbox</code>, <code>MEMORY_WRITES</code></td></tr>
         <tr><td>Scenarios and made-up rows</td><td><code>src/fixtures.ts</code>, <code>src/inspect.ts</code></td><td><code>ROWS</code>, <code>SCENARIOS</code></td></tr>
-        <tr><td>Tests for all of the above</td><td><code>pi-sales-harness.test.ts</code></td><td>25 tests, no model and no network</td></tr>
+        <tr><td>Tests for all of the above</td><td><code>pi-sales-harness.test.ts</code></td><td>26 tests, no model and no network</td></tr>
         <tr><td>One company's rows (existing)</td><td><code>packages/db/src/client.ts</code>, <code>supabase/migrations/003_crm.sql</code>, <code>004_conversations.sql</code>, <code>006_harness.sql</code></td><td><code>withOrg</code>; contacts, messages, contact_memories, knowledge_chunks, guardrail_policies, tasks</td></tr>
         <tr><td>8 · When it is due (existing)</td><td><code>packages/channels/src/voice.ts</code>, <code>packages/channels/src/whatsapp.ts</code>, <code>packages/harness/src/policies.ts</code></td><td><code>place</code>, <code>send</code>, <code>guard</code></td></tr>
         <tr><td>Fenced memory today (existing)</td><td><code>packages/harness/src/retrieval.ts</code></td><td><code>retrieveMemories</code>, <code>memoryBlock</code></td></tr>
