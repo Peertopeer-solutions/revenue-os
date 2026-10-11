@@ -71,6 +71,7 @@ afterAll(async () => {
 });
 
 describe("the AI's booking tool naming another company's lead", () => {
+  // behaviour already on main: migration 019 is applied to the one local database both copies of the code run against; before it, the visit was booked against the other company's lead
   it("is refused by the database, so the turn fails and no site visit or outcome is written", async () => {
     const provider: LlmProvider = {
       complete: async () => ({

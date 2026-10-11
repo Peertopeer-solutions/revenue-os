@@ -283,6 +283,7 @@ afterAll(async () => {
 });
 
 describe("links between company records", () => {
+  // behaviour already on main: migration 019 is applied to the one local database both copies of the code run against; before it, all 43 links took another company's record
   it("each refuses another company's record, and still takes the company's own and, where it may, a shared template", async () => {
     const all = await links();
     expect(all.length).toBeGreaterThanOrEqual(43);
@@ -314,6 +315,7 @@ describe("links between company records", () => {
     expect(seen).toEqual(expected);
   });
 
+  // behaviour already on main: migration 019 is applied to the one local database both copies of the code run against; before it, the worker's login took another company's workflow
   it("refuses another company's record to the worker's own login too, where a trigger guards the link", async () => {
     const worker = createPool(
       process.env.DATABASE_URL ||
@@ -364,6 +366,7 @@ describe("the database check every PR runs (tests/rls_coverage.sql)", () => {
     `create table ${t}_c (id uuid primary key, org_id uuid not null, ${cols});
      alter table ${t}_c enable row level security;`;
 
+  // behaviour already on main: tests/rls_coverage.sql sits in tests/, so main's copy of the code runs this change's check too; main's check passed every one of these
   it("fails a link that could cross companies, a duplicate key without the company and a company that may be empty", async () => {
     const crossing = await checkAfter(
       parent + child(`p_id uuid references ${t}_p (id)`),
@@ -382,6 +385,7 @@ describe("the database check every PR runs (tests/rls_coverage.sql)", () => {
     expect(unguardedTemplate).toContain(`${t}_c.agent_id → agents`);
   });
 
+  // behaviour already on main: the check (tests/rls_coverage.sql) comes along to main's copy, and migration 019's trigger function is on the one local database; on a database without it, this failed
   it("passes a link that keeps both records in one company, and a link to a shared template its trigger guards", async () => {
     expect(
       await checkAfter(
