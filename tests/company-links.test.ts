@@ -2,11 +2,14 @@
 // record in every company table, and each of company A's records is pointed at company B's, one link at a time,
 // through every link the database lists. The database must refuse each, while still taking company A's own record
 // and, where a link may point at one, a shared template (agents, workflows and eval scenarios with no company). The
-// links are read from the database itself, so a new one is tried too. Then the check every PR runs
+// links are read from the database itself, so a new one is tried too, and a link the trigger guards is tried again
+// as the worker's own login (app_service, through withOrg), which may not call that trigger's function itself.
+// Then the check every PR runs
 // (tests/rls_coverage.sql, `bun run rls:check`) is run on scratch tables, inside a transaction it rolls back, and
 // must fail a link that could cross companies, a duplicate key without the company and a company that may be empty.
 // Slice 1's proof runs the first test by name (scripts/proof/slice-1-links.ts).
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { createPool, withOrg } from "@revenue-os/db";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -264,11 +267,13 @@ async function takesTemplate(link: Link, record: string) {
   }
 }
 
+let orgA = "";
 let a: Rows = {};
 let b: Rows = {};
 
 beforeAll(async () => {
-  a = await oneOfEach((await companies.add("Links A")).id);
+  orgA = (await companies.add("Links A")).id;
+  a = await oneOfEach(orgA);
   b = await oneOfEach((await companies.add("Links B")).id);
 });
 
@@ -307,6 +312,31 @@ describe("links between company records", () => {
       ];
     });
     expect(seen).toEqual(expected);
+  });
+
+  it("refuses another company's record to the worker's own login too, where a trigger guards the link", async () => {
+    const worker = createPool(
+      process.env.DATABASE_URL ||
+        "postgresql://app_service:app_service_local@127.0.0.1:54322/postgres",
+    );
+    const run = (workflow = "") =>
+      withOrg(worker, orgA, (tx) =>
+        tx.query(
+          `insert into workflow_runs (org_id, workflow_id, contact_id) values ($1, $2, $3)`,
+          [orgA, workflow, a.contacts],
+        ),
+      ).then(
+        () => "taken",
+        (err: { code?: string }) => `refused ${err.code}`,
+      );
+    try {
+      expect([await run(b.workflows), await run(a.workflows)]).toEqual([
+        "refused 23503",
+        "taken",
+      ]);
+    } finally {
+      await worker.end();
+    }
   });
 });
 
