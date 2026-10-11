@@ -9,10 +9,10 @@
 // must fail a link that could cross companies, a duplicate key without the company and a company that may be empty.
 // Slice 1's proof runs the first test by name (scripts/proof/slice-1-links.ts).
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { createPool, withOrg } from "@revenue-os/db";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createPool, withOrg } from "@revenue-os/db";
 import pg from "pg";
 import { testCompanies } from "./test-companies";
 

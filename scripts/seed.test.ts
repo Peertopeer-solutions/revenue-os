@@ -1,7 +1,6 @@
 // After `db:seed <pack>`, dispositions / pipelines /
 // guardrails / agent v1 / workflow v1 / field definitions / eval personas exist — idempotently.
 import { afterAll, describe, expect, it } from "bun:test";
-import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { ConversationIdSchema } from "../packages/shared/src/schemas";
 import { testCompanies } from "../tests/test-companies";
