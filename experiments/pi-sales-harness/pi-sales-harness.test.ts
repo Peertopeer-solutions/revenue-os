@@ -348,27 +348,35 @@ describe("Pi session seam: the intended tools only, nothing discovered, nothing 
 
   test("through Pi's tool wrappers: the intent result says placeholder and a bad time is an error result", async () => {
     const outbox = emptyOutbox();
-    const [intent, propose] = leadTools(reader, outbox);
-    const run = (tool: typeof intent, params: object) =>
-      tool?.execute(
+    const tools = new Map(leadTools(reader, outbox).map((t) => [t.name, t]));
+    const run = async (name: string, params: object) => {
+      const tool = tools.get(name);
+      if (!tool) throw new Error(`no tool ${name}`);
+      return tool.execute(
         "call-1",
         params as never,
         undefined,
         undefined,
         undefined as never,
       );
-    const said = await run(intent, {});
-    expect(
-      JSON.parse((said?.content[0] as { text: string }).text),
-    ).toMatchObject({ isPrediction: false, confidence: null });
-    const bad = await run(propose, {
+    };
+    const said = await run("calculate_lead_intent", {});
+    const [text] = said.content as { text: string }[];
+    expect(JSON.parse(text?.text ?? "")).toMatchObject({
+      isPrediction: false,
+      confidence: null,
+    });
+    const bad = await run("propose_next_action", {
       kind: "schedule_call",
       at: "soon",
       reason: "x",
     });
-    expect(bad?.isError).toBe(true);
-    const good = await run(propose, call("2026-10-12T18:30:00+05:30"));
-    expect(good?.details).toMatchObject({ outcome: "permit" });
+    expect(bad.isError).toBe(true);
+    const good = await run(
+      "propose_next_action",
+      call("2026-10-12T18:30:00+05:30"),
+    );
+    expect(good.details).toMatchObject({ outcome: "permit" });
     expect(outbox.proposals).toHaveLength(1);
   });
 });

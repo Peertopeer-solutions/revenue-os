@@ -1,0 +1,659 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pi Sales Harness</title>
+<meta name="description" content="Prototype walkthrough: how a multi-company sales agent built on the Pi coding-agent SDK would read a lead's context, work out intent, propose the next step behind guardrails, and remember at three scopes. Not wired into Revenue OS.">
+<style>
+  /* Tokens copied from the console (apps/console/src/index.css): warm neutrals, one gold accent. Dark is a swap. */
+  :root {
+    --canvas: #f4f1ea; --surface: #ffffff; --ink: #171717; --ink-soft: #3d3d3d; --muted: #8b8781;
+    --line: #e7e3dc; --accent: #b87a2b; --accent-soft: #f2e7d5; --danger: #b3402a; --danger-soft: #f6e1db;
+    --ok: #3f7a4b; --ok-soft: #e1eedf; --lane: #efebe3;
+    --scope-company: #ecd9b8; --scope-member: #dde3ec; --scope-lead: #dbe8d5;
+    --radius-card: 14px; --radius-pill: 9999px;
+    --shadow-card: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.03);
+    --font: ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Helvetica Neue", "Segoe UI", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --canvas: #141311; --surface: #1d1b18; --ink: #f2eee7; --ink-soft: #cfc8bd; --muted: #9a948b;
+      --line: #34302a; --accent: #d8a157; --accent-soft: #3a2d1a; --danger: #e48a72; --danger-soft: #3b211b;
+      --ok: #86c48d; --ok-soft: #1f3322; --lane: #191714;
+      --scope-company: #4a3a22; --scope-member: #2b3341; --scope-lead: #263826;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --canvas: #141311; --surface: #1d1b18; --ink: #f2eee7; --ink-soft: #cfc8bd; --muted: #9a948b;
+    --line: #34302a; --accent: #d8a157; --accent-soft: #3a2d1a; --danger: #e48a72; --danger-soft: #3b211b;
+    --ok: #86c48d; --ok-soft: #1f3322; --lane: #191714;
+    --scope-company: #4a3a22; --scope-member: #2b3341; --scope-lead: #263826;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--canvas); color: var(--ink); font-family: var(--font);
+    font-size: 15px; line-height: 1.6; font-weight: 450; -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent-soft); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 16px 80px; }
+  a { color: inherit; text-decoration-color: var(--accent); text-underline-offset: 3px; }
+  code, .mono { font-family: var(--mono); font-size: .86em; overflow-wrap: anywhere; }
+  code { background: var(--lane); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; }
+  h1 { font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.04; font-weight: 800; letter-spacing: -.035em; margin: 10px 0 14px; }
+  h2 { font-size: 1.55rem; line-height: 1.2; font-weight: 750; letter-spacing: -.02em; margin: 0 0 6px; }
+  h3 { font-size: 1.02rem; font-weight: 700; margin: 0 0 6px; letter-spacing: -.01em; }
+  p { margin: 0 0 12px; }
+  .label { font-size: .75rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .lede { font-size: 1.12rem; color: var(--ink-soft); max-width: 62ch; }
+  .lede strong { color: var(--ink); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: var(--radius-pill);
+    font-size: .78rem; font-weight: 600; border: 1px solid var(--line); background: var(--surface); white-space: nowrap; }
+  .chip.gold { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+  .chip.red { background: var(--danger-soft); border-color: var(--danger); }
+  .chip.green { background: var(--ok-soft); border-color: var(--ok); }
+
+  nav.toc { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--canvas) 92%, transparent);
+    backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); margin: 28px -16px 0; padding: 10px 16px; }
+  nav.toc ul { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 0; font-size: .85rem; font-weight: 600; }
+  nav.toc a { text-decoration: none; color: var(--ink-soft); }
+  nav.toc a:hover { color: var(--accent); }
+  @media (max-width: 700px) { nav.toc { position: static; } }
+
+  section { margin-top: 56px; scroll-margin-top: 64px; }
+  .q { color: var(--accent); font-weight: 700; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; }
+  .answer { font-size: 1.04rem; color: var(--ink-soft); max-width: 70ch; margin-bottom: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow-card); padding: 18px; min-width: 0; }
+  .grid { display: grid; gap: 14px; }
+  .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 860px) { .g3, .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { .g2, .g3, .g4 { grid-template-columns: minmax(0, 1fr); } }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; font-size: .82rem; color: var(--ink-soft); margin: 10px 0 14px; }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .sw { width: 26px; height: 14px; border-radius: 4px; display: inline-block; border: 1.5px solid var(--ink); background: var(--surface); }
+  .sw.proposed { border: 1.5px dashed var(--accent); background: var(--accent-soft); }
+  .sw.future { border: 1.5px dotted var(--muted); }
+  .sw.stub { border: 1.5px dashed var(--danger); background: var(--danger-soft); }
+  .sw.outside { border-color: var(--muted); background: transparent; }
+
+  svg { width: 100%; height: auto; display: block; }
+  .figure { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow-card); padding: 14px; }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .scroll svg { min-width: 760px; }
+  .hint { display: none; font-size: .78rem; color: var(--muted); margin-top: 6px; }
+  @media (max-width: 800px) { .hint { display: block; } }
+  figcaption { font-size: .85rem; color: var(--muted); margin-top: 10px; }
+
+  /* SVG vocabulary: existing = solid ink, proposed = gold dashed, future = dotted, stub = red dashed. */
+  .lane { fill: var(--lane); }
+  .lane-alt { fill: transparent; }
+  .lane-t { font: 700 15px var(--font); fill: var(--ink); }
+  .lane-s { font: 500 12.5px var(--font); fill: var(--muted); }
+  .box { fill: var(--surface); stroke: var(--ink); stroke-width: 1.5; }
+  .box.proposed { fill: var(--accent-soft); stroke: var(--accent); stroke-dasharray: 7 4; }
+  .box.future { stroke: var(--muted); stroke-dasharray: 2 4; }
+  .box.stub { fill: var(--danger-soft); stroke: var(--danger); stroke-dasharray: 7 4; }
+  .box.outside { fill: transparent; stroke: var(--muted); }
+  .t1 { font: 700 15px var(--font); fill: var(--ink); }
+  .t2 { font: 450 13px var(--font); fill: var(--ink-soft); }
+  .t3 { font: 600 12px var(--font); fill: var(--muted); }
+  .edge { fill: none; stroke: var(--ink-soft); stroke-width: 1.6; }
+  .edge.deny { stroke: var(--danger); stroke-dasharray: 5 4; }
+  .edge.ok { stroke: var(--ok); }
+  .head { fill: var(--ink-soft); }
+  .head.deny { fill: var(--danger); }
+  .head.ok { fill: var(--ok); }
+  .elabel { font: 600 12px var(--font); fill: var(--ink-soft); }
+  .elabel.deny { fill: var(--danger); }
+  .region-company { fill: var(--scope-company); fill-opacity: .45; stroke: var(--accent); stroke-width: 1.5; }
+  .region-member { fill: var(--scope-member); fill-opacity: .85; stroke: var(--ink-soft); stroke-width: 1.2; }
+  .region-lead { fill: var(--scope-lead); fill-opacity: .6; stroke: var(--ink-soft); stroke-width: 1.2; }
+  .region-other { fill: var(--lane); stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 4 4; }
+  .wall { stroke: var(--danger); stroke-width: 3; stroke-dasharray: 2 6; stroke-linecap: round; }
+  .dot { fill: var(--surface); stroke: var(--muted); }
+  .seg-ins { fill: var(--lane); stroke: var(--ink-soft); }
+  .seg-company { fill: var(--scope-company); stroke: var(--accent); }
+  .seg-member { fill: var(--scope-member); stroke: var(--ink-soft); }
+  .seg-lead { fill: var(--scope-lead); stroke: var(--ok); }
+  .seg-old { fill: var(--lane); stroke: var(--muted); stroke-dasharray: 3 3; }
+  .seg-sum { fill: var(--accent-soft); stroke: var(--accent); }
+  .seg-keep { fill: var(--surface); stroke: var(--ink-soft); }
+  .seg-res { fill: transparent; stroke: var(--muted); stroke-dasharray: 2 4; }
+  .gate { fill: var(--surface); stroke: var(--ink-soft); stroke-width: 1.4; }
+  .gate.law { stroke: var(--danger); }
+  .gate.company { stroke: var(--accent); }
+  .pill-ok { fill: var(--ok-soft); stroke: var(--ok); }
+  .pill-ap { fill: var(--accent-soft); stroke: var(--accent); }
+  .pill-no { fill: var(--danger-soft); stroke: var(--danger); }
+
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th { text-align: left; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 650; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: break-word; }
+  tr:last-child td { border-bottom: 0; }
+  .tablecard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow-card); overflow-x: auto; }
+  .tablecard table { min-width: 640px; }
+  .outcome { display: inline-block; padding: 2px 10px; border-radius: var(--radius-pill); font-size: .78rem; font-weight: 700; white-space: nowrap; border: 1px solid; }
+  .outcome.permit { background: var(--ok-soft); border-color: var(--ok); }
+  .outcome.approval { background: var(--accent-soft); border-color: var(--accent); }
+  .outcome.deny { background: var(--danger-soft); border-color: var(--danger); }
+  .why { color: var(--ink-soft); font-size: .85rem; }
+  td.name code { white-space: nowrap; overflow-wrap: normal; }
+
+  .kv { display: grid; grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr); gap: 6px 12px; font-size: .88rem; margin-top: 10px; }
+  .kv dt { color: var(--muted); font-weight: 600; }
+  .kv dd { margin: 0; }
+  .scopehead { display: flex; align-items: center; gap: 10px; }
+  .swatch { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+  ul.tight { margin: 6px 0 0; padding-left: 18px; }
+  ul.tight li { margin: 3px 0; }
+  .col-h { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  pre.cmd { background: var(--lane); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 8px 0 0;
+    font-family: var(--mono); font-size: .84rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .question { border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; margin: 10px 0; }
+  footer { margin-top: 64px; font-size: .82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="label">Revenue OS · experiments/pi-sales-harness · prototype</div>
+  <h1>One lead event, one fresh Pi run, three tools.</h1>
+  <p class="lede">A sketch of how a multi-company sales agent built on the <strong>Pi coding-agent SDK</strong> would work a lead: the
+  database tells it who the company, member and lead are; the model <strong>only proposes</strong> the next step; the law, the company's
+  rules and the member's preferences decide; the worker writes what happened as rows. Nothing here runs a model or sends anything.</p>
+  <div class="chips">
+    <span class="chip gold">Prototype: not wired into the product</span>
+    <span class="chip gold">Intent tool is a placeholder</span>
+    <span class="chip red">No sending tools, no live session</span>
+    <span class="chip">Illustrative companies and leads</span>
+  </div>
+  <nav class="toc" aria-label="Sections">
+    <ul>
+      <li><a href="#flow">The flow</a></li>
+      <li><a href="#scopes">Memory scopes</a></li>
+      <li><a href="#state">Kinds of state</a></li>
+      <li><a href="#guardrails">Guardrails</a></li>
+      <li><a href="#call">Phone-call path</a></li>
+      <li><a href="#isolation">Isolation</a></li>
+      <li><a href="#budget">Context budget</a></li>
+      <li><a href="#pi">Pi pieces</a></li>
+      <li><a href="#status">Built vs placeholder</a></li>
+      <li><a href="#source">Source map</a></li>
+      <li><a href="#try">Try it</a></li>
+    </ul>
+  </nav>
+</header>
+
+<section id="flow">
+  <div class="q">How does one lead's turn happen?</div>
+  <h2>The flow, lane by lane</h2>
+  <p class="answer">Something happens to a lead. The worker, which already exists, fixes the scope from the job itself, builds a bounded
+  context from that one company's rows, and opens a <em>fresh</em> Pi session that lives only for this run. The model calls tools; its
+  proposals pass three layers of checks; the run's results are written back as rows and the session is thrown away.</p>
+  <div class="legend">
+    <span><i class="sw"></i>Exists in Revenue OS today</span>
+    <span><i class="sw proposed"></i>Proposed by this prototype</span>
+    <span><i class="sw future"></i>Future: named, not built</span>
+    <span><i class="sw stub"></i>Stub today (fails on purpose)</span>
+    <span><i class="sw outside"></i>Outside the system</span>
+  </div>
+  <figure class="figure" style="margin:0">
+    <div class="scroll">
+    <svg id="fig-flow" viewBox="0 0 1220 470" role="img" aria-labelledby="fig-flow-title">
+      <title id="fig-flow-title">One lead event flowing through the worker, a fresh Pi run, the guardrail checks and the database</title>
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+        <marker id="ah-deny" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head deny" d="M0,0 L10,5 L0,10 z"/></marker>
+        <marker id="ah-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head ok" d="M0,0 L10,5 L0,10 z"/></marker>
+      </defs>
+      <g id="lanes">
+        <rect id="lane-outside" class="lane-alt" x="0" y="10" width="1220" height="105"><title>Outside: the lead and the team</title></rect>
+        <rect id="lane-worker" class="lane" x="0" y="125" width="1220" height="105" rx="10"><title>Worker: the existing job process (services/worker)</title></rect>
+        <rect id="lane-pi" class="lane-alt" x="0" y="240" width="1220" height="105"><title>Pi run: proposed by this prototype</title></rect>
+        <rect id="lane-db" class="lane" x="0" y="355" width="1220" height="105" rx="10"><title>Database: existing tables behind row-level security</title></rect>
+        <text class="lane-t" x="16" y="56">Outside</text><text class="lane-s" x="16" y="75">lead and team</text>
+        <text class="lane-t" x="16" y="171">Worker</text><text class="lane-s" x="16" y="190">exists today</text>
+        <text class="lane-t" x="16" y="286">Pi run</text><text class="lane-s" x="16" y="305">this prototype</text>
+        <text class="lane-t" x="16" y="401">Database</text><text class="lane-s" x="16" y="420">exists today</text>
+      </g>
+      <g id="node-event"><title>A lead event: a WhatsApp reply, a call ending (Vapi webhook) or a timer (pg-boss scheduler)</title>
+        <rect class="box outside" x="130" y="20" width="160" height="72" rx="12"/>
+        <text class="t1" x="144" y="46">1 · Lead event</text><text class="t2" x="144" y="65">reply, call ended</text><text class="t2" x="144" y="81">or a timer fires</text></g>
+      <g id="node-scope"><title>The worker fixes company, member and lead from the job row: TrustedScope in src/tenancy.ts</title>
+        <rect class="box proposed" x="130" y="135" width="160" height="72" rx="12"/>
+        <text class="t1" x="144" y="161">2 · Set the scope</text><text class="t2" x="144" y="180">company, member and</text><text class="t2" x="144" y="196">lead, from the job</text></g>
+      <g id="node-context"><title>Bounded, fenced context from three scopes: assembleLeadContext in src/context.ts</title>
+        <rect class="box proposed" x="314" y="135" width="160" height="72" rx="12"/>
+        <text class="t1" x="328" y="161">3 · Build context</text><text class="t2" x="328" y="180">three scopes, each</text><text class="t2" x="328" y="196">budgeted and fenced</text></g>
+      <g id="node-rows"><title>Existing tables: contacts, messages, contact_memories, knowledge_chunks, guardrail_policies, org_members</title>
+        <rect class="box" x="314" y="365" width="160" height="72" rx="12"/>
+        <text class="t1" x="328" y="391">Company's rows</text><text class="t2" x="328" y="410">facts · messages ·</text><text class="t2" x="328" y="426">memories · rules</text></g>
+      <g id="node-session"><title>createAgentSession with an in-memory SessionManager, a ResourceLoader that discovers nothing, and three tools: leadSessionOptions in src/session.ts</title>
+        <rect class="box proposed" x="498" y="250" width="160" height="72" rx="12"/>
+        <text class="t1" x="512" y="276">4 · Fresh Pi session</text><text class="t2" x="512" y="295">in memory, 3 tools,</text><text class="t2" x="512" y="311">nothing from disk</text></g>
+      <g id="node-tools"><title>calculate_lead_intent (placeholder), propose_next_action, remember_about_lead: leadTools in src/session.ts</title>
+        <rect class="box proposed" x="682" y="250" width="160" height="72" rx="12"/>
+        <text class="t1" x="696" y="276">5 · Model uses tools</text><text class="t2" x="696" y="295">intent (placeholder)</text><text class="t2" x="696" y="311">propose · remember</text></g>
+      <g id="node-checks"><title>Legal floor, company policy, member preference: checkProposal in src/policy.ts</title>
+        <rect class="box proposed" x="866" y="250" width="160" height="72" rx="12"/>
+        <text class="t1" x="880" y="276">6 · Proposal checks</text><text class="t2" x="880" y="295">law, then company,</text><text class="t2" x="880" y="311">then member</text></g>
+      <g id="node-outbox"><title>Future: the worker writes the run's outbox as rows once the run ends; the Pi session is discarded. Here the Outbox type in src/session.ts holds them in memory.</title>
+        <rect class="box future" x="866" y="135" width="160" height="72" rx="12"/>
+        <text class="t1" x="880" y="161">7 · Save the outbox</text><text class="t2" x="880" y="180">worker writes rows;</text><text class="t2" x="880" y="196">session discarded</text></g>
+      <g id="node-written"><title>Existing tables the outbox lands in: workflow_runs (next step), tasks (approval), contact_memories (lead memory)</title>
+        <rect class="box" x="866" y="365" width="160" height="72" rx="12"/>
+        <text class="t1" x="880" y="391">Rows it writes</text><text class="t2" x="880" y="410">next step · task ·</text><text class="t2" x="880" y="426">lead memory</text></g>
+      <g id="node-doorway"><title>Existing: packages/channels doorways (voice.place, wa.send) run guard() from packages/harness/src/policies.ts before any send</title>
+        <rect class="box" x="1050" y="135" width="160" height="72" rx="12"/>
+        <text class="t1" x="1064" y="161">8 · When it is due</text><text class="t2" x="1064" y="180">channel doorway</text><text class="t2" x="1064" y="196">runs guard() again</text></g>
+      <g id="node-send"><title>Stub today: services/worker/src/jobs.ts VOICE_STUB and WA_STUB throw, so nothing is sent (STATE.md)</title>
+        <rect class="box stub" x="1050" y="20" width="160" height="72" rx="12"/>
+        <text class="t1" x="1064" y="46">WhatsApp or call</text><text class="t2" x="1064" y="65">stubs today:</text><text class="t2" x="1064" y="81">nothing is sent</text></g>
+
+      <path id="edge-event-scope" class="edge" d="M210,92 V133" marker-end="url(#ah)"><title>The job arrives at the worker</title></path>
+      <path id="edge-scope-context" class="edge" d="M290,171 H312" marker-end="url(#ah)"><title>Scope fixes what may be read</title></path>
+      <path id="edge-rows-context" class="edge" d="M394,365 V209" marker-end="url(#ah)"><title>Reads one lead's rows only</title></path>
+      <text class="elabel" x="386" y="292" text-anchor="end">reads one lead</text>
+      <path id="edge-context-session" class="edge" d="M474,171 H486 V286 H496" marker-end="url(#ah)"><title>Context becomes the system prompt's fenced data</title></path>
+      <path id="edge-session-tools" class="edge" d="M658,286 H680" marker-end="url(#ah)"><title>The model calls tools</title></path>
+      <path id="edge-tools-checks" class="edge" d="M842,286 H864" marker-end="url(#ah)"><title>A proposal goes to the checks</title></path>
+      <path id="edge-refused" class="edge deny" d="M946,322 C946,346 762,346 762,324" marker-end="url(#ah-deny)"><title>Refused: the reasons go back to the model, which may propose again</title></path>
+      <text class="elabel deny" x="854" y="354" text-anchor="middle">refused: why</text>
+      <path id="edge-run-ends" class="edge" d="M946,250 V209" marker-end="url(#ah)"><title>The run ends</title></path>
+      <text class="elabel" x="952" y="234">run ends</text>
+      <path id="edge-writes" class="edge" d="M1026,190 H1038 V401 H1028" marker-end="url(#ah)"><title>The worker writes the outbox as rows</title></path>
+      <path id="edge-due" class="edge ok" d="M1026,160 H1048" marker-end="url(#ah-ok)"><title>A permitted next step, when its time comes</title></path>
+      <path id="edge-send" class="edge" d="M1130,135 V94" marker-end="url(#ah)"><title>The only way out: a doorway that runs guard()</title></path>
+    </svg>
+    </div>
+    <div class="hint">Scroll sideways to see the whole figure.</div>
+    <figcaption>Steps 2 to 6 are this prototype. Step 7's writer is future work; the tables it writes to exist. Hover any box for its source.</figcaption>
+  </figure>
+</section>
+
+<section id="scopes">
+  <div class="q">What does the agent remember, and for whom?</div>
+  <h2>Three memory scopes</h2>
+  <p class="answer">A run sits where <strong>one member</strong> and <strong>one lead</strong> meet inside <strong>one company</strong>. It reads all
+  three, but each scope has its own owner: only admins change company rules, only the member changes their preferences, and the model
+  can only add to the lead's own memory.</p>
+  <figure class="figure" style="margin:0">
+    <div class="scroll">
+    <svg id="fig-scopes" viewBox="0 0 1000 430" role="img" aria-labelledby="fig-scopes-title">
+      <title id="fig-scopes-title">The company contains members and leads; one run is the overlap of one member and one lead; another company is behind a wall</title>
+      <g id="scope-company"><title>Company scope: goal, rules (guardrail_policies), product knowledge (knowledge_documents and chunks), the agent's prompt (agents). Written by admins in the console.</title>
+        <rect class="region-company" x="16" y="16" width="700" height="398" rx="20"/>
+        <text class="t1" x="38" y="48">Company</text>
+        <text class="t2" x="38" y="68">goal · rules · product knowledge</text>
+        <text class="t3" x="38" y="86">written by its admins, in the console</text></g>
+      <g id="scope-member"><title>Member scope: role (org_members) and personal preferences such as language or extra approvals. Only that member changes them.</title>
+        <circle class="region-member" cx="250" cy="255" r="135"/>
+        <text class="t1" x="192" y="232" text-anchor="middle">Member</text>
+        <text class="t2" x="192" y="254" text-anchor="middle">role · language</text>
+        <text class="t2" x="192" y="272" text-anchor="middle">own approvals</text>
+        <text class="t3" x="192" y="292" text-anchor="middle">set by the member</text></g>
+      <g id="scope-lead"><title>Lead scope: facts and consent (contacts), conversation (messages), memories (contact_memories), stage and next step.</title>
+        <circle class="region-lead" cx="440" cy="255" r="150"/>
+        <text class="t1" x="515" y="222" text-anchor="middle">Lead</text>
+        <text class="t2" x="515" y="244" text-anchor="middle">facts · consent</text>
+        <text class="t2" x="515" y="262" text-anchor="middle">stage · messages</text>
+        <text class="t2" x="515" y="280" text-anchor="middle">memories · next step</text>
+        <text class="t3" x="515" y="300" text-anchor="middle">model adds memory</text></g>
+      <g id="scope-run"><title>One run: this member, this lead, this company. TrustedScope in src/tenancy.ts</title>
+        <text class="t1" x="337" y="250" text-anchor="middle">This run</text>
+        <text class="t3" x="337" y="268" text-anchor="middle">one member,</text>
+        <text class="t3" x="337" y="283" text-anchor="middle">one lead</text></g>
+      <g id="scope-other-leads"><title>Other leads of the same company: their rows are never read by this run (openScope filters by lead)</title>
+        <circle class="dot" cx="636" cy="316" r="11"/><circle class="dot" cx="664" cy="344" r="11"/><circle class="dot" cx="628" cy="352" r="11"/>
+        <text class="t3" x="600" y="388">other leads:</text><text class="t3" x="600" y="403">not in this run</text></g>
+      <line id="scope-wall" class="wall" x1="733" y1="24" x2="733" y2="406"><title>Row-level security plus org_id in every query: the wall between companies</title></line>
+      <g id="scope-other-company"><title>Another company: its own rules, members, leads and knowledge, never readable from this run</title>
+        <rect class="region-other" x="752" y="56" width="232" height="318" rx="20"/>
+        <text class="t1" x="772" y="90">Another company</text>
+        <text class="t2" x="772" y="112">its own rules, members,</text>
+        <text class="t2" x="772" y="130">leads and knowledge</text>
+        <text class="t3" x="772" y="156">never readable here</text>
+        <circle class="dot" cx="820" cy="250" r="22"/><circle class="dot" cx="880" cy="290" r="26"/><circle class="dot" cx="840" cy="320" r="12"/></g>
+    </svg>
+    </div>
+    <div class="hint">Scroll sideways to see the whole figure.</div>
+  </figure>
+  <div class="grid g3" style="margin-top:14px">
+    <div class="card" id="card-company">
+      <div class="scopehead"><i class="swatch" style="background:var(--scope-company)"></i><h3>Company</h3></div>
+      <dl class="kv">
+        <dt>Holds</dt><dd>Goal, rules (approval setting per action, calling window, weekly call cap, playbook per intent), product knowledge.</dd>
+        <dt>Tables today</dt><dd><code>guardrail_policies</code>, <code>agents</code>, <code>knowledge_documents</code>, <code>knowledge_chunks</code></dd>
+        <dt>Who writes</dt><dd>Admins, in the console. The model may only <em>suggest</em>; that becomes a review task.</dd>
+        <dt>Enters a run</dt><dd>Rules as rows; only knowledge matching the lead's last message, at most three hits.</dd>
+      </dl>
+    </div>
+    <div class="card" id="card-member">
+      <div class="scopehead"><i class="swatch" style="background:var(--scope-member)"></i><h3>Member</h3></div>
+      <dl class="kv">
+        <dt>Holds</dt><dd>Role in this company; preferences such as language, and actions they want to approve first.</dd>
+        <dt>Tables today</dt><dd><code>org_members</code> (role). Preferences have no table yet: future.</dd>
+        <dt>Who writes</dt><dd>The member themself. Nobody else, the model least of all.</dd>
+        <dt>Enters a run</dt><dd>Role and language as data; approvals as a check that can only tighten.</dd>
+      </dl>
+    </div>
+    <div class="card" id="card-lead">
+      <div class="scopehead"><i class="swatch" style="background:var(--scope-lead)"></i><h3>Lead</h3></div>
+      <dl class="kv">
+        <dt>Holds</dt><dd>Facts, consent, stage, the conversation, memories (summaries, preferences, objections), intent and next step.</dd>
+        <dt>Tables today</dt><dd><code>contacts</code>, <code>messages</code>, <code>contact_memories</code>, <code>workflow_runs</code>, <code>contact_scores</code></dd>
+        <dt>Who writes</dt><dd>The worker, after the run, from what the model proposed. People may correct it in the console.</dd>
+        <dt>Enters a run</dt><dd>Facts and consent always; memories and the newest messages up to their budget.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section id="state">
+  <div class="q">Which state is the truth?</div>
+  <h2>Rows are the truth; the session is scratch paper</h2>
+  <p class="answer">Four kinds of state meet in a run. Only the database's rows are authoritative, which is why every run starts by
+  reading them again instead of trusting a summary from last time.</p>
+  <div class="tablecard">
+    <table>
+      <thead><tr><th>Kind</th><th>Lives in</th><th>Lasts</th><th>Trust it for</th><th>In this prototype</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Authoritative rows</strong></td><td>contacts, messages, guardrail_policies, org_members, tasks</td><td>Permanently</td><td>Consent, stage, rules, what was said, what is pending</td><td><code>Rows</code> fixtures read through <code>openScope</code></td></tr>
+        <tr><td><strong>Retrieved summaries and knowledge</strong></td><td>contact_memories, knowledge_chunks</td><td>Until superseded</td><td>Background only: may be stale or partial; fenced as data</td><td>Memories and a word-overlap search, labelled "retrieved"</td></tr>
+        <tr><td><strong>Pi session history</strong></td><td><code>SessionManager.inMemory()</code></td><td>One run</td><td>This run's tool calls and results; compaction may shorten it</td><td>Never written to disk; never reused for another lead</td></tr>
+        <tr><td><strong>The run's outbox</strong></td><td>Handed to the worker when the run ends</td><td>Until written as rows</td><td>Proposals, lead memories, admin review requests</td><td><code>Outbox</code> in memory; the writer is future work</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="guardrails">
+  <div class="q">Where does the agent's freedom end?</div>
+  <h2>Every proposal passes three layers</h2>
+  <p class="answer">The model never acts; it proposes. A proposal meets the <strong>legal floor</strong> (code, which no setting can loosen),
+  then the <strong>company's policy</strong>, then the <strong>member's preference</strong>, which can only add approvals. Any refusal wins;
+  otherwise any approval wins; otherwise it is permitted, and even then it is only a saved step that the product's existing
+  <code>guard()</code> checks again at the moment of sending.</p>
+  <figure class="figure" style="margin:0">
+    <div class="scroll">
+    <svg id="fig-guardrails" viewBox="0 0 1000 300" role="img" aria-labelledby="fig-guardrails-title">
+      <title id="fig-guardrails-title">A proposal passes the legal floor, company policy and member preference, ending as permit, needs approval or refused</title>
+      <defs>
+        <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+      </defs>
+      <g id="gate-proposal"><title>Proposal: kind, time and reason (the Proposal type in src/policy.ts)</title>
+        <rect class="box proposed" x="16" y="112" width="150" height="76" rx="12"/>
+        <text class="t1" x="30" y="140">Proposal</text><text class="t2" x="30" y="160">kind · time ·</text><text class="t2" x="30" y="176">reason</text></g>
+      <g id="gate-law"><title>Legal floor, in code: do-not-call, WhatsApp opt-in, calling hours 09:00 to 21:00 in the lead's own time zone (LEGAL_CALL_WINDOW). It can only refuse.</title>
+        <rect class="gate law" x="196" y="30" width="200" height="240" rx="14"/>
+        <text class="t1" x="214" y="60">Legal floor</text><text class="t3" x="214" y="78">in code · refuses only</text>
+        <text class="t2" x="214" y="112">do-not-call</text><text class="t2" x="214" y="136">WhatsApp opt-in</text><text class="t2" x="214" y="160">calling hours 09-21,</text><text class="t2" x="214" y="178">lead's own time zone</text></g>
+      <g id="gate-company"><title>Company policy, from its settings: approval setting per action (auto, approval, forbidden), calling window, weekly call cap, playbook for the lead's intent</title>
+        <rect class="gate company" x="416" y="30" width="200" height="240" rx="14"/>
+        <text class="t1" x="434" y="60">Company policy</text><text class="t3" x="434" y="78">settings · approval or refuse</text>
+        <text class="t2" x="434" y="112">approval setting</text><text class="t2" x="434" y="136">calling window</text><text class="t2" x="434" y="160">calls per week</text><text class="t2" x="434" y="184">playbook for intent</text></g>
+      <g id="gate-member"><title>Member preference: actions this member wants to approve first. It can only add an approval.</title>
+        <rect class="gate" x="636" y="30" width="160" height="240" rx="14"/>
+        <text class="t1" x="654" y="60">Member</text><text class="t3" x="654" y="78">tightens only</text>
+        <text class="t2" x="654" y="112">approve first</text></g>
+      <path class="edge" d="M166,150 H194" marker-end="url(#ah2)"/>
+      <path class="edge" d="M396,150 H414" marker-end="url(#ah2)"/>
+      <path class="edge" d="M616,150 H634" marker-end="url(#ah2)"/>
+      <path class="edge" d="M796,150 H812 V62 H828" marker-end="url(#ah2)"/>
+      <path class="edge" d="M812,150 H828" marker-end="url(#ah2)"/>
+      <path class="edge" d="M812,150 V238 H828" marker-end="url(#ah2)"/>
+      <g id="out-permit"><title>Permit: saved as the lead's next step; the channel doorway's guard() checks again when it is carried out</title>
+        <rect class="pill-ok" x="830" y="40" width="154" height="44" rx="22"/><text class="t1" x="907" y="67" text-anchor="middle">permit</text></g>
+      <g id="out-approval"><title>Needs approval: becomes a task for a person (the tasks table); never a silent drop</title>
+        <rect class="pill-ap" x="830" y="128" width="154" height="44" rx="22"/><text class="t1" x="907" y="155" text-anchor="middle">needs approval</text></g>
+      <g id="out-deny"><title>Refused: the reasons go back to the model</title>
+        <rect class="pill-no" x="830" y="216" width="154" height="44" rx="22"/><text class="t1" x="907" y="243" text-anchor="middle">refused</text></g>
+    </svg>
+    </div>
+    <div class="hint">Scroll sideways to see the whole figure.</div>
+    <figcaption>Source: <code>checkProposal</code> in <code>src/policy.ts</code>. The send-time check is the existing <code>guard()</code> in <code>packages/harness/src/policies.ts</code>.</figcaption>
+  </figure>
+
+  <h3 style="margin-top:22px">Illustrative scenarios, as <code>src/inspect.ts</code> prints them</h3>
+  <p class="why">Made-up companies and leads (<code>src/fixtures.ts</code>). The intent column is the placeholder's keyword rule, not a prediction.</p>
+  <div class="tablecard">
+    <table>
+      <thead><tr><th>#</th><th>Scenario</th><th>Company · member · lead</th><th>Intent (placeholder)</th><th>Proposal</th><th>Outcome and why</th></tr></thead>
+      <tbody>
+        <tr id="sc-1"><td>1</td><td>Needs more details: a call at 18:30, after work</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>call, 18:30 lead time</td><td><span class="outcome permit">permit</span><div class="why">every check passes; saved as the next step</div></td></tr>
+        <tr id="sc-2"><td>2</td><td>The same ask at a company that approves every call</td><td>Riverbend · Meera · Kabir</td><td>needs_more_info</td><td>call, 12:00</td><td><span class="outcome approval">needs approval</span><div class="why">company policy: schedule_call is set to "approval"</div></td></tr>
+        <tr id="sc-3"><td>3</td><td>A member who approves every call first</td><td>Skyline · Vikram · Priya</td><td>needs_more_info</td><td>call, 18:30</td><td><span class="outcome approval">needs approval</span><div class="why">member preference: approves every schedule_call first</div></td></tr>
+        <tr id="sc-4"><td>4</td><td>A call at 22:15</td><td>Skyline · Asha · Priya</td><td>needs_more_info</td><td>call, 22:15</td><td><span class="outcome deny">refused</span><div class="why">legal floor: outside 09:00-21:00; company window 10:00-20:00</div></td></tr>
+        <tr id="sc-5"><td>5</td><td>A lead who said stop</td><td>Skyline · Asha · Rohan</td><td>opted_out</td><td>WhatsApp, 11:00</td><td><span class="outcome deny">refused</span><div class="why">legal floor: do-not-call, no WhatsApp opt-in; the playbook lists nothing for opted_out</div></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="call">
+  <div class="q">What happens when a lead needs more details?</div>
+  <h2>The phone-call path, end to end</h2>
+  <p class="answer">The captain's example: a lead asks things a message can't carry well. Intent and stage point the playbook at a call;
+  the lead's memory says when; the checks decide. Everything after "next step saved" is either existing code or a stub, so this prototype
+  stops at the proposal.</p>
+  <figure class="figure" style="margin:0">
+    <div class="scroll">
+    <svg id="fig-call" viewBox="0 0 1000 250" role="img" aria-labelledby="fig-call-title">
+      <title id="fig-call-title">From a lead's question to a scheduled phone call, through intent, playbook, proposal, checks and the existing call doorway</title>
+      <defs>
+        <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+      </defs>
+      <g id="call-ask"><title>Existing: the lead's message is a messages row</title><rect class="box" x="24" y="20" width="220" height="72" rx="12"/>
+        <text class="t1" x="40" y="48">Lead: "price? loan? EMI?"</text><text class="t2" x="40" y="70">a messages row</text></g>
+      <g id="call-intent"><title>Placeholder: keyword rules label it needs_more_info (src/intent.ts placeholderIntent)</title><rect class="box proposed" x="268" y="20" width="220" height="72" rx="12"/>
+        <text class="t1" x="284" y="48">Intent: needs_more_info</text><text class="t2" x="284" y="70">placeholder rules, no score</text></g>
+      <g id="call-playbook"><title>The company's playbook for needs_more_info lists schedule_call and send_whatsapp (OrgPolicy.playbook)</title><rect class="box proposed" x="512" y="20" width="220" height="72" rx="12"/>
+        <text class="t1" x="528" y="48">Playbook: call or chat</text><text class="t2" x="528" y="70">company setting</text></g>
+      <g id="call-propose"><title>The model proposes a call at 18:30 lead time because the lead's memory says "free after 6 pm"</title><rect class="box proposed" x="756" y="20" width="220" height="72" rx="12"/>
+        <text class="t1" x="772" y="48">Propose a call, 18:30</text><text class="t2" x="772" y="70">memory: free after 6 pm</text></g>
+      <g id="call-checks"><title>checkProposal: legal hours, company window, weekly cap, approval setting, playbook, member preference</title><rect class="box proposed" x="756" y="158" width="220" height="72" rx="12"/>
+        <text class="t1" x="772" y="186">Checks pass</text><text class="t2" x="772" y="208">law · company · member</text></g>
+      <g id="call-saved"><title>Future: the worker saves the next step (workflow_runs wake time) and cancels any older pending step</title><rect class="box future" x="512" y="158" width="220" height="72" rx="12"/>
+        <text class="t1" x="528" y="186">Next step saved</text><text class="t2" x="528" y="208">worker writes the row</text></g>
+      <g id="call-doorway"><title>Existing: the place-call job (services/worker/src/handlers/place-call.ts) calls voice.place, which runs guard() first</title><rect class="box" x="268" y="158" width="220" height="72" rx="12"/>
+        <text class="t1" x="284" y="186">18:30: place-call job</text><text class="t2" x="284" y="208">voice.place runs guard()</text></g>
+      <g id="call-vapi"><title>Stub today: VOICE_STUB in services/worker/src/jobs.ts throws (STATE.md, Slice 4 brings the real call)</title><rect class="box stub" x="24" y="158" width="220" height="72" rx="12"/>
+        <text class="t1" x="40" y="186">The phone call</text><text class="t2" x="40" y="208">stub today (Slice 4)</text></g>
+      <path class="edge" d="M244,56 H266" marker-end="url(#ah3)"/>
+      <path class="edge" d="M488,56 H510" marker-end="url(#ah3)"/>
+      <path class="edge" d="M732,56 H754" marker-end="url(#ah3)"/>
+      <path class="edge" d="M866,92 V156" marker-end="url(#ah3)"/>
+      <path class="edge" d="M756,194 H734" marker-end="url(#ah3)"/>
+      <path class="edge" d="M512,194 H490" marker-end="url(#ah3)"/>
+      <path class="edge" d="M268,194 H246" marker-end="url(#ah3)"/>
+    </svg>
+    </div>
+    <div class="hint">Scroll sideways to see the whole figure.</div>
+    <figcaption>At a company that approves every call (scenario 2), "Checks pass" becomes a task for a person instead, and nothing is scheduled until they approve.</figcaption>
+  </figure>
+</section>
+
+<section id="isolation">
+  <div class="q">How can one company's data never reach another's run?</div>
+  <h2>Isolation, at every door</h2>
+  <p class="answer">The run's identity comes from the job, never from the model, and every door is built around it. There is no tool
+  parameter where an id could even be typed.</p>
+  <div class="grid g4">
+    <div class="card"><h3>Repository and tools</h3><p class="why"><code>openScope</code> refuses a lead of another company or a user outside it. The reader it returns takes no ids, and every tool closes over it, so the model cannot name another lead. In the product: <code>withOrg</code> plus <code>org_id</code> in every query.</p></div>
+    <div class="card"><h3>Retrieval</h3><p class="why">Knowledge search filters by company first, then ranks; memories by company and lead. Retrieved text enters fenced as data, and no line can close its fence.</p></div>
+    <div class="card"><h3>Sessions</h3><p class="why">One fresh in-memory Pi session per run, never resumed for another lead, never written to disk, and nothing loaded from disk: no extensions, skills or AGENTS.md.</p></div>
+    <div class="card"><h3>Memory writes</h3><p class="why">The model writes only to this lead. A fact that sounds company-wide becomes a review task for an admin; company rules change only in the console.</p></div>
+  </div>
+</section>
+
+<section id="budget">
+  <div class="q">How big is the context, and what does compaction do?</div>
+  <h2>A fixed budget per section, rebuilt every run</h2>
+  <p class="answer">Each section has its own token budget, so a long conversation can never crowd the rules or the lead's consent out of
+  the prompt. Older messages are dropped first and counted.</p>
+  <figure class="figure" style="margin:0">
+    <div class="scroll">
+    <svg id="fig-budget" viewBox="0 0 1000 250" role="img" aria-labelledby="fig-budget-title">
+      <title id="fig-budget-title">Token budget per context section, and how Pi's compaction shortens one run's history</title>
+      <text class="t3" x="16" y="22">WHAT EVERY REQUEST STARTS WITH · about 1,550 tokens at most (BUDGET in src/context.ts)</text>
+      <g id="seg-ins"><title>Instructions (INSTRUCTIONS in src/session.ts): about 170 tokens</title><rect class="seg-ins" x="16" y="34" width="117" height="54" rx="6"/><text class="t2" x="26" y="58">instructions</text><text class="t3" x="26" y="76">~170</text></g>
+      <g id="seg-rules"><title>Company goal and rules: 200 tokens</title><rect class="seg-company" x="133" y="34" width="123" height="54"/><text class="t2" x="143" y="58">rules</text><text class="t3" x="143" y="76">200</text></g>
+      <g id="seg-knowledge"><title>Product knowledge matching the last message: 300 tokens</title><rect class="seg-company" x="256" y="34" width="185" height="54"/><text class="t2" x="266" y="58">knowledge</text><text class="t3" x="266" y="76">300</text></g>
+      <g id="seg-member"><title>Member: 80 tokens</title><rect class="seg-member" x="441" y="34" width="49" height="54"/><text class="t3" x="449" y="66">80</text></g>
+      <g id="seg-facts"><title>Lead facts and consent: 200 tokens, separate from the conversation</title><rect class="seg-lead" x="490" y="34" width="123" height="54"/><text class="t2" x="500" y="58">facts</text><text class="t3" x="500" y="76">200</text></g>
+      <g id="seg-memories"><title>Lead memories: 200 tokens</title><rect class="seg-lead" x="613" y="34" width="123" height="54"/><text class="t2" x="623" y="58">memories</text><text class="t3" x="623" y="76">200</text></g>
+      <g id="seg-talk"><title>Conversation, newest first: 400 tokens</title><rect class="seg-lead" x="736" y="34" width="248" height="54" rx="6"/><text class="t2" x="746" y="58">conversation, newest first</text><text class="t3" x="746" y="76">400</text></g>
+
+      <text class="t3" x="16" y="134">INSIDE ONE LONG RUN · Pi's compaction (settings in leadSessionOptions)</text>
+      <g id="cmp-system"><title>The system prompt above is sent with every request and is never compacted</title><rect class="seg-ins" x="16" y="146" width="160" height="54" rx="6"/><text class="t2" x="26" y="170">system prompt</text><text class="t3" x="26" y="188">sent every time</text></g>
+      <g id="cmp-old"><title>Older turns of this run: replaced by a summary once the window fills</title><rect class="seg-old" x="176" y="146" width="230" height="54"/><text class="t2" x="186" y="170">older turns</text><text class="t3" x="186" y="188">become a summary →</text></g>
+      <g id="cmp-sum"><title>Compaction's summary: lossy; never the source of truth</title><rect class="seg-sum" x="406" y="146" width="130" height="54"/><text class="t2" x="416" y="170">summary</text><text class="t3" x="416" y="188">lossy</text></g>
+      <g id="cmp-keep"><title>The most recent 8,000 tokens are kept verbatim</title><rect class="seg-keep" x="536" y="146" width="300" height="54"/><text class="t2" x="546" y="170">recent turns kept</text><text class="t3" x="546" y="188">8,000 tokens</text></g>
+      <g id="cmp-res"><title>4,096 tokens reserved for the model's reply</title><rect class="seg-res" x="836" y="146" width="148" height="54" rx="6"/><text class="t2" x="846" y="170">reply reserve</text><text class="t3" x="846" y="188">4,096 tokens</text></g>
+      <text class="t2" x="16" y="232">Runs are short, so compaction is a safety net. Anything that must survive is a row, read again next run.</text>
+    </svg>
+    </div>
+    <div class="hint">Scroll sideways to see the whole figure.</div>
+  </figure>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><h3>Why compaction is not memory</h3>
+      <ul class="tight">
+        <li>It summarises <em>this run's</em> history only; the next run starts fresh from rows.</li>
+        <li>A summary is lossy: a consent change or a promised call time could be paraphrased away. Consent, stage and next steps are rows, re-read every run, and the checks read rows, never summaries.</li>
+        <li>It costs a model call of its own, and can fail when the provider is down.</li>
+      </ul></div>
+    <div class="card"><h3>Who updates memory, and when</h3>
+      <ul class="tight">
+        <li><strong>Lead:</strong> the model proposes with <code>remember_about_lead</code>; the worker writes <code>contact_memories</code> after the run, superseding rather than editing.</li>
+        <li><strong>Member:</strong> only the member, in the console.</li>
+        <li><strong>Company:</strong> only admins. A model's company-wide idea waits as a review task.</li>
+      </ul></div>
+  </div>
+</section>
+
+<section id="pi">
+  <div class="q">Which parts of Pi does this use?</div>
+  <h2>The Pi pieces, and what each is set to</h2>
+  <p class="answer">Pi's own agent loop does the turn-taking; this prototype only composes it. Everything Pi would otherwise discover from
+  the machine is supplied explicitly (the pattern of Pi's <code>examples/sdk/12-full-control.ts</code>).</p>
+  <div class="tablecard">
+    <table>
+      <thead><tr><th>Pi piece</th><th>Set to</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td class="name"><code>createAgentSession</code></td><td>Called only in <code>openLeadSession</code>, which returns the session unprompted</td><td>The host decides whether and when to run the model; nothing here calls it</td></tr>
+        <tr><td class="name"><code>tools</code> + <code>customTools</code></td><td>Allowlist of the three lead tools, defined with <code>defineTool</code> and TypeBox schemas</td><td>Pi's own read, bash, edit and write tools are not on the list; no sending tool exists</td></tr>
+        <tr><td class="name"><code>ResourceLoader</code></td><td>Hand-written: no extensions, skills, prompt templates, themes or AGENTS.md; fixed instructions plus fenced context</td><td>Nothing on the machine can change what the agent is told</td></tr>
+        <tr><td class="name"><code>SessionManager</code></td><td><code>inMemory()</code></td><td>One run's scratch history; the database is the record</td></tr>
+        <tr><td class="name"><code>SettingsManager</code></td><td><code>inMemory()</code>: compaction on (keep 8,000, reserve 4,096), cache warming off</td><td>No settings files read; no model request the host did not ask for</td></tr>
+        <tr><td class="name"><code>model</code>, <code>modelRuntime</code></td><td>Brought by the host</td><td>The prototype holds no credentials and picks no model</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="status">
+  <div class="q">What is real here?</div>
+  <h2>Built, placeholder, future, and what already exists</h2>
+  <div class="grid g4">
+    <div class="card"><div class="col-h"><span class="chip green">Built and tested</span></div>
+      <ul class="tight">
+        <li>Tenant-scoped reader that takes no ids</li>
+        <li>Proposal checks: law, company, member</li>
+        <li>Context per scope, budgeted, fenced</li>
+        <li>Memory write rules per scope</li>
+        <li>Pi options: tool allowlist, loader, in-memory session and settings</li>
+        <li>Session factory that never prompts</li>
+      </ul></div>
+    <div class="card"><div class="col-h"><span class="chip gold">Placeholder or illustrative</span></div>
+      <ul class="tight">
+        <li>Intent: keyword rules, no score, says so</li>
+        <li>Companies, members, leads: made up</li>
+        <li>Knowledge search: shared words, not embeddings</li>
+        <li>Outbox: held in memory, not written</li>
+      </ul></div>
+    <div class="card"><div class="col-h"><span class="chip">Future: named only</span></div>
+      <ul class="tight">
+        <li>A measured intent method</li>
+        <li>Tools: read history, send WhatsApp, schedule the next touch, hand over (Slice 3)</li>
+        <li>Worker writing the outbox; approval tasks</li>
+        <li>Member preferences table</li>
+        <li>Token and spend limits per lead (Slice 3)</li>
+        <li>Evals before a version goes live</li>
+      </ul></div>
+    <div class="card"><div class="col-h"><span class="chip">Exists in Revenue OS</span></div>
+      <ul class="tight">
+        <li><code>withOrg</code> and row-level security</li>
+        <li><code>guard()</code> and the channel doorways</li>
+        <li>Contact-memory retrieval and its fence</li>
+        <li>Tables: contacts, messages, tasks, guardrail_policies, contact_memories</li>
+        <li>Today's agent loop, <code>runTurn</code>, which this does not replace</li>
+      </ul></div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>Open questions, deliberately left for Slice 3</h3>
+    <p class="question">Should Pi's loop replace <code>runTurn</code> in <code>packages/harness/src/loop.ts</code>, or sit beside it until it passes the test conversations?</p>
+    <p class="question">Should a run's Pi transcript be kept, as rows in <code>messages</code> or as an export, for audit and the data loop?</p>
+    <p class="question">One session per event (this sketch) or one per lead resumed across events? Per event keeps every run anchored to fresh rows.</p>
+  </div>
+</section>
+
+<section id="source">
+  <div class="q">Where is each box in the code?</div>
+  <h2>Source map</h2>
+  <p class="answer">Paths are relative to <code>experiments/pi-sales-harness/</code> unless they start with <code>packages/</code>, <code>services/</code> or <code>supabase/</code>.</p>
+  <div class="tablecard">
+    <table>
+      <thead><tr><th>In the figures</th><th>File</th><th>Names</th></tr></thead>
+      <tbody>
+        <tr><td>2 · Set the scope; isolation</td><td><code>src/tenancy.ts</code></td><td><code>TrustedScope</code>, <code>openScope</code>, <code>ScopedReader</code>, <code>Rows</code></td></tr>
+        <tr><td>3 · Build context; budget figure</td><td><code>src/context.ts</code></td><td><code>assembleLeadContext</code>, <code>renderContext</code>, <code>BUDGET</code></td></tr>
+        <tr><td>4 · Fresh Pi session; Pi pieces</td><td><code>src/session.ts</code></td><td><code>leadSessionOptions</code>, <code>leadResourceLoader</code>, <code>openLeadSession</code>, <code>INSTRUCTIONS</code></td></tr>
+        <tr><td>5 · Model uses tools</td><td><code>src/session.ts</code>, <code>src/intent.ts</code></td><td><code>leadTools</code>, <code>proposeNextAction</code>, <code>rememberAboutLead</code>, <code>placeholderIntent</code>, <code>intentInputOf</code></td></tr>
+        <tr><td>6 · Proposal checks; guardrails figure</td><td><code>src/policy.ts</code></td><td><code>checkProposal</code>, <code>LEGAL_CALL_WINDOW</code></td></tr>
+        <tr><td>7 · Save the outbox; memory rules</td><td><code>src/session.ts</code>, <code>src/context.ts</code></td><td><code>Outbox</code>, <code>MEMORY_WRITES</code></td></tr>
+        <tr><td>Scenarios and made-up rows</td><td><code>src/fixtures.ts</code>, <code>src/inspect.ts</code></td><td><code>ROWS</code>, <code>SCENARIOS</code></td></tr>
+        <tr><td>Tests for all of the above</td><td><code>pi-sales-harness.test.ts</code></td><td>20 tests, no model and no network</td></tr>
+        <tr><td>One company's rows (existing)</td><td><code>packages/db/src/client.ts</code>, <code>supabase/migrations/003_crm.sql</code>, <code>004_conversations.sql</code>, <code>006_harness.sql</code></td><td><code>withOrg</code>; contacts, messages, contact_memories, knowledge_chunks, guardrail_policies, tasks</td></tr>
+        <tr><td>8 · When it is due (existing)</td><td><code>packages/channels/src/voice.ts</code>, <code>packages/channels/src/whatsapp.ts</code>, <code>packages/harness/src/policies.ts</code></td><td><code>place</code>, <code>send</code>, <code>guard</code></td></tr>
+        <tr><td>Fenced memory today (existing)</td><td><code>packages/harness/src/retrieval.ts</code></td><td><code>retrieveMemories</code>, <code>memoryBlock</code></td></tr>
+        <tr><td>Stubs on the send path (existing)</td><td><code>services/worker/src/jobs.ts</code></td><td><code>VOICE_STUB</code>, <code>WA_STUB</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="try">
+  <div class="q">How do I look at it without a model?</div>
+  <h2>Try it: no model, no credentials, nothing sent</h2>
+  <div class="grid g3">
+    <div class="card"><h3>See every scenario</h3><p class="why">Prints the Pi options, the context by scope and each decision.</p>
+      <pre class="cmd">bun install
+bun experiments/pi-sales-harness/src/inspect.ts</pre></div>
+    <div class="card"><h3>Run the tests</h3><p class="why">The repo's test setup checks the local stack first, as for every test.</p>
+      <pre class="cmd">bun test experiments/pi-sales-harness</pre></div>
+    <div class="card"><h3>Type-check against Pi</h3><p class="why">Checks the code against Pi 1.0.4's real declarations.</p>
+      <pre class="cmd">bun run typecheck</pre></div>
+  </div>
+</section>
+
+<footer>
+  Prototype for understanding only: nothing in <code>apps/</code>, <code>services/</code> or <code>packages/</code> imports it, and it is not on the
+  roadmap. Design: the console's own tokens (<code>apps/console/src/index.css</code>). Pi's documentation: <code>docs/sdk.md</code>,
+  <code>docs/extensions.md</code>, <code>docs/sessions.md</code>, <code>docs/compaction.md</code> and <code>docs/security.md</code> in
+  <code>node_modules/@earendil-works/pi-coding-agent</code>.
+</footer>
+</div>
+</body>
+</html>
