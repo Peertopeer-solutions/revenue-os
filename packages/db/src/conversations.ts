@@ -38,3 +38,31 @@ export async function conversationMessages(
     }));
   });
 }
+
+export interface ConversationRow {
+  id: string;
+  channel: string;
+  status: string;
+  direction: string;
+  contact_name: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+export async function listConversations(
+  pool: pg.Pool,
+  orgId: string,
+): Promise<ConversationRow[]> {
+  return withOrg(pool, orgId, async (tx) => {
+    const result = await tx.query(
+      `select c.id, c.channel, c.status, c.direction,
+              nullif(trim(concat(ct.first_name, ' ', ct.last_name)), '') as contact_name,
+              c.started_at::text as started_at, c.ended_at::text as ended_at
+         from conversations c
+         left join contacts ct on ct.id = c.contact_id
+        order by c.started_at desc nulls last
+        limit 100`,
+    );
+    return result.rows;
+  });
+}

@@ -8,13 +8,29 @@ export {
 } from "./agents";
 export { type ActorType, type AuditEntry, audit } from "./audit";
 export { createPool, type PoolClient, withOrg } from "./client";
-export { type ImportSummary, importContacts } from "./contacts";
-export { conversationMessages, type TranscriptRow } from "./conversations";
+export {
+  type ContactRow,
+  type ImportSummary,
+  importContacts,
+  listContacts,
+} from "./contacts";
+export {
+  type ConversationRow,
+  conversationMessages,
+  listConversations,
+  type TranscriptRow,
+} from "./conversations";
 export {
   type GuardrailPolicyRow,
   listGuardrailPolicies,
   upsertGuardrailPolicy,
 } from "./guardrails";
+export {
+  type FunnelMetrics,
+  funnelMetrics,
+  funnelTrends,
+  type TrendRow,
+} from "./metrics";
 export {
   addMember,
   createOrgWithAdmin,
@@ -24,15 +40,4 @@ export {
   updateOrg,
   userOrgs,
 } from "./orgs";
-export {
-  type ContactRow,
-  type ConversationRow,
-  type FunnelMetrics,
-  funnelMetrics,
-  funnelTrends,
-  listContacts,
-  listConversations,
-  listTasks,
-  type TaskRow,
-  type TrendRow,
-} from "./screens";
+export { listTasks, type TaskRow } from "./tasks";

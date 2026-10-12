@@ -2,7 +2,7 @@
 // 30-day daily time series { day, new_leads, conversations_started, bookings }. Tenancy-critical
 // (an org-scoped read endpoint), so this asserts every non-negotiable: 401 without a token,
 // 403 for a non-member, and — the load-bearing case — org B's activity NEVER counts in org A's
-// trends. Series semantics MUST mirror funnelMetrics (packages/db/src/screens.ts) exactly:
+// trends. Series semantics MUST mirror funnelMetrics (packages/db/src/metrics.ts) exactly:
 //   new_leads             = contacts where deleted_at is null,          bucketed by created_at::date
 //   conversations_started = conversations,                              bucketed by started_at::date
 //   bookings              = outcomes where kind = 'booking',            bucketed by occurred_at::date
