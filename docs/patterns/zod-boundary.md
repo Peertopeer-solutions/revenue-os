@@ -30,7 +30,7 @@ A schema used inside one module stays next to it: each AI tool declares its argu
 // packages/harness/src/loop.ts
       const parsed = tool.schema.safeParse(call.args);
       if (!parsed.success) {
-        // hallucination seatbelt (T11): invalid args never reach execute()
+        // the seatbelt against made-up arguments: invalid args never reach execute()
         await appendMessage(ctx, conversationId, {
           role: "tool",
           toolCall: {

@@ -156,8 +156,7 @@ type Action =
   | { kind: "send_wa";     contactId: string; template: string; vars: Record<string,string> }
   | { kind: "run_agent_turn"; conversationId: string }
   | { kind: "create_task"; task: TaskDraft }
-  | { kind: "write_outcome"; outcome: OutcomeDraft }
-  | { kind: "handoff";     conversationId: string; context: string };
+  | { kind: "write_outcome"; outcome: OutcomeDraft };
 ```
 
 ### T26.2 Workflow definition format — the JSON, explicitly
