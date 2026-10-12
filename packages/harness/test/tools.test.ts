@@ -146,6 +146,17 @@ describe("update_contact", () => {
     expect(upd).toBeDefined();
     expect(upd?.values).toContain(CONTACT);
     expect(upd?.values).toContain("Renamed");
+    expect(upd?.values).toContain(ORG); // the company filter, beside the database's own rules
+  });
+
+  it("execute reports an update that matched no lead (a wrong id, or another company's lead) as contact_not_found", async () => {
+    const { db } = recordingDb(); // answers rowCount 0
+    expect(
+      await updateContact.execute(
+        { orgId: ORG, db },
+        { contactId: CONTACT, firstName: "Renamed" },
+      ),
+    ).toEqual({ ok: false, error: "contact_not_found" });
   });
 });
 
@@ -352,12 +363,13 @@ describe.skipIf(!hasDb)(
     });
 
     it("cross-tenant denial: update_contact under org B cannot mutate org A's contact (RLS)", async () => {
-      await withOrg(appService, orgB, (tx) =>
+      const result = await withOrg(appService, orgB, (tx) =>
         updateContact.execute(
           { orgId: orgB, db: tx },
           { contactId: contactA, firstName: "Hacked" },
         ),
       );
+      expect(result).toEqual({ ok: false, error: "contact_not_found" });
       const row = await admin.query(
         `select first_name from contacts where id = $1`,
         [contactA],

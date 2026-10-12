@@ -5,7 +5,7 @@
 set -u
 here="$(cd "$(dirname "$0")" && pwd)/guards"
 fail=0
-for guard in service-role.sh public-address.sh console-bundle.sh pattern-files.ts anthropic-sdk.sh raw-html.sh; do
+for guard in service-role.sh public-address.sh console-bundle.sh pattern-files.ts anthropic-sdk.sh raw-html.sh company-filter.ts; do
   case "$guard" in
     *.ts) bun "$here/$guard" ;;
     *) bash "$here/$guard" ;;

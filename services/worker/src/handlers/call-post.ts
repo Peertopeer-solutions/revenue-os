@@ -1,4 +1,4 @@
-// T7 (task-47) — call.post handler: the dead-letter SINK for a failed / retry-exhausted call
+// The call.post handler: the dead-letter SINK for a failed / retry-exhausted call
 // job. In ONE withOrg(orgId) tx it records the failure (workflow_runs.last_error + a `review`
 // task on the run) so a human can act — and NEVER throws (a poisoned payload, a missing id, or a
 // DB error must not crash the queue; the sink is the last line of defense).
@@ -31,8 +31,8 @@ export async function handleCallPost(
   try {
     await withOrg(deps.pool, orgId, async (tx) => {
       await tx.query(
-        `update workflow_runs set last_error = $2, updated_at = now() where id = $1`,
-        [runId, error ?? "call job failed"],
+        `update workflow_runs set last_error = $2, updated_at = now() where id = $1 and org_id = $3`,
+        [runId, error ?? "call job failed", orgId],
       );
       await tx.query(
         `insert into tasks (org_id, workflow_run_id, kind, title, payload)

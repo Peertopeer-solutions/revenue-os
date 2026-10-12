@@ -1,6 +1,7 @@
-// T6 (task-46) — the run writer. Creates a workflow_run at the definition's entry step,
-// schedulable at once (wake_at = now, status 'pending'). The scheduler tick (scheduler.ts)
-// drives it from there. The only DB door is withOrg (db-design §1, S1.3): one org-scoped tx.
+// The run writer. Creates a workflow_run at the definition's entry step, schedulable at once
+// (wake_at = now, status 'pending'). The scheduler tick (scheduler.ts) drives it from there. The
+// only DB door is withOrg (docs/security.md S1.3): one org-scoped tx. The sequence is the company's
+// own or a shared template; another company's sequence is "not found".
 import { withOrg } from "@revenue-os/db";
 import { WorkflowDefinitionSchema } from "@revenue-os/harness";
 import type { Pool } from "pg";
@@ -27,8 +28,8 @@ export async function startRun(
 ): Promise<string> {
   return withOrg(pool, orgId, async (tx) => {
     const wf = await tx.query<{ definition: unknown }>(
-      `select definition from workflows where id = $1`,
-      [input.workflowId],
+      `select definition from workflows where id = $1 and (org_id = $2 or org_id is null)`,
+      [input.workflowId, orgId],
     );
     const wfRow = wf.rows[0];
     if (!wfRow) {

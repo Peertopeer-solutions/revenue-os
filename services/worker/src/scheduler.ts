@@ -1,13 +1,15 @@
-// T6 (task-46) — the scheduler tick. Selects an org's due runs, drives each through the pure
-// interpreter (packages/harness), and applies the resulting transitions in ONE per-run tx:
-// external actions become pgboss.job rows, inline actions are written in the same tx, then the
-// run row advances. The clock is a seam: ctx.now decides dueness (the M2 SimClock drives it).
+// The scheduler tick. Selects an org's due runs, drives each through the pure interpreter
+// (packages/harness), and applies the resulting transitions in ONE per-run tx: external actions
+// become pgboss.job rows, inline actions are written in the same tx, then the run row advances.
+// Every query on a company table also filters by the org (a run's sequence may be a shared
+// template). The clock is a seam: ctx.now decides dueness (the tests' simulated clock,
+// test/fixtures/sim-clock.ts, drives it).
 //
 // Isolation (load-bearing): every run runs in its OWN withOrg tx. A run selected FOR UPDATE
-// SKIP LOCKED that another tick holds is skipped, not blocked (criterion 5). A run whose apply
-// hits a DB error rolls its whole tx back — enqueue included — and is left 'waiting', never
-// advanced (criterion 2 atomicity). A run whose definition dangles (interpret throws) is
-// dead-lettered: status 'failed', last_error captured, and the tick keeps going (criterion 6).
+// SKIP LOCKED that another tick holds is skipped, not blocked. A run whose apply hits a DB error
+// rolls its whole tx back — enqueue included — and is left 'waiting', never advanced (atomicity).
+// A run whose definition dangles (interpret throws) is dead-lettered: status 'failed', last_error
+// captured, and the tick keeps going.
 import { withOrg } from "@revenue-os/db";
 import {
   type Action,
@@ -19,14 +21,14 @@ import {
 import type { Pool, PoolClient } from "pg";
 import { logger } from "./logger";
 
-/** The clock seam (criterion 7): the M2 SimClock injects `now`; production passes new Date(). */
+/** The clock seam: the tests' simulated clock injects `now`; production passes new Date(). */
 export type TickCtx = { now: Date };
 
 /** One tick's summary — how many due runs were advanced (or dead-lettered) this tick. */
 export type TickResult = { processed: number };
 
 /**
- * External-action queues, one per action kind. T6→T8 contract: the worker MUST createQueue()
+ * External-action queues, one per action kind. The worker (jobs.ts) MUST createQueue()
  * each of these (policy 'short') at startup — pgboss.job is partitioned BY LIST(name) with an
  * FK to pgboss.queue, so the raw insert below FK-fails against a queue that does not exist yet.
  */
@@ -45,7 +47,8 @@ const MAX_STEPS = 64;
 // Apply-phase retry ceiling. A rolled-back apply leaves the run 'waiting' with the SAME wake_at,
 // so the next tick re-selects it: without a bound a deterministically poisoned run burns a tick
 // slot every minute forever and never surfaces to an operator. Failures below the ceiling are
-// still RETRIED (STATE.md DECISIONS "T6 scheduler DB-error policy"); at it the run is dead-lettered.
+// still RETRIED (STATE.md → Decisions in force, "Scheduler database-error policy"); at it the run
+// is dead-lettered.
 const MAX_APPLY_FAILURES = 3;
 /** attempts key for the apply-failure log. Not a channel — guardrails read 'voice' / 'whatsapp'. */
 const APPLY_ERRORS = "apply_errors";
@@ -86,14 +89,14 @@ export async function tick(
 ): Promise<TickResult> {
   const { now } = ctx;
 
-  // Enumerate candidate ids (RLS-scoped by withOrg). A plain read is enough: the per-run tx
-  // below re-locks each id FOR UPDATE SKIP LOCKED, which is the authoritative concurrency guard.
+  // Enumerate candidate ids (this org's, by RLS and by filter). A plain read is enough: the per-run
+  // tx below re-locks each id FOR UPDATE SKIP LOCKED, which is the authoritative concurrency guard.
   const ids = await withOrg(pool, orgId, async (tx) => {
     const r = await tx.query<{ id: string }>(
       `select id from workflow_runs
-        where status in ('pending', 'waiting') and wake_at <= $1
+        where org_id = $2 and status in ('pending', 'waiting') and wake_at <= $1
         order by wake_at`,
-      [now],
+      [now, orgId],
     );
     return r.rows.map((row) => row.id);
   });
@@ -134,9 +137,9 @@ async function processRun(
   const locked = await tx.query<RunRow>(
     `select id, workflow_id, contact_id, current_step, state, attempts
        from workflow_runs
-      where id = $1 and status in ('pending', 'waiting') and wake_at <= $2
+      where id = $1 and org_id = $3 and status in ('pending', 'waiting') and wake_at <= $2
       for update skip locked`,
-    [id, now],
+    [id, now, orgId],
   );
   const run = locked.rows[0];
   if (!run) return false; // held by another tick (SKIP LOCKED), or no longer due
@@ -150,8 +153,8 @@ async function processRun(
   };
   try {
     const defRow = await tx.query<{ definition: unknown }>(
-      `select definition from workflows where id = $1`,
-      [run.workflow_id],
+      `select definition from workflows where id = $1 and (org_id = $2 or org_id is null)`,
+      [run.workflow_id, orgId],
     );
     const wf = defRow.rows[0];
     if (!wf) {
@@ -163,8 +166,8 @@ async function processRun(
     await tx.query(
       `update workflow_runs
           set status = 'failed', last_error = $2, updated_at = now()
-        where id = $1`,
-      [id, errorMessage(err)],
+        where id = $1 and org_id = $3`,
+      [id, errorMessage(err), orgId],
     );
     return true;
   }
@@ -182,7 +185,7 @@ async function processRun(
  * commits for this run this tick. It appends the failure timestamp to attempts.apply_errors and,
  * at MAX_APPLY_FAILURES, dead-letters the run — 'failed' is outside the selection's
  * `status in ('pending','waiting')`, so a poisoned run stops being re-picked. Never throws: a
- * bookkeeping failure may not abort the tick (criterion 6).
+ * bookkeeping failure may not abort the tick.
  */
 async function recordApplyFailure(
   pool: Pool,
@@ -196,9 +199,9 @@ async function recordApplyFailure(
       // SKIP LOCKED: a concurrent tick holding the run owns its bookkeeping — never block here.
       const locked = await tx.query<{ attempts: unknown }>(
         `select attempts from workflow_runs
-          where id = $1 and status in ('pending', 'waiting')
+          where id = $1 and org_id = $2 and status in ('pending', 'waiting')
           for update skip locked`,
-        [id],
+        [id, orgId],
       );
       if (!locked.rows[0]) return; // already terminal, or held by another tick
       const attempts = normalizeAttempts(locked.rows[0].attempts);
@@ -209,12 +212,13 @@ async function recordApplyFailure(
             set attempts = $2::jsonb, last_error = $3,
                 status = case when $4::boolean then 'failed' else status end,
                 updated_at = now()
-          where id = $1`,
+          where id = $1 and org_id = $5`,
         [
           id,
           JSON.stringify(attempts),
           errorMessage(err),
           failures >= MAX_APPLY_FAILURES,
+          orgId,
         ],
       );
     });
@@ -246,8 +250,8 @@ function drive(
     const transition = interpret(def, state, { type: "wake" }, now);
     out.push({ step, transition });
     if (transition.runStatus !== "running") return { steps: out, state };
-    // Advancing OUT of a routing step (a `call` re-entry or a `branch`) CONSUMES lastDisposition
-    // (M2 P0): clear it so a same-tick chain (call->call) sees the next routing step FRESH, and so
+    // Advancing OUT of a routing step (a `call` re-entry or a `branch`) CONSUMES lastDisposition:
+    // clear it so a same-tick chain (call->call) sees the next routing step FRESH, and so
     // applyTransitions persists a cleared state — never a stale disposition for the next tick.
     // EXCEPTION: keep it alive across a call->branch hop, so the branch routes on the SAME qualified
     // disposition (the seeded qualification path: qualify_call -> route -> book). The branch's own
@@ -308,7 +312,7 @@ async function applyTransitions(
     `update workflow_runs
         set status = $2, current_step = $3, state = $4::jsonb, wake_at = $5,
             attempts = $6::jsonb, completed_at = $7, updated_at = now()
-      where id = $1`,
+      where id = $1 and org_id = $8`,
     [
       run.id,
       final.runStatus,
@@ -317,6 +321,7 @@ async function applyTransitions(
       final.wakeAt,
       JSON.stringify(attempts),
       final.runStatus === "completed" ? iso : null,
+      orgId,
     ],
   );
 }
@@ -325,15 +330,16 @@ async function applyTransitions(
  * Enqueue an external action as a pgboss job on the queue named after the action kind. Writes the
  * DEFAULT partition `pgboss.job_common` directly: pg-boss v12 partitions `job` BY LIST(name) and
  * every writer — pg-boss's own `send` included — targets the leaf partition, never the parent
- * routing shell. Non-partitioned queues (policy 'short', the T6→T8 default) land in job_common,
+ * routing shell. Non-partitioned queues (policy 'short', the queues' default) land in job_common,
  * which is where the `job_i1` dedup index lives and which app_service owns (migration 015). This
  * also sidesteps a privilege split: app_service is not the parent `job`'s effective DML owner in
  * some stacks, but always owns the partition it works through (proven by the pg-boss send path).
  * Idempotent by singleton_key `<runId>:<step>:<idx>` + policy 'short' (job_i1 dedupes while
- * state='created'), so a re-tick of a still-parked run no-ops. Payload = ids + action only; T7
- * re-scopes via withOrg. `step`/`idx` ride the payload so the HANDLER's own exactly-once marker
- * identifies THIS SEND, not the template — two steps may legitimately share one template (the
- * reminder cadence), and the two dedupe layers must agree. Returns true iff a row was inserted.
+ * state='created'), so a re-tick of a still-parked run no-ops. Payload = ids + action only; the
+ * job handler re-scopes via withOrg. `step`/`idx` ride the payload so the HANDLER's own
+ * exactly-once marker identifies THIS SEND, not the template — two steps may legitimately share one
+ * template (the reminder cadence), and the two dedupe layers must agree. Returns true iff a row was
+ * inserted.
  */
 async function enqueueJob(
   tx: PoolClient,
@@ -394,24 +400,6 @@ async function applyInlineAction(
          (org_id, workflow_run_id, contact_id, kind, title, payload)
        values ($1, $2, $3, $4, $5, $6::jsonb)`,
       [orgId, runId, run.contact_id, kind, title, JSON.stringify(payload)],
-    );
-    return;
-  }
-  if (action.kind === "handoff") {
-    // conversationId rides the payload (not the FK column) — the run's conversation may not exist.
-    await tx.query(
-      `insert into tasks
-         (org_id, workflow_run_id, contact_id, kind, title, payload)
-       values ($1, $2, $3, 'handoff', 'Human handoff', $4::jsonb)`,
-      [
-        orgId,
-        runId,
-        run.contact_id,
-        JSON.stringify({
-          conversationId: action.conversationId,
-          context: action.context,
-        }),
-      ],
     );
     return;
   }

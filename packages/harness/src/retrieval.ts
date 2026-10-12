@@ -1,9 +1,9 @@
-// task-54 (M2) — contact-memory retrieval + the S8.4 labeled data block it renders into.
-// Deterministic recall, not RAG: LIVE rows only (superseded_by is null — the reason the partial
-// index memories_contact exists, 006_harness.sql:123), ordered by kind priority
-// (summary > preference > objection > fact) then recency. Embeddings are M4, gated on Voyage.
-// The frame and the budget live together on purpose: "memories ≤800 tokens" (context.ts:3) is a
-// cap on the BLOCK, so the row selection has to know exactly what the block costs.
+// Contact-memory retrieval + the labelled data block it renders into (docs/security.md S8.4).
+// Deterministic recall, not RAG: the company's LIVE rows only (superseded_by is null — the reason
+// the partial index memories_contact exists, migration 006_harness.sql), ordered by kind priority
+// (summary > preference > objection > fact) then recency. Embeddings wait on a Voyage key.
+// The frame and the budget live together on purpose: "memories ≤800 tokens" (context.ts's header)
+// is a cap on the BLOCK, so the row selection has to know exactly what the block costs.
 // Spec: packages/harness/test/retrieval.test.ts. G1: runtime-agnostic.
 import type { OrgCtx } from "./types";
 
@@ -44,18 +44,19 @@ export async function retrieveMemories(
   conversationId: string,
 ): Promise<Memory[]> {
   // The contact is never caller-supplied: it is read off the conversation through the same
-  // RLS-bound handle (S8.3). A missing/denied conversation or an unresolved contact_id
-  // (nullable — "unknown caller until resolved") means NO memory read, never an unscoped one.
+  // RLS-bound handle (docs/security.md S8.3), filtered by company too. A missing or other company's conversation, or
+  // an unresolved contact_id (nullable — "unknown caller until resolved"), means NO memory read,
+  // never an unscoped one.
   const conv = await ctx.db.query(
-    `select contact_id from conversations where id = $1`,
-    [conversationId],
+    `select contact_id from conversations where id = $1 and org_id = $2`,
+    [conversationId, ctx.orgId],
   );
   const contactId = conv.rows[0]?.contact_id;
   if (!contactId) return [];
 
   const r = await ctx.db.query(
     `select kind, content from contact_memories
-      where contact_id = $1 and superseded_by is null
+      where contact_id = $1 and org_id = $2 and superseded_by is null
       order by case kind
                  when 'summary' then 0
                  when 'preference' then 1
@@ -65,7 +66,7 @@ export async function retrieveMemories(
                end,
                created_at desc
       limit 50`,
-    [contactId],
+    [contactId, ctx.orgId],
   );
 
   // Whole rows only — a truncated memory is a lie the model will repeat as fact. The first row

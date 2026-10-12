@@ -363,7 +363,7 @@ describe("assembleContext — composition preserved", () => {
     expect(system).toContain(MEM_OPEN); // and the block is there too
   });
 
-  it("leaves the transcript tail untouched (same query, same seq order)", async () => {
+  it("keeps the transcript tail's size and seq order, and reads only the company's own messages", async () => {
     const { ctx, calls } = stubCtx({ memories: LIVE_ROWS });
     const { messages } = await assembleContext(ctx, CONV, BASE);
     expect(messages).toEqual([
@@ -371,7 +371,7 @@ describe("assembleContext — composition preserved", () => {
       { role: "agent", content: "This is Asha from Prestige." },
     ]);
     const tail = calls.find((c) => /\bmessages\b/i.test(c.text));
-    expect(tail?.values).toEqual([CONV, 50]); // TRANSCRIPT_TAIL unchanged
+    expect(tail?.values).toEqual([CONV, 50, ORG]); // TRANSCRIPT_TAIL unchanged, then the company filter
   });
 });
 

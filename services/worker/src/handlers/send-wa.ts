@@ -1,12 +1,13 @@
-// T7 (task-47) — send_wa job handler. In ONE withOrg(orgId) tx:
+// The send_wa job handler. In ONE withOrg(orgId) tx, with every query also filtered by the job's company:
 //   1. reload the run FOR UPDATE (serializes re-deliveries + reads run/contact vars); NO-OP if
 //      this send was ALREADY delivered. The scheduler already advanced the run past the whatsapp
 //      step, so staleness is a DURABLE marker (a wa_message usage row keyed by a deterministic fn
 //      of the job) — NOT the run step. Exactly-once against a re-delivery.
-//   2. guard() BEFORE the send (moat #4) via the channels wa doorway (wa.send).
-//   3. MERGE run/contact vars into the step's template vars (T5->T7 contract: send_wa must not go
-//      out empty) — run/contact vars OVERRIDE step vars on key collision — then send; record the
-//      outbound message + usage (the usage row is the durable exactly-once marker).
+//   2. guard() BEFORE the send (guardrails run before every send) via the channels wa doorway
+//      (wa.send).
+//   3. MERGE run/contact vars into the step's template vars (the doorway forwards vars as given, so
+//      send_wa must not go out empty) — run/contact vars OVERRIDE step vars on key collision — then
+//      send; record the outbound message + usage (the usage row is the durable exactly-once marker).
 import type { GuardedAction, OrgCtx, Verdict } from "@harness/types";
 import { wa } from "@revenue-os/channels";
 import { withOrg } from "@revenue-os/db";
@@ -61,8 +62,8 @@ export async function handleSendWa(
 
     // 1. lock the run (serializes re-deliveries) + read run/contact vars; NO-OP if delivered.
     const reload = await tx.query(
-      `select state from workflow_runs where id = $1 for update`,
-      [runId],
+      `select state from workflow_runs where id = $1 and org_id = $2 for update`,
+      [runId, orgId],
     );
     const run = reload.rows[0];
     if (!run) return; // RLS-hidden (cross-tenant) or gone
@@ -82,7 +83,7 @@ export async function handleSendWa(
 
     // 2 + 3. MERGE (run/contact vars WIN) then guard BEFORE the send.
     const vars = { ...action.vars, ...(state.vars ?? {}) };
-    const to = await resolveTo(tx, action.contactId);
+    const to = await resolveTo(tx, orgId, action.contactId);
     const doorway = await wa.send(
       { sender: deps.sender, guard: deps.guard },
       ctx,
@@ -126,13 +127,17 @@ export async function handleSendWa(
   });
 }
 
-/** Resolve the contact's WhatsApp destination (E.164), primary first. */
-async function resolveTo(tx: PoolClient, contactId: string): Promise<string> {
+/** Resolve the company's contact's WhatsApp destination (E.164), primary first. */
+async function resolveTo(
+  tx: PoolClient,
+  orgId: string,
+  contactId: string,
+): Promise<string> {
   const r = await tx.query(
     `select value from contact_identities
-      where contact_id = $1 and kind = 'whatsapp'
+      where org_id = $1 and contact_id = $2 and kind = 'whatsapp'
       order by is_primary desc, created_at asc limit 1`,
-    [contactId],
+    [orgId, contactId],
   );
   return (r.rows[0]?.value as string) ?? "";
 }
