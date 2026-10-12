@@ -203,6 +203,35 @@ describe("the AI's update_contact tool", () => {
       error: "contact_not_found",
     });
   });
+
+  // behaviour already on main: main's update never wrote a name the AI left out either; this holds the new fixed statement's coalesce to that
+  it("on the product's own login, keeps the name the AI leaves out", async () => {
+    const id = await one(
+      `insert into contacts (org_id, first_name, last_name) values ($1, 'Meera', 'Shah') returning id`,
+      [a],
+    );
+    const update = (names: { firstName?: string; lastName?: string }) =>
+      withOrg(appService, a, (tx) =>
+        updateContact.execute(
+          { orgId: a, db: tx },
+          { contactId: id, ...names },
+        ),
+      );
+    const names = async () =>
+      (
+        await admin.query(
+          `select first_name, last_name from contacts where id = $1`,
+          [id],
+        )
+      ).rows[0];
+    expect(await update({ firstName: "Mira" })).toEqual({
+      ok: true,
+      data: null,
+    });
+    expect(await names()).toEqual({ first_name: "Mira", last_name: "Shah" });
+    expect(await update({ lastName: "Rao" })).toEqual({ ok: true, data: null });
+    expect(await names()).toEqual({ first_name: "Mira", last_name: "Rao" });
+  });
 });
 
 describe("the AI's turn", () => {

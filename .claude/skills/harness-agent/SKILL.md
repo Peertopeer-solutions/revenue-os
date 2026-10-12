@@ -22,7 +22,7 @@ description: Use BEFORE touching packages/harness — the turn loop, tools, guar
 - The fixed step map in `packages/harness/src/workflow/` is frozen until Slice 3 deletes it: no new step kinds and no new logic that branches on the call's one-word result (moving where that result arrives is allowed; STATE.md → Decisions in force holds the decision). The verifier rules FAIL on either.
 
 ## Commands
-every check `bun run gate` · a live demo on seeded data `bun run demo` · the eval suite `bun run evals` (it can't find a company today: see STATE.md → What works today).
+every check `bun run gate` · one scripted lead driven through the real engine, in a throwaway company of its own, `bun run demo` · the eval suite `bun run evals` (it can't find a company today: see STATE.md → What works today).
 
 ## Learned since this router was written (dynamic — run it, don't skip)
 `grep -inE 'harness|guard|tool|T26|LLM|turn|autonomy' lessons.md` and read `STATE.md → Decisions in force`.
