@@ -59,14 +59,16 @@ async function main(): Promise<void> {
     const orgId = orgRow.rows[0].id as string;
 
     const summary = await withOrg(pool, orgId, async (tx) => {
-      // Resolve the agent under test: --agent <key> (newest version) or the org's sole agent.
+      // Resolve the agent under test, the org's own or a shared template: --agent <key> (newest
+      // version) or the only one there is.
       const agentRow = agentArg
         ? await tx.query(
-            "select id, model, system_prompt, tools_allowed from agents where key = $1 order by version desc limit 1",
-            [agentArg],
+            "select id, model, system_prompt, tools_allowed from agents where key = $1 and (org_id = $2 or org_id is null) order by version desc limit 1",
+            [agentArg, orgId],
           )
         : await tx.query(
-            "select id, model, system_prompt, tools_allowed from agents",
+            "select id, model, system_prompt, tools_allowed from agents where (org_id = $1 or org_id is null)",
+            [orgId],
           );
       if (agentArg && agentRow.rowCount === 0)
         throw new Error(`no agent matches '${agentArg}'`);

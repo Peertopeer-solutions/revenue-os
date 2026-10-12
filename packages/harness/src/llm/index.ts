@@ -1,23 +1,5 @@
-// T26.1 llm/ — provider adapters behind ONE interface, selected by config string
-// ("anthropic:fast" · "anthropic:mid"). Real adapters (raw fetch per T19) land with P1's
-// talking demo; the interface is the contract the loop is tested against (fake in tests).
+// The model client's sub-barrel: the Anthropic adapter, raw fetch with no SDK (docs/tech-stack.md T19). The live
+// worker builds its client from it in services/worker/src/jobs.ts (makeProvider) and hands it to each job handler;
+// tests use a scripted fake behind the same LlmProvider interface (src/types.ts).
 // G1: runtime-agnostic.
-import type { LlmProvider } from "../types";
-
-const providers = new Map<string, LlmProvider>();
-
-export function registerProvider(key: string, provider: LlmProvider): void {
-  providers.set(key, provider);
-}
-
-export function selectProvider(key: string): LlmProvider {
-  const p = providers.get(key);
-  if (!p)
-    throw new Error(
-      `no LLM provider registered for '${key}' (register at app startup)`,
-    );
-  return p;
-}
-
-// Real adapters (raw fetch per T19) — the sub-barrel's public surface.
 export { createAnthropicProvider } from "./anthropic";

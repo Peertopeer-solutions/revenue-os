@@ -1,11 +1,12 @@
 // biome-ignore-all lint/suspicious/noThenProperty: `then` is a workflow step field (data,
-// not a thenable) in the T26.2 definition JSON, e.g. { kind:"wait", for:"PT2H", then:"..." }.
-// T1 (T26.2) — workflow-definition JSON schema + the workflow type contract.
+// not a thenable) in the definition JSON, e.g. { kind:"wait", for:"PT2H", then:"..." }.
+// The workflow-definition JSON schema (docs/tech-stack.md T26.2) + the workflow type contract.
 //
 // WorkflowDefinitionSchema validates workflows.definition: a CLOSED discriminated union on
 // `kind` (an out-of-set kind fails safeParse). The TYPE contract below is the spec the
-// interpreter, the scheduler (T6), and the handlers (T7) satisfy; types live HERE in
-// src/workflow/ — never in the shared src/types.ts. G1: runtime-agnostic (no bun:* imports).
+// interpreter, the scheduler (services/worker/src/scheduler.ts) and the job handlers satisfy;
+// types live HERE in src/workflow/ — never in the shared src/types.ts. G1: runtime-agnostic (no
+// bun:* imports).
 import { z } from "zod";
 
 /** Closed set of step kinds. Adding one is a code change + ADR, never ad-hoc JSON. */
@@ -46,8 +47,8 @@ export type WorkflowDefinition = {
  *    • parked on a `call` step  → the call OUTCOME  (completed | no_answer | busy | failed)
  *    • parked on a `branch` step → the semantic DISPOSITION (qualified | callback | dnc | …)
  *  One field suffices for the interpreter because a run parks on exactly one routing step
- *  at a time. (SEE the T1 report: the M2 `completed`→branch chain needs the handler to fold
- *  the DISPOSITION when a connected call routes toward a branch — a T6/T7 concern, flagged.) */
+ *  at a time. (When a connected call routes on to a branch, the scheduler's `drive` keeps the
+ *  disposition across that hop, so the branch routes on it.) */
 export type WorkflowState = {
   currentStep?: string;
   lastDisposition?: string;
@@ -59,8 +60,9 @@ export type WorkflowState = {
 /** The only event the scheduler emits at V1: the cron tick waking a due run. */
 export type WorkflowEvent = { type: "wake" };
 
-/** A guardable side effect the scheduler enqueues as a pg-boss job. Guardrail checks are
- *  NOT here — they run per-action in the executor, so a policy change never re-interprets. */
+/** A side effect of a transition: the scheduler enqueues place_call, send_wa and run_agent_turn
+ *  as pg-boss jobs and writes create_task and write_outcome in the run's own tx. Guardrail checks
+ *  are NOT here — they run per-action in the executor, so a policy change never re-interprets. */
 export type Action =
   | { kind: "place_call"; contactId: string; agentKey: string }
   | {
@@ -71,8 +73,7 @@ export type Action =
     }
   | { kind: "run_agent_turn"; conversationId: string }
   | { kind: "create_task"; task: Record<string, unknown> }
-  | { kind: "write_outcome"; outcome: Record<string, unknown> }
-  | { kind: "handoff"; conversationId: string; context: string };
+  | { kind: "write_outcome"; outcome: Record<string, unknown> };
 
 /** The pure interpreter's output — applied atomically by the scheduler in one tx. */
 export type Transition = {
@@ -120,13 +121,14 @@ const StepSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("end") }),
 ]);
 
-/** The runtime validator for workflows.definition (the JSON in tech-stack T26.2). */
+/** The runtime validator for workflows.definition (the JSON in docs/tech-stack.md T26.2). */
 export const WorkflowDefinitionSchema = z.object({
   entry: z.string(),
   steps: z.record(z.string(), StepSchema),
 });
 
-/** tasks.kind CHECK set, 006_harness.sql:87. */
+/** The tasks.kind CHECK set (the tasks table in supabase/migrations/006_harness.sql). 'handoff' is
+ *  live: a sequence's tool step creates a hand-over task with it. */
 const TASK_KINDS = [
   "approval",
   "callback",
@@ -138,7 +140,8 @@ const TASK_KINDS = [
 /** The AUTHOR-owned half of a create_task action: the `args` of a `tool` step. tasks.kind and
  *  tasks.title are `not null` and kind is CHECK-constrained, so a payload missing either can
  *  NEVER insert — the interpreter validates here rather than emitting SQL the DB rejects on
- *  every tick. Extra keys pass through: applyTransitions destructures them into tasks.payload. */
+ *  every tick. Extra keys pass through: the scheduler's applyInlineAction destructures them into
+ *  tasks.payload. */
 export const TaskContentSchema = z
   .object({ kind: z.enum(TASK_KINDS), title: z.string().min(1) })
   .catchall(z.unknown());

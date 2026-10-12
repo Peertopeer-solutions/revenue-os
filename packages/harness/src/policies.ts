@@ -1,12 +1,12 @@
-// T26.1 — guard() pipeline: config-driven checks that run before ANY side effect (S8.2,
-// moat invariant #4 — no code path around them). Hooks are ordered; first failing verdict wins.
-// The skeleton ships the pipeline + the autonomy hook; dnc/quiet-hours/attempt-caps/spend-caps
-// hooks land with packages/channels (P2) and read guardrail_policies rows.
+// The guard() pipeline: config-driven checks that run before ANY side effect (docs/security.md S8.2; AGENTS.md:
+// guardrails run before every send, with no code path around them). Hooks are ordered; first failing verdict wins.
+// It holds the autonomy, do-not-call, calling-hours and attempt-limit checks; the last three read only the company's
+// own guardrail_policies rows, contacts and runs. A spending limit does not exist yet.
 // G1: runtime-agnostic.
 import { isWithinQuietHours } from "./quiet-hours";
 import type { GuardedAction, OrgCtx, PolicyHook, Verdict } from "./types";
 
-/** Autonomy tiers: forbidden blocks outright; approval routes to a human task (T26.5). */
+/** Autonomy tiers: forbidden blocks outright; approval routes to a human task (runTurn in loop.ts). */
 export const autonomyHook: PolicyHook = async (_ctx, action) => {
   if (action.autonomy === "forbidden")
     return { ok: false, reason: "forbidden" };
@@ -24,7 +24,7 @@ const DEFAULT_TZ = "Asia/Kolkata";
  * exclusive; tz 'contact' resolves per-contact (falling back to Asia/Kolkata), else a literal
  * IANA zone. Deliberately FAIL-OPEN: this is a courtesy gate, so a missing/malformed policy or
  * any DB hiccup returns null (pass) rather than blocking every send — a transient read error
- * must not silence all outbound traffic. (The future DNC hook is hard-safety and fails CLOSED;
+ * must not silence all outbound traffic. (The DNC hook below is hard-safety and fails CLOSED;
  * do not copy this posture there.)
  */
 export const quietHoursHook: PolicyHook = async (ctx, action) => {
@@ -32,8 +32,8 @@ export const quietHoursHook: PolicyHook = async (ctx, action) => {
   if (!action.channel) return null;
   try {
     const policy = await ctx.db.query(
-      "select config from guardrail_policies where key = $1 and active = true limit 1",
-      ["quiet_hours"],
+      "select config from guardrail_policies where key = $1 and org_id = $2 and active = true limit 1",
+      ["quiet_hours", ctx.orgId],
     );
     const config = policy.rows[0]?.config as
       | Record<string, unknown>
@@ -57,14 +57,14 @@ export const quietHoursHook: PolicyHook = async (ctx, action) => {
     if (tzMode === "contact") {
       const c = action.contactId
         ? await ctx.db.query(
-            "select timezone from contacts where id = $1 limit 1",
-            [action.contactId],
+            "select timezone from contacts where id = $1 and org_id = $2 limit 1",
+            [action.contactId, ctx.orgId],
           )
         : undefined;
       const row = c?.rows[0];
       if (!row) {
-        // No identity (or a deleted/cross-tenant id) ⇒ no timezone. A courtesy gate may not GUESS
-        // one: fail open, but never silently — the skip is the observable decision (task-56 AC2).
+        // No identity (or a deleted id, or another company's) ⇒ no timezone. A courtesy gate may not
+        // GUESS one: fail open, but never silently — the skip is the observable decision.
         ctx.onGuardEvent?.({
           hook: "quiet_hours",
           reason: "unresolved_contact_tz",
@@ -91,21 +91,21 @@ export const quietHoursHook: PolicyHook = async (ctx, action) => {
 
 /**
  * DNC guardrail: blocks outbound SENDS to a contact whose consent flag is set
- * (contacts.consent->>'dnc', default row `{"dnc": false, ...}` 003_crm.sql:32). The action's
+ * (contacts.consent->>'dnc', default `{"dnc": false, ...}` in migration 003_crm.sql). The action's
  * contactId is the "do-not-contact THIS person" signal. Hard-safety, so it FAILS CLOSED — any
  * read error blocks (never fall open to a send on uncertainty). A channel-less tool carries no
  * send, so it returns null BEFORE any DB read: a DB outage must not block the plain-tool path.
- * task-56: an UNRESOLVABLE identity (no contactId, or an id matching zero rows — deleted,
- * hallucinated, or another tenant's under RLS) is strictly less knowledge than a failed read, so
- * it blocks too. You may not send to someone whose consent you cannot look up.
+ * An UNRESOLVABLE identity (no contactId, or an id matching zero rows — deleted, hallucinated, or
+ * another company's) is strictly less knowledge than a failed read, so it blocks too. You may not
+ * send to someone whose consent you cannot look up.
  */
 export const dncHook: PolicyHook = async (ctx, action) => {
   if (!action.channel) return null; // plain-tool path — never DNC-gated, never DB-read
   if (!action.contactId) return { ok: false, reason: "dnc" };
   try {
     const res = await ctx.db.query(
-      "select consent from contacts where id = $1 limit 1",
-      [action.contactId],
+      "select consent from contacts where id = $1 and org_id = $2 limit 1",
+      [action.contactId, ctx.orgId],
     );
     const row = res.rows[0];
     if (!row) return { ok: false, reason: "dnc" }; // unknown recipient ⇒ unknowable consent
@@ -120,9 +120,10 @@ export const dncHook: PolicyHook = async (ctx, action) => {
 /**
  * Attempt-cap guardrail: blocks a SEND once a contact has hit the per-channel cap within its
  * rolling window (guardrail_policies key 'attempt_caps', config {"<channel>":{max,per_hours}},
- * grounded in the seed real_estate.sql:46 / b2b_wholesale.sql:41). Attempts are per-channel
- * ISO-timestamp ARRAYS on workflow_runs.attempts (006_harness.sql:62), read via the runs_contact
- * index (:71, newest run). An unconfigured channel = no cap. FAILS CLOSED on a read error to
+ * as the seed packs real_estate.sql and b2b_wholesale.sql set it). Attempts are per-channel
+ * ISO-timestamp ARRAYS on workflow_runs.attempts (migration 006_harness.sql), read from the
+ * company's newest run of the contact through the runs_contact index (org_id, contact_id,
+ * created_at desc). An unconfigured channel = no cap. FAILS CLOSED on a read error to
  * match its hard-safety class (grouped with DNC).
  */
 export const attemptCapHook: PolicyHook = async (ctx, action) => {
@@ -130,8 +131,8 @@ export const attemptCapHook: PolicyHook = async (ctx, action) => {
   if (!channel) return null; // plain-tool path — no send to cap
   try {
     const policy = await ctx.db.query(
-      "select config from guardrail_policies where key = $1 and active = true limit 1",
-      ["attempt_caps"],
+      "select config from guardrail_policies where key = $1 and org_id = $2 and active = true limit 1",
+      ["attempt_caps", ctx.orgId],
     );
     const config = policy.rows[0]?.config as
       | Record<string, { max?: number; per_hours?: number }>
@@ -146,8 +147,8 @@ export const attemptCapHook: PolicyHook = async (ctx, action) => {
     }
 
     const run = await ctx.db.query(
-      "select attempts from workflow_runs where contact_id = $1 order by created_at desc limit 1",
-      [action.contactId],
+      "select attempts from workflow_runs where contact_id = $1 and org_id = $2 order by created_at desc limit 1",
+      [action.contactId, ctx.orgId],
     );
     const attempts = run.rows[0]?.attempts as
       | Record<string, string[]>

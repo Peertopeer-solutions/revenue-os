@@ -21,26 +21,32 @@ export async function funnelMetrics(
     // interleave on the same connection, which pg deprecation-warns on and can misbehave).
     const newLeads = await tx.query(
       `select count(*)::int as n from contacts
-        where deleted_at is null and created_at >= now() - interval '30 days'`,
+        where org_id = $1 and deleted_at is null and created_at >= now() - interval '30 days'`,
+      [orgId],
     );
     const conversationsStarted = await tx.query(
       `select count(*)::int as n from conversations
-        where started_at >= now() - interval '30 days'`,
+        where org_id = $1 and started_at >= now() - interval '30 days'`,
+      [orgId],
     );
     const conversationsCompleted = await tx.query(
       `select count(*)::int as n from conversations
-        where status = 'completed' and ended_at >= now() - interval '30 days'`,
+        where org_id = $1 and status = 'completed' and ended_at >= now() - interval '30 days'`,
+      [orgId],
     );
     const qualified = await tx.query(
       `select count(*)::int as n from outcomes
-        where kind = 'qualified' and occurred_at >= now() - interval '30 days'`,
+        where org_id = $1 and kind = 'qualified' and occurred_at >= now() - interval '30 days'`,
+      [orgId],
     );
     const bookings = await tx.query(
       `select count(*)::int as n from outcomes
-        where kind = 'booking' and occurred_at >= now() - interval '30 days'`,
+        where org_id = $1 and kind = 'booking' and occurred_at >= now() - interval '30 days'`,
+      [orgId],
     );
     const openTasks = await tx.query(
-      `select count(*)::int as n from tasks where status = 'open'`,
+      `select count(*)::int as n from tasks where org_id = $1 and status = 'open'`,
+      [orgId],
     );
     return {
       new_leads: newLeads.rows[0].n,
@@ -60,15 +66,15 @@ export interface TrendRow {
   bookings: number;
 }
 
-// Task 51 (spec §12 — Analytics "Trends"): the 30-day daily series behind funnelMetrics' tiles.
-// The three series predicates MIRROR funnelMetrics exactly — new_leads = live contacts by
-// created_at::date, conversations_started = conversations by started_at::date, bookings = 'booking'
-// outcomes by occurred_at::date — so each daily total sums to the matching tile. Gap-filled to
-// EXACTLY 30 rows via generate_series(0..29) → current_date-29 … current_date (ascending): a
-// no-activity day is a zero row, never omitted. Series are windowed by the same 30 calendar days
-// the tiles span, so out-of-window rows count in neither. Explicit `org_id = $1` in every series is
-// the drizzle-query.md belt-and-suspenders (withOrg RLS is the net; funnelMetrics omits it, this
-// doesn't — agreement is unaffected, both run inside the same org scope).
+// The dashboard's trends chart: the 30-day daily series behind funnelMetrics' tiles. The three
+// series count what the tiles count — new_leads = live contacts by created_at::date,
+// conversations_started = conversations by started_at::date, bookings = 'booking' outcomes by
+// occurred_at::date — but per calendar day over current_date - 29 … current_date, while the tiles
+// count the rolling 30 days before now(). So a tile and its series' sum can differ by the partial
+// first day of the tile's window. Gap-filled to EXACTLY 30 rows via generate_series(0..29),
+// ascending: a no-activity day is a zero row, never omitted. Like each of funnelMetrics' counts,
+// every series filters by company (`org_id = $1`) on top of the database's per-company rules
+// (docs/patterns/drizzle-query.md).
 export async function funnelTrends(
   pool: pg.Pool,
   orgId: string,

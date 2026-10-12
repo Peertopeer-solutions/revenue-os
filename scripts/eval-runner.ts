@@ -1,4 +1,4 @@
-// task-59 — the eval runner's testable library: load eval_scenarios, drive each against the real
+// The eval runner's testable library: load eval_scenarios, drive each against the real
 // harness runTurn (provider + persona-player seams INJECTED), capture sends instead of delivering,
 // mechanically score must_capture / expect_outcome, and persist one eval_runs row per scenario.
 //
@@ -15,7 +15,7 @@ import {
 } from "@revenue-os/harness";
 // JSONB boundaries → Zod (schemas live in packages/shared, the canonical home — never
 // re-declared locally). A row that fails ANY of the three is a malformed scenario: it is
-// recorded in errors[] and skipped, never thrown (criterion 1).
+// recorded in errors[] and skipped, never thrown.
 import {
   ScenarioAssertionsSchema,
   ScenarioPersonaSchema,
@@ -124,15 +124,15 @@ export async function loadScenarios(
   // Scope to the org's OWN scenarios (deterministic: global org_id-null packs are out of scope
   // for a single-org eval run). RLS would also permit globals; the explicit filter keeps runs
   // reproducible regardless of what else is seeded.
-  const params: unknown[] = [ctx.orgId];
-  let sql =
-    "select id, key, persona, script, assertions from eval_scenarios where org_id = $1";
-  if (opts?.scenario) {
-    params.push(opts.scenario);
-    sql += " and key = $2";
-  }
-  sql += " order by key";
-  const res = await ctx.db.query(sql, params);
+  const res = opts?.scenario
+    ? await ctx.db.query(
+        "select id, key, persona, script, assertions from eval_scenarios where org_id = $1 and key = $2 order by key",
+        [ctx.orgId, opts.scenario],
+      )
+    : await ctx.db.query(
+        "select id, key, persona, script, assertions from eval_scenarios where org_id = $1 order by key",
+        [ctx.orgId],
+      );
 
   for (const row of res.rows) {
     const key = typeof row.key === "string" ? row.key : null;
@@ -221,8 +221,8 @@ async function appendContactMessage(
   content: string,
 ): Promise<void> {
   const seqRes = await ctx.db.query(
-    "select coalesce(max(seq), 0) + 1 as seq from messages where conversation_id = $1",
-    [conversationId],
+    "select coalesce(max(seq), 0) + 1 as seq from messages where org_id = $1 and conversation_id = $2",
+    [ctx.orgId, conversationId],
   );
   const seq = Number(seqRes.rows[0]?.seq ?? 1);
   await ctx.db.query(
@@ -243,13 +243,17 @@ async function observe(
   const captured: Record<string, unknown> = {};
   if (mustCapture.length > 0) {
     const row =
-      (await ctx.db.query("select * from contacts where id = $1", [contactId]))
-        .rows[0] ?? {};
+      (
+        await ctx.db.query(
+          "select * from contacts where org_id = $1 and id = $2",
+          [ctx.orgId, contactId],
+        )
+      ).rows[0] ?? {};
     for (const field of mustCapture) captured[field] = row[field];
   }
   const oc = await ctx.db.query(
-    "select kind from outcomes where conversation_id = $1 order by created_at desc limit 1",
-    [conversationId],
+    "select kind from outcomes where org_id = $1 and conversation_id = $2 order by created_at desc limit 1",
+    [ctx.orgId, conversationId],
   );
   const outcome =
     typeof oc.rows[0]?.kind === "string" ? (oc.rows[0].kind as string) : null;
@@ -297,7 +301,7 @@ export async function runScenario(
   scenario: ParsedScenario,
 ): Promise<ScenarioResult> {
   // Wrap the injected send so this scenario's captures surface on the result, while the real
-  // eval-mode capture port still records them for the caller (criterion 3: never delivered).
+  // eval-mode capture port still records them for the caller (an eval never delivers a message).
   const captured: CapturedSend[] = [];
   const send: SendPort = async (c, msg) => {
     captured.push({ ctx: c, msg });
@@ -383,7 +387,7 @@ export async function runEvals(
       });
     }
   }
-  // A malformed row (criterion 1) is a recorded failure with an error, not a thrown run.
+  // A malformed row is a recorded failure with an error, not a thrown run.
   for (const e of errors) {
     results.push({
       key: e.key ?? "(unparseable)",

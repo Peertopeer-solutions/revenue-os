@@ -209,14 +209,14 @@ export async function demo(deps: DemoDeps): Promise<DemoResult> {
   // 6. TERMINAL — read back the run's resting state and its voice conversation.
   const terminal = await withOrg(pool, orgId, async (tx) => {
     const r = await tx.query<{ status: string; current_step: string }>(
-      `select status, current_step from workflow_runs where id = $1`,
-      [runId],
+      `select status, current_step from workflow_runs where org_id = $1 and id = $2`,
+      [orgId, runId],
     );
     const convo = await tx.query<{ id: string }>(
       `select id from conversations
-        where workflow_run_id = $1 and channel = 'voice'
+        where org_id = $1 and workflow_run_id = $2 and channel = 'voice'
         order by created_at limit 1`,
-      [runId],
+      [orgId, runId],
     );
     return {
       status: r.rows[0]?.status ?? "unknown",
@@ -323,8 +323,8 @@ if (import.meta.main) {
   const stamp = Date.now();
   const orgId = (
     await admin.query(
-      `insert into orgs (name, slug) values ('Demo Org', $1) returning id`,
-      [`demo-cli-${stamp}`],
+      `insert into orgs (id, name, slug) values ($1, 'Demo Org', $2) returning id`,
+      [crypto.randomUUID(), `demo-cli-${stamp}`],
     )
   ).rows[0].id;
   await admin.query(

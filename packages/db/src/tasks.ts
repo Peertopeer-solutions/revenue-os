@@ -24,8 +24,10 @@ export async function listTasks(
       `select id, kind, status, priority::float8 as priority, title, contact_id, conversation_id,
               due_at::text as due_at, created_at::text as created_at
          from tasks
+        where org_id = $1
         order by (status = 'open') desc, priority asc nulls last, created_at desc
         limit 100`,
+      [orgId],
     );
     return result.rows;
   });

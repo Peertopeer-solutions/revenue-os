@@ -1,6 +1,6 @@
-// T26.5 — the async turn loop, exactly as specified:
-//   assembleContext → provider.complete → meter → zod-parse args → guard() → execute → audit
-//   → append tool result rows → repeat ≤ MAX_TOOL_ROUNDS → persist closing assistant message.
+// The AI's turn loop (docs/tech-stack.md T26.5): build the prompt, ask the model, record usage, validate the tool
+// arguments with zod, run guard(), run the tool, write the audit row, append the tool's result as a message, and repeat
+// up to MAX_TOOL_ROUNDS times before saving the model's closing message.
 // Stateless: every effect is a row; a crash mid-turn loses nothing that matters.
 // G1: runtime-agnostic.
 
@@ -19,10 +19,10 @@ import type {
 
 const MAX_TOOL_ROUNDS = 5;
 
-// task-56 — what guard() is told about a tool call. dnc/quiet-hours/attempt-cap all key on
-// action.channel, so a send that arrives channel-less is a send nobody guards (moat #4: no code
-// path around guard()). Both facts are read off the ZOD-VALIDATED args (the T11 seatbelt has
-// already run): send_confirmation declares {contactId, channel, body}.
+// What guard() is told about a tool call. The do-not-call, calling-hours and attempt-limit checks all key on
+// action.channel, so a send that arrives without a channel is a send nobody guards (AGENTS.md: guardrails run before
+// every send, with no code path around guard()). Both facts are read off the arguments after zod has validated them:
+// send_confirmation declares {contactId, channel, body}.
 const WIRE_CHANNELS = ["voice", "whatsapp", "sms", "email"] as const;
 type WireChannel = (typeof WIRE_CHANNELS)[number];
 
@@ -40,14 +40,14 @@ const wireChannel = (args: unknown): WireChannel | undefined => {
 };
 
 /** The conversation's own contact — the fallback recipient when the args name none (nullable:
- *  "unknown caller until resolved", retrieval.ts:50). Read only for identity-less sends. */
+ *  "unknown caller until resolved", as retrieveMemories says). Read only for identity-less sends. */
 async function conversationContactId(
   ctx: OrgCtx,
   conversationId: string,
 ): Promise<string | undefined> {
   const r = await ctx.db.query(
-    `select contact_id from conversations where id = $1`,
-    [conversationId],
+    `select contact_id from conversations where id = $1 and org_id = $2`,
+    [conversationId, ctx.orgId],
   );
   const id = r.rows[0]?.contact_id;
   return typeof id === "string" ? id : undefined;
@@ -56,7 +56,7 @@ async function conversationContactId(
 export interface TurnDeps {
   provider: LlmProvider;
   registry: ToolRegistry;
-  toolsAllowed: readonly string[]; // agents.tools_allowed — S8.1 capability boundary
+  toolsAllowed: readonly string[]; // agents.tools_allowed — docs/security.md S8.1 capability boundary
   systemPrompt: string;
   pipeline?: PolicyHook[];
   providerName?: string;
@@ -64,8 +64,8 @@ export interface TurnDeps {
 
 async function nextSeq(ctx: OrgCtx, conversationId: string): Promise<number> {
   const r = await ctx.db.query(
-    `select coalesce(max(seq), 0) + 1 as seq from messages where conversation_id = $1`,
-    [conversationId],
+    `select coalesce(max(seq), 0) + 1 as seq from messages where conversation_id = $1 and org_id = $2`,
+    [conversationId, ctx.orgId],
   );
   return Number(r.rows[0]?.seq ?? 1);
 }
@@ -137,7 +137,7 @@ export async function runTurn(
 
       const parsed = tool.schema.safeParse(call.args);
       if (!parsed.success) {
-        // hallucination seatbelt (T11): invalid args never reach execute()
+        // the seatbelt against made-up arguments: invalid args never reach execute()
         await appendMessage(ctx, conversationId, {
           role: "tool",
           toolCall: {
@@ -178,7 +178,7 @@ export async function runTurn(
           meta: { round, ok: result.ok },
         });
       } else if (verdict.reason === "approval_required") {
-        // T26.5: approval-gated → a human task, never a silent drop
+        // approval-gated → a human task, never a silent drop (AGENTS.md hard rail 5)
         await ctx.db.query(
           `insert into tasks (org_id, conversation_id, kind, title, payload)
 					 values ($1, $2, 'approval', $3, $4)`,
