@@ -1,10 +1,15 @@
-// The AI's booking tool, run by the agent-turn job as the worker runs it, when the model names another company's
-// lead (ROADMAP.md, Slice 1): the database refuses to attach company A's site visit to company B's lead, so the turn
-// fails and nothing is written in either company. Slice 3 stops a tool call naming a lead at all; this is the
-// database's own fence beneath it.
+// The AI's tools, run by the agent-turn job as the worker runs it, when the model names another company's lead
+// (ROADMAP.md, Slice 1). Booking: the database refuses to attach company A's site visit to company B's lead, so the
+// turn fails and nothing is written in either company. Renaming: the update filters by company, matches no lead, and
+// the turn records that failure for the model to see. Slice 3 stops a tool call naming a lead at all; these are the
+// fences beneath it.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createPool } from "@revenue-os/db";
-import { buildCatalog, type LlmProvider } from "@revenue-os/harness";
+import {
+  buildCatalog,
+  type LlmProvider,
+  type LlmTurn,
+} from "@revenue-os/harness";
 import pg from "pg";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleAgentTurn } from "../src/handlers/agent-turn";
@@ -110,5 +115,69 @@ describe("the AI's booking tool naming another company's lead", () => {
       [theirLead, [a, b]],
     );
     expect(written.rows[0]?.n).toBe(0);
+  });
+});
+
+describe("the AI's update_contact tool naming another company's lead", () => {
+  it("renames nothing, and the turn records the tool's contact_not_found for the model to see", async () => {
+    const lead = await one(
+      `insert into contacts (org_id, first_name) values ($1, 'Meera') returning id`,
+      [a],
+    );
+    const agent = await one(
+      `insert into agents (org_id, key, status, model, system_prompt, tools_allowed)
+       values ($1, 'renamer', 'active', 'm', 'Keep names right.', '{update_contact}') returning id`,
+      [a],
+    );
+    const conversation = await one(
+      `insert into conversations (org_id, contact_id, agent_id, channel, direction, status)
+       values ($1, $2, $3, 'whatsapp', 'inbound', 'active') returning id`,
+      [a, lead, agent],
+    );
+    await admin.query(
+      `insert into messages (org_id, conversation_id, seq, role, content)
+       values ($1, $2, 1, 'contact', 'Rohan is called Hacked now')`,
+      [a, conversation],
+    );
+    const turns: LlmTurn[] = [
+      {
+        toolCalls: [
+          {
+            name: "update_contact",
+            args: { contactId: theirLead, firstName: "Hacked" },
+          },
+        ],
+        usage: { in: 10, out: 5 },
+      },
+      { text: "I can't change that name.", usage: { in: 10, out: 5 } },
+    ];
+    const provider: LlmProvider = {
+      complete: async () => turns.shift() ?? { usage: { in: 0, out: 0 } },
+    };
+    const registry = buildCatalog({
+      send: async () => {
+        throw new Error("no message is sent in this test");
+      },
+    });
+    await handleAgentTurn(
+      { pool: appPool, provider, registry },
+      {
+        orgId: a,
+        runId,
+        action: { kind: "run_agent_turn", conversationId: conversation },
+      },
+    );
+    const tool = await admin.query<{ tool_call: { result: unknown } }>(
+      `select tool_call from messages where conversation_id = $1 and role = 'tool'`,
+      [conversation],
+    );
+    expect(tool.rows.map((r) => r.tool_call.result)).toEqual([
+      { ok: false, error: "contact_not_found" },
+    ]);
+    const name = await admin.query<{ first_name: string }>(
+      `select first_name from contacts where id = $1`,
+      [theirLead],
+    );
+    expect(name.rows[0]?.first_name).toBe("Rohan");
   });
 });
