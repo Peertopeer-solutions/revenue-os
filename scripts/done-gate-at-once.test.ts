@@ -165,7 +165,7 @@ it("runs two real gate runs at once in two worktrees against the local database,
 
   for (const r of runs) {
     expect(r.out).toContain(
-      "Done gate ✓ typecheck, lint, guards, 1 tests, tests proven, break check, database policies, browser checks",
+      "Done gate ✓ typecheck, lint, guards, tests proven, break check, database policies, 1 tests, browser checks",
     );
     expect(r.code).toBe(0);
   }

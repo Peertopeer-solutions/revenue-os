@@ -183,12 +183,12 @@ const ciStep = (dir: string, name: string, github: Record<string, string>) => {
     ),
   ) as {
     jobs: {
-      checks: {
+      quick: {
         steps: { name?: string; env?: Record<string, string>; run?: string }[];
       };
     };
   };
-  const step = ci.jobs.checks.steps.find((s) => s.name?.startsWith(name));
+  const step = ci.jobs.quick.steps.find((s) => s.name?.startsWith(name));
   const fill = (s: string) =>
     s.replace(
       /\$\{\{(.*?)\}\}/g,

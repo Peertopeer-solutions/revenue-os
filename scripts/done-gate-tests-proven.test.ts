@@ -1009,17 +1009,19 @@ describe("where the check runs", () => {
     });
   });
 
-  it("runs in CI's checks job right after the tests, against the pull request's base, with the job's own files ignored", () => {
+  it("runs in CI's quick job right after the local stack starts, on a database no whole-suite run has filled, against the pull request's base, with the job's own files ignored", () => {
     const ci = Bun.YAML.parse(
       readFileSync(
         join(import.meta.dir, "..", ".github", "workflows", "ci.yml"),
         "utf8",
       ),
     ) as {
-      jobs: { checks: { steps: { run?: string; env?: { BASE?: string } }[] } };
+      jobs: { quick: { steps: { run?: string; env?: { BASE?: string } }[] } };
     };
-    const steps = ci.jobs.checks.steps;
-    const tests = steps.findIndex((s) => s.run === "bun run gate tests");
+    const steps = ci.jobs.quick.steps;
+    const tests = steps.findIndex(
+      (s) => s.run === "bash .github/test-stack.sh",
+    );
     expect(steps[tests + 1]).toMatchObject({
       run: 'git ls-files --others --exclude-standard >> .git/info/exclude\nbun run gate proven --base "$BASE"\n',
       env: { BASE: `origin/\${{ github.base_ref || 'main' }}` },

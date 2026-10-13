@@ -92,23 +92,11 @@ jobs:
         with:
           version: 2.109.1 # as ci.yml
 
+      # As ci.yml: only the database, sign-in, data interface and gateway, failing unless exactly those run; then the
+      # settings the proof's steps read.
       - name: Start local Supabase stack
         if: matrix.slice <= 1
-        run: |
-          test -f supabase/config.toml || supabase init
-          supabase start
-
-      - name: Export local stack env, as ci.yml does
-        if: matrix.slice <= 1
-        run: |
-          eval "$(supabase status -o env | grep -E '^(API_URL|ANON_KEY)=')"
-          {
-            echo "SUPABASE_URL=$API_URL"
-            echo "SUPABASE_ANON_KEY=$ANON_KEY"
-            echo "DATABASE_URL=postgresql://app_service:app_service_local@127.0.0.1:54322/postgres"
-            echo "LOCAL_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-            echo "VAPI_WEBHOOK_SECRET=local-test-secret"
-          } >> "$GITHUB_ENV"
+        run: bash .github/test-stack.sh
 
       # Claude Code, for the steps a model takes part in (Slice 0's scripted agent session and its verifier run),
       # pinned like every other tool (AGENTS.md → Conventions); it runs only with ANTHROPIC_EVALS_KEY.

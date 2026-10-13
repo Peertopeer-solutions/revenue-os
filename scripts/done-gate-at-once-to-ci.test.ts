@@ -18,7 +18,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { CHECKS } from "./done-gate/checks";
-import { AT_ONCE, LEAVE_AT_ONCE } from "./done-gate/tests-ran";
+import { ciJobProblems } from "./done-gate/ci-jobs";
+import { AT_ONCE, AT_ONCE_ALONE, LEAVE_AT_ONCE } from "./done-gate/tests-ran";
 import { twoRunsAtOnce } from "./proof/slice-0-tests";
 import { SLICES } from "./proof/slices";
 
@@ -119,26 +120,31 @@ it("only the gate's tests check sets the switch, and its summary says the file w
   expect(tests?.said?.(out, scratch("at-once-none-"))).toBe("1234 tests");
 });
 
-// behaviour already on main: CI's checks job already runs the whole suite with that test; this fails if it is ever left out there
-it("CI's required `checks` still runs the whole suite with it, and nothing in ci.yml leaves it out", () => {
-  const ci = Bun.YAML.parse(
-    readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8"),
-  ) as {
-    jobs: Record<string, { steps?: { run?: string }[] }>;
-  };
-  const runs = Object.values(ci.jobs).flatMap((j) =>
-    (j.steps ?? []).map((s) => s.run ?? ""),
+it("in CI only the whole-suite job leaves it out, the at-once job runs it alone, and the required `checks` waits for both", () => {
+  const text = readFileSync(
+    join(ROOT, ".github", "workflows", "ci.yml"),
+    "utf8",
   );
-  expect(
-    ci.jobs.checks?.steps?.some((s) => s.run?.trim() === "bun run gate tests"),
-  ).toBe(true);
-  expect(
-    runs.filter((r) =>
-      [LEAVE_AT_ONCE, "path-ignore-patterns", AT_ONCE].some((w) =>
-        r.includes(w),
-      ),
-    ),
-  ).toEqual([]);
+  const ci = Bun.YAML.parse(text) as {
+    jobs: Record<string, { needs?: string[]; steps?: { run?: string }[] }>;
+  };
+  // Each job's id with every run line that names the file, the switch or bun's leave-out.
+  const naming = Object.entries(ci.jobs).flatMap(([id, j]) =>
+    (j.steps ?? [])
+      .map((s) => s.run?.trim() ?? "")
+      .filter((r) =>
+        [LEAVE_AT_ONCE, AT_ONCE_ALONE, "path-ignore-patterns", AT_ONCE].some(
+          (w) => r.includes(w),
+        ),
+      )
+      .map((r) => [id, r]),
+  );
+  expect(naming).toEqual([
+    ["suite", `bun run gate tests ${LEAVE_AT_ONCE}`],
+    ["at-once", `bun run gate tests ${AT_ONCE_ALONE}`],
+  ]);
+  expect(ci.jobs.checks?.needs).toEqual(["quick", "suite", "at-once"]);
+  expect(ciJobProblems(text)).toEqual([]);
 });
 
 // behaviour already on main: Slice 0's proof already runs it; this fails if the proof ever leaves it out
