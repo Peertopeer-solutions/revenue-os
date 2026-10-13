@@ -56,6 +56,8 @@ jobs:
           version: 2.109.1 # must match the local CLI that writes supabase/config.toml: setup-cli's default
           # once installed an older release that can't read the newer config keys; upgrade both together
 
+      # Both steps that run the CLI turn its usage reports (telemetry) off: when it can't send them in time, CLI
+      # 2.109.1 exits 1 after a command that worked, so a listing or a push that succeeded would fail the run.
       - name: Did `checks` pass on this commit, and does the cloud test database need its migrations?
         id: decide
         env:
@@ -64,6 +66,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_TELEMETRY_DISABLED: "1"
         run: bun scripts/staging-migrations.ts
 
       # Migrations are append-only (expand-contract), so `db push` applies only what the database lacks.
@@ -72,6 +75,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_TELEMETRY_DISABLED: "1"
         run: |
           supabase db push --include-all || {
             echo "✗ A migration failed on the cloud test database, and every later run will stop at it until it is fixed: docs/runbooks/staging-migration-failed.md says what to do." | tee -a "$GITHUB_STEP_SUMMARY"
