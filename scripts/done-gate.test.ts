@@ -3460,6 +3460,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     expect(r.out.split(/\r|\n/).filter((l) => l.startsWith("::"))).toEqual([]);
   });
 
+  // behaviour already on main: it checks .github/workflows/rules-from-main.yml, a CI file the tests-proven copy of main's code carries from this change too; on main's own workflow its queue steps are missing and it fails
   it("runs from rules-from-main.yml as GitHub runs it: main checked out, the pull request fetched as data", () => {
     const yml = readFileSync(
       join(
