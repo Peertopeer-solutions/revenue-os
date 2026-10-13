@@ -147,6 +147,13 @@ describe("staging-migrations.yml: the cloud test database changes only after `ch
     ]);
   });
 
+  // behaviour already on main: it checks staging-migrations.yml, which is not product code, so the gate's copy of main carries this change's switch; with main's own workflow it fails
+  it("turns the CLI's usage reports off in both steps that run it, so a report it can't send never fails a command that worked", () => {
+    // runJob shows the decide step failing without it, against the real CLI; agents may not run `supabase db push`.
+    for (const s of [decideStep(), applyStep()])
+      expect(s.env?.SUPABASE_TELEMETRY_DISABLED).toBe("1");
+  });
+
   it("is the only workflow that applies migrations to the cloud: deploy.yml no longer does, on every push", () => {
     const appliers = readdirSync(WORKFLOWS).flatMap((file) =>
       Object.entries(workflow(file.replace(/\.yml$/, "")).jobs).flatMap(
@@ -176,12 +183,16 @@ const PASSED = [
     app: { slug: "github-actions" },
   },
 ];
+// What CLI 2.109.1 printed on stdout, after its listing, when it exited 1 on a loaded Mac (2026-10-13).
+const CLI_ERROR = `{"_tag":"Error","error":{"code":"UnknownError","message":"Timeout while shutting down PostHog. Some events may not have been sent."}}`;
 
 /**
  * One run of the job as GitHub runs it: a checkout whose main holds two migrations and then `change`, fake `gh` and
  * `supabase` that answer with `checks` (GitHub's check runs on the commit) and `cloud` (the versions the cloud test
  * database has), the decide step, then the apply step when the decide step said so. With `cloudUrl`, the real
- * Supabase CLI lists the migrations against that database instead.
+ * Supabase CLI lists the migrations against that database instead, its usage reports (telemetry) sent to a closed
+ * port: when it can't send them in time, CLI 2.109.1 prints a listing that worked and then exits 1 (a loaded Mac,
+ * 2026-10-13), so the run works only because the workflow turns them off, as GitHub's runs need it to.
  */
 function runJob(
   change: (dir: string) => void,
@@ -246,8 +257,8 @@ function runJob(
     "supabase",
     `#!/bin/sh\necho "supabase $*" >> "${bin}/calls.txt"\nif [ "$1 $2" = "migration list" ]; then ${
       cloudUrl
-        ? `exec "${Bun.which("supabase")}" "$@" --db-url "${cloudUrl}"`
-        : `echo "Connecting to remote database..." >&2; cat "${bin}/list.json"; exit ${listFails ? 1 : 0}`
+        ? `exec env SUPABASE_TELEMETRY_POSTHOG_HOST=http://127.0.0.1:9 "${Bun.which("supabase")}" "$@" --db-url "${cloudUrl}"`
+        : `echo "Connecting to remote database..." >&2; cat "${bin}/list.json"; ${listFails ? `echo; echo '${CLI_ERROR}'; exit 1` : "exit 0"}`
     }; fi\nif [ "$1 $2" = "db push" ]; then exit ${pushFails ? 1 : 0}; fi\n`,
   );
   chmodSync(join(bin, "gh"), 0o755);
@@ -447,6 +458,7 @@ describe("the decide step: apply only when the commit changed a migration or the
     const listFails = runJob(add, ["001", "002"], { listFails: true });
     expect([listFails.status, listFails.output]).toEqual([1, ""]);
     expect(listFails.out).toContain("supabase migration list failed");
+    expect(listFails.out).toContain(CLI_ERROR); // the CLI's own reason, which it prints on stdout
     const misread = runJob(add, ["001", "002"], { listed: ["001", "002"] }); // a listing that misses 003_tasks.sql
     expect([misread.status, misread.output]).toEqual([1, ""]);
     expect(misread.out).toContain(
@@ -461,30 +473,35 @@ describe("the decide step: apply only when the commit changed a migration or the
       expect(r.calls.join("\n")).not.toContain("db push");
   });
 
+  // behaviour already on main: its decide step runs with staging-migrations.yml's env, which is not product code, so the gate's copy of main carries this change's switch; with main's own workflow it fails, the CLI's usage reports unsent
   it("reads the real Supabase CLI's listing, with a scratch database on the local stack standing in for the cloud", async () => {
     const doc = (dir: string) => write(dir, "docs/x.md", "a doc\n");
+    // What the step did, and its own words when it exited otherwise than `status`, so a failure says why.
+    const did = (r: ReturnType<typeof runJob>, status: number) => [
+      r.status,
+      r.output,
+      r.applied,
+      r.status === status ? "" : r.out,
+    ];
     const up = runJob(doc, [], { cloudUrl: await cloudOf(["001", "002"]) });
-    expect([up.status, up.output, up.applied]).toEqual([
-      0,
-      "apply=false\n",
-      undefined,
-    ]);
+    expect(did(up, 0)).toEqual([0, "apply=false\n", undefined, ""]);
     expect(up.out).toContain(
       "Skipping: it changed no migration, and the cloud test database has all 2.",
     );
     const behind = runJob(doc, [], { cloudUrl: await cloudOf(["001"]) });
-    expect([behind.status, behind.output]).toEqual([0, "apply=true\n"]);
+    expect(did(behind, 0)).toEqual([0, "apply=true\n", 0, ""]);
     expect(behind.out).toContain(
       "Applying: the cloud test database lacks 002.",
     );
     const fresh = runJob(doc, [], { cloudUrl: await cloudOf() }); // a database no migration has reached yet
+    expect(did(fresh, 0)).toEqual([0, "apply=true\n", 0, ""]);
     expect(fresh.out).toContain(
       "Applying: the cloud test database lacks 001, 002.",
     );
     const ahead = runJob(doc, [], {
       cloudUrl: await cloudOf(["001", "002", "004"]),
     });
-    expect([ahead.status, ahead.output]).toEqual([1, ""]);
+    expect(did(ahead, 1)).toEqual([1, "", undefined, ""]);
     expect(ahead.out).toContain("the cloud test database has 004");
   });
 });
