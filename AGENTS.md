@@ -124,7 +124,8 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
 - Guardrail, tenancy and money code (the paths `GUARDED` in `scripts/done-gate/broken-lines.ts` lists) is
   broken on purpose (`bun run gate broken`, in the gate and in CI): for each line a change adds there, a
   condition on it is flipped and the statement it starts is removed, in a scratch copy, and at least one of the
-  tests that run that line must then fail. TypeScript only: SQL is not broken. It has its own time limit and,
+  tests that run that line must then fail; a test file that runs such a line and fails, or doesn't finish, when run
+  alone on the change fails the check. TypeScript only: SQL is not broken. It has its own time limit and,
   when that runs out, fails naming the lines not yet broken. A deliberate gap is marked at the end of the line
   or alone on the comment line above it, `// break-check gap: <why>`, and the PR body copies it as
   `Break-check mark: <file> · <why>`.
@@ -170,14 +171,18 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    to the next session that starts in that checkout or works there, and sends a stop on a branch
    that builds an item back until its checkpoint was written on the code as you leave it.
 3. `bun run gate` green, run bare — never pipe a gate through anything that can swallow its exit
-   code. It runs typecheck, lint, guards, every test and the RLS check against the real local stack,
-   the change's new and edited tests again on main's code, the break check on guardrail, tenancy and money
-   code, and the browser checks. One test it leaves to CI: the four-runs-at-once test
+   code. It runs typecheck, lint, guards, then the checks on the change alone against the real local stack (the
+   change's new and edited tests again on main's code, the break check on guardrail, tenancy and money code, the
+   RLS check), then every test, then the browser checks. One test it leaves to CI: the four-runs-at-once test
    (services/worker/test/test-runs-at-once.test.ts, four whole-suite runs and a demo started together), left
    out of its whole-suite run by its path (`bun run gate tests --leave-at-once-to-ci`), never skipped; its
-   summary says so and never counts it passed. CI's required `checks` runs it before every merge, which waits
-   for `checks` (step 5), and tests proven still runs it when a change adds or edits it. Never skip, silence
-   or weaken a check to get past it. CI also runs gitleaks, `bun audit` and a Docker build; CI is the verdict.
+   summary says so and never counts it passed. CI runs three jobs at once, each on its own fresh local stack of
+   only the database, sign-in, data interface and gateway (`.github/test-stack.sh`): the quick checks, the whole
+   suite as the Mac runs it, and that one test alone (`bun run gate tests --at-once-alone`); its required
+   `checks` waits for all three and passes only when every one passed (a done rule, `scripts/done-gate/ci-jobs.ts`,
+   refuses a ci.yml where it could pass otherwise). Every merge waits for `checks` (step 5), and tests proven
+   still runs that test when a change adds or edits it. Never skip, silence or weaken a check to get past it. CI
+   also runs gitleaks, `bun audit` and a Docker build; CI is the verdict.
 4. See it work (`bun run see <console path>` saves what a signed-in person sees), then run the
    verifier agent with Devesh's request word for word (when he gave none, the roadmap item's text,
    word for word). PR body: the first line is `Roadmap: Slice N —
