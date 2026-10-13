@@ -77,6 +77,17 @@ jobs:
       # here on a fresh database that no whole-suite run has filled. It judges the checkout as it stands, so files this job
       # made (a build's output, say), which are never the pull request's (its files are all committed), are ignored
       # for it first, or they would count as product code.
+      - name: Diagnose the job queue on a fresh database (demo only)
+        run: |
+          cat > diag.ts <<'TS'
+          import { startJobs, stopJobs } from "./services/worker/src/jobs";
+          try { await startJobs(); console.log("startJobs ok"); await stopJobs(); }
+          catch (e) { console.log("startJobs failed:", e); }
+          process.exit(0);
+          TS
+          bun run local bun diag.ts || true
+          rm diag.ts
+
       - name: Tests proven against main's code
         env:
           BASE: origin/${{ github.base_ref || 'main' }}
