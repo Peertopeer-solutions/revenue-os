@@ -39,6 +39,7 @@ describe("our operator list", () => {
     expect(await isPlatformOperator(appService, crypto.randomUUID())).toBe(
       false,
     );
+    expect(await isPlatformOperator(appService, "not-a-user-id")).toBe(false);
   });
 
   // behaviour already on main: migration 018 is applied to the one local database both copies of the code run against

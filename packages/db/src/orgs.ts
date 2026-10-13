@@ -123,6 +123,8 @@ export async function isPlatformOperator(
   pool: pg.Pool,
   userId: string,
 ): Promise<boolean> {
+  if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(userId))
+    return false;
   const r = await pool.query<{ ok: boolean }>(
     `select app.is_platform_operator($1) as ok`,
     [userId],
