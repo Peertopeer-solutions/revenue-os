@@ -50,14 +50,25 @@ function heldForVerifier(dir: string, when: string): Told {
 }
 
 /**
- * The unverified change committed on a branch whose checks passed, and a stand-in GitHub naming it pull request 7's
- * head, `checks` passed on it and main's tip in it.
+ * The unverified change committed on a branch whose checks passed, and two stand-in GitHubs naming it pull request
+ * 7's head, `checks` passed on it and main's tip in it: one where main's rules hold no merge queue, one where they do
+ * (the merge then queues it). Every merge step checks both.
  */
 function pullRequest(dir: string, base: string) {
   git(dir, "checkout", "-qb", "feat/proof-sample");
   unverified(dir);
   const head = commit(dir, "a sample product change");
-  return { head, env: standInGitHub(dir, join(base, "gh-bin"), head).env };
+  const github = (queue: boolean) =>
+    standInGitHub(dir, join(base, queue ? "gh-queue" : "gh-bin"), head, {
+      queue,
+    }).env;
+  return {
+    head,
+    cases: [
+      { name: "no merge queue", env: github(false) },
+      { name: "a merge queue on main", env: github(true) },
+    ],
+  };
 }
 const merge = (head: string, extra = "") =>
   `gh pr merge 7 --squash${extra} --match-head-commit ${head}`;
@@ -95,16 +106,20 @@ const MERGE_TESTS = [
 ];
 
 export const unverifiedMerge: Step = {
-  does: `Commits that unverified change on a branch and checks that the done gate refuses its merge (\`gh pr merge 7 --squash --match-head-commit <its commit>\`, against a stand-in gh); then runs, by name, the two tests in scripts/done-gate.test.ts the Proof line cites as also proving it ("${MERGE_TESTS.join('" and "')}"), each of which must pass`,
+  does: `Commits that unverified change on a branch and checks that the done gate refuses its merge (\`gh pr merge 7 --squash --match-head-commit <its commit>\`, against a stand-in GitHub, with no merge queue on main's rules and with one); then runs, by name, the two tests in scripts/done-gate.test.ts the Proof line cites as also proving it ("${MERGE_TESTS.join('" and "')}"), each of which must pass`,
   check: async ({ root }) => {
     const refusal = await inScratch(root, ({ dir, base }) => {
-      const { head, env } = pullRequest(dir, base);
-      const m = hook(dir, "PreToolUse", bash(merge(head)), { env });
-      if (!m.refused || !/verif|independent/.test(m.why))
-        throw new Error(
-          `the merge was not refused for want of the verifier: ${said(m)}`,
-        );
-      return `refused: ${said(m)}`;
+      const { head, cases } = pullRequest(dir, base);
+      return cases
+        .map(({ name, env }) => {
+          const m = hook(dir, "PreToolUse", bash(merge(head)), { env });
+          if (!m.refused || !/verif|independent/.test(m.why))
+            throw new Error(
+              `with ${name}, the merge was not refused for want of the verifier: ${said(m)}`,
+            );
+          return `with ${name}, refused: ${said(m)}`;
+        })
+        .join("; ");
     });
     return `${refusal}; ${namedTestsPass(root, "scripts/done-gate.test.ts", MERGE_TESTS)}`;
   },
@@ -183,46 +198,68 @@ export const disallowedModel: Step = {
     }),
 };
 
-/** Pull request 7, its head proven: checks passed and the verifier's own PASS, so a plain merge goes through. */
+/**
+ * Pull request 7, its head proven: checks passed and the verifier's own PASS, so a plain merge goes through, with no
+ * merge queue on main and with one (where it queues the pull request).
+ */
 function proven(dir: string, base: string) {
   const pr = pullRequest(dir, base);
   verifier(dir, { report: PASS });
-  const plain = hook(dir, "PreToolUse", bash(merge(pr.head)), { env: pr.env });
-  if (plain.refused)
-    throw new Error(
-      `even the plain merge of a proven head was refused, so this shows nothing: ${said(plain)}`,
-    );
+  for (const { name, env } of pr.cases) {
+    const plain = hook(dir, "PreToolUse", bash(merge(pr.head)), { env });
+    if (plain.refused)
+      throw new Error(
+        `with ${name}, even the plain merge of a proven head was refused, so this shows nothing: ${said(plain)}`,
+      );
+    if (plain.told.includes("queueing") !== name.includes("queue on main"))
+      throw new Error(
+        `with ${name}, the merge went through as: ${said(plain)}`,
+      );
+  }
   return pr;
 }
 
 export const wrappedMerge: Step = {
-  does: "Proves a pull request's head (checks passed, the verifier's PASS) so its plain merge goes through, then checks that the done gate refuses the same merge wrapped in another command (`sh -c`, `bash -c`, `eval`, `xargs`)",
+  does: "Proves a pull request's head (checks passed, the verifier's PASS) so its plain merge goes through, then checks that the done gate refuses the same merge wrapped in another command (`sh -c`, `bash -c`, `eval`, `xargs`); each with no merge queue on main's rules and with one, against a stand-in GitHub",
   check: ({ root }) =>
     inScratch(root, ({ dir, base }) => {
-      const { head, env } = proven(dir, base);
+      const { head, cases } = proven(dir, base);
       const wrapped = [
         `sh -c '${merge(head)}'`,
         `bash -c "${merge(head)}"`,
         `eval "${merge(head)}"`,
         `echo 7 | xargs gh pr merge --squash --match-head-commit ${head}`,
       ];
-      const through = wrapped.filter(
-        (c) => !hook(dir, "PreToolUse", bash(c), { env }).refused,
-      );
-      if (through.length) throw new Error(`let through: ${through.join("; ")}`);
-      return `the plain merge went through; all ${wrapped.length} wrapped ones were refused, as \`${wrapped[0]}\`: ${said(hook(dir, "PreToolUse", bash(wrapped[0] ?? ""), { env }))}`;
+      return cases
+        .map(({ name, env }) => {
+          const through = wrapped.filter(
+            (c) => !hook(dir, "PreToolUse", bash(c), { env }).refused,
+          );
+          if (through.length)
+            throw new Error(`with ${name}, let through: ${through.join("; ")}`);
+          return `with ${name}, the plain merge went through; all ${wrapped.length} wrapped ones were refused, as \`${wrapped[0]}\`: ${said(hook(dir, "PreToolUse", bash(wrapped[0] ?? ""), { env }))}`;
+        })
+        .join("; ");
     }),
 };
 
 export const adminMerge: Step = {
-  does: "Proves a pull request's head so its plain merge goes through, then checks that the done gate refuses the same merge with `--admin`",
+  does: "Proves a pull request's head so its plain merge goes through, then checks that the done gate refuses the same merge with `--admin`; with no merge queue on main's rules and with one, against a stand-in GitHub",
   check: ({ root }) =>
     inScratch(root, ({ dir, base }) => {
-      const { head, env } = proven(dir, base);
-      const m = hook(dir, "PreToolUse", bash(merge(head, " --admin")), { env });
-      if (!m.refused)
-        throw new Error(`\`${merge(head, " --admin")}\` was let through`);
-      return `the plain merge went through; with --admin it was refused: ${said(m)}`;
+      const { head, cases } = proven(dir, base);
+      return cases
+        .map(({ name, env }) => {
+          const m = hook(dir, "PreToolUse", bash(merge(head, " --admin")), {
+            env,
+          });
+          if (!m.refused)
+            throw new Error(
+              `with ${name}, \`${merge(head, " --admin")}\` was let through`,
+            );
+          return `with ${name}, the plain merge went through; with --admin it was refused: ${said(m)}`;
+        })
+        .join("; ");
     }),
 };
 

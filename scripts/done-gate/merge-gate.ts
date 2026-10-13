@@ -1,6 +1,7 @@
 // An agent's `gh pr merge` goes through only when it names the exact head commit of the pull request, that commit was
-// proven on this machine, the verifier ruled PASS on it where it must, it holds main's tip as GitHub has it at that
-// moment, and GitHub reports `checks` passed on it: CI tested exactly the code the merge lands.
+// proven on this machine, the verifier ruled PASS on it where it must, and GitHub reports `checks` passed on it; and,
+// unless main's rules hold a merge queue (which tests it on top of main before it lands), it holds main's tip as
+// GitHub has it at that moment: CI tested exactly the code the merge lands.
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -8,7 +9,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { checkoutsOf, toplevel } from "./checkouts";
 import { git, gitAnswer } from "./git";
-import { checksNotPassed } from "./github-checks";
+import { checksNotPassed, mainQueue } from "./github-checks";
 import { type HookInput, say } from "./hook-io";
 import { mergeOf } from "./merge-reading";
 import { isProduct } from "./rules";
@@ -61,8 +62,9 @@ export const deny = (why: string, what = "merge") =>
 /**
  * An agent's `gh pr merge` goes through only for code proven on this machine: it names the pull request's head
  * commit exactly (`--match-head-commit`, so nothing pushed later is merged), that commit passed `bun run gate`, for
- * product code and VERIFIED_TOO the verifier ruled PASS on it, it holds main's tip as `git ls-remote` reads it now,
- * and GitHub reports `checks` passed on it. Merging is where work reaches main, so it is checked here however the
+ * product code and VERIFIED_TOO the verifier ruled PASS on it, GitHub reports `checks` passed on it, and, unless
+ * main's rules on GitHub hold a merge queue at that moment (the merge then queues it), it holds main's tip as
+ * `git ls-remote` reads it now. Merging is where work reaches main, so it is checked here however the
  * session got to it.
  */
 export function mergeGate(
@@ -225,35 +227,48 @@ export function mergeGate(
           ? `the verifier ruled FAIL on ${short}: ${ruling.note}`
           : `the verifier could not verify ${short} without something only Devesh can provide (${ruling.note}), so only Devesh merges it.`,
     );
-  // CI tested exactly the code this merge lands only if the head holds main as it is now: GitHub runs `checks` on
-  // the head merged with main, which is the head itself once main's tip is in it.
-  const tip = mainTip(repo);
-  if ("why" in tip)
+  // With a merge queue on main, the merge only queues the pull request: GitHub runs `checks` and `rules-from-main` on
+  // it on top of main and the pull requests ahead of it, and lands it only when they pass, so the head need not hold
+  // main's tip. Asked of GitHub at this moment: an answer that can't be read refuses.
+  const github = named ? ownerRepo(named) : ours;
+  const queue = mainQueue(github, repo);
+  if ("why" in queue)
     return deny(
-      `it could not read main's tip on GitHub (\`git ls-remote origin refs/heads/main\`: ${tip.why}), so it can't tell whether CI tested the code this merge lands. Merge once it answers.`,
+      `it could not read whether main's rules on GitHub hold a merge queue (${queue.why}), so it can't tell how this merge would land. Merge once it answers.`,
     );
-  if (!have(tip.sha))
-    spawnSync("git", ["fetch", "--quiet", "origin", tip.sha], {
-      cwd: repo,
-      timeout: 20_000,
-    });
-  const holds = spawnSync(
-    "git",
-    ["merge-base", "--is-ancestor", tip.sha, head],
-    { cwd: repo, timeout: 20_000 },
-  );
-  if (holds.status !== 0)
-    return deny(
-      `its head commit ${short} does not hold main's tip ${tip.sha.slice(0, 7)} as GitHub has it now, so CI did not test the code this merge would land. Bring main in (\`git fetch origin && git merge origin/main\`), push, run \`bun run gate\` (and the verifier, for product code) on the new head, wait for \`checks\` to pass on it, then merge.`,
+  let lands = `main has a merge queue, so GitHub runs \`checks\` and \`rules-from-main\` on ${short} on top of main and the pull requests ahead of it and lands it only when they pass; if the queue takes it out, fix it and queue it again`;
+  if (!queue.queue) {
+    // CI tested exactly the code this merge lands only if the head holds main as it is now: GitHub runs `checks` on
+    // the head merged with main, which is the head itself once main's tip is in it.
+    const tip = mainTip(repo);
+    if ("why" in tip)
+      return deny(
+        `it could not read main's tip on GitHub (\`git ls-remote origin refs/heads/main\`: ${tip.why}), so it can't tell whether CI tested the code this merge lands. Merge once it answers.`,
+      );
+    if (!have(tip.sha))
+      spawnSync("git", ["fetch", "--quiet", "origin", tip.sha], {
+        cwd: repo,
+        timeout: 20_000,
+      });
+    const holds = spawnSync(
+      "git",
+      ["merge-base", "--is-ancestor", tip.sha, head],
+      { cwd: repo, timeout: 20_000 },
     );
+    if (holds.status !== 0)
+      return deny(
+        `its head commit ${short} does not hold main's tip ${tip.sha.slice(0, 7)} as GitHub has it now, so CI did not test the code this merge would land. Bring main in (\`git fetch origin && git merge origin/main\`), push, run \`bun run gate\` (and the verifier, for product code) on the new head, wait for \`checks\` to pass on it, then merge.`,
+      );
+    lands = `it holds main's tip ${tip.sha.slice(0, 7)}`;
+  }
   // The Mac's gate leaves the four-runs-at-once test to CI (checks.ts), so every merge waits for `checks` to pass.
-  const missing = checksNotPassed(head, named ? ownerRepo(named) : ours, repo);
+  const missing = checksNotPassed(head, github, repo);
   if (missing)
     return deny(
       `its head commit ${short} passed \`bun run gate\` here ${partial ? `only in part (${partial}), and` : "(which leaves the four-runs-at-once test to CI), but"} ${missing}. Wait until \`gh pr checks ${number}\` shows \`checks\` passed, then merge.`,
     );
   return say(
-    `Done gate ✓ merge of ${short}: ${checked ?? `${partial} · tests, database policies and browser checks did not run here`} · GitHub reports \`checks\` passed on it · it holds main's tip ${tip.sha.slice(0, 7)}${ruling?.verdict === "pass" ? ` · verifier PASS: ${ruling.note}` : " (no product code changed)"}`,
+    `Done gate ✓ ${queue.queue ? "queueing" : "merge of"} ${short}: ${checked ?? `${partial} · tests, database policies and browser checks did not run here`} · GitHub reports \`checks\` passed on it · ${lands}${ruling?.verdict === "pass" ? ` · verifier PASS: ${ruling.note}` : " (no product code changed)"}`,
   );
 }
 

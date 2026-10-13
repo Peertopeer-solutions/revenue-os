@@ -6,18 +6,23 @@ name: rules-from-main
 # pull request only as data: it checks out main alone, fetches the pull request's commits without checking them
 # out, installing, building or running them, holds read-only permissions, no secrets and no environment, keeps
 # no git credentials, and passes the body through an environment variable, never pasted into a script.
+# The merge queue's build of a pull request (`merge_group`) needs this check too: there GitHub runs the file as the
+# queued commit holds it, a copy main's copy already judged on that pull request, and the job judges the same way,
+# main checked out, the queued pull request's own commits and body read from GitHub as data.
 # The pull request that adds this file can't be judged by it (main doesn't have it yet): Devesh merges that one
 # himself, then makes `rules-from-main` a required check. If main's copy wrongly refuses every pull request,
 # docs/runbooks/rules-check-way-back.md says what he does.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, edited]
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
 concurrency:
-  group: rules-from-main-${{ github.event.pull_request.number }}
+  group: rules-from-main-${{ github.event.pull_request.number || github.event.merge_group.head_ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
     steps:
       # Actions SHA-pinned (AGENTS.md → Conventions), as in ci.yml.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -39,13 +45,30 @@ jobs:
 
       # Only the commit this event is about: a push that lands meanwhile gets its own run.
       - name: Fetch the pull request's commits as data
+        if: github.event_name == 'pull_request_target'
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: git fetch --no-tags --quiet origin "+refs/pull/${PR_NUMBER}/head:refs/pr/head" && test "$(git rev-parse refs/pr/head)" = "$HEAD_SHA" || { echo "The pull request is no longer at ${HEAD_SHA}; its newer commit is judged by its own run."; exit 1; }
 
       - name: Main's copy of the rules judges the pull request
+        if: github.event_name == 'pull_request_target'
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: bun scripts/done-gate.ts pr --base origin/main --head refs/pr/head
+
+      # The queue's build names its pull request only in its branch, gh-readonly-queue/main/pr-<number>-<commit> (a
+      # name holding anything but lower-case letters, digits, / and -, a new line among them, names none): its head
+      # commit and body are read from GitHub into files, as data, and its commits fetched as above.
+      - name: Fetch the queued pull request's commits as data
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUEUE_REF: ${{ github.event.merge_group.head_ref }}
+          REPO: ${{ github.repository }}
+        run: case "$QUEUE_REF" in *[!a-z0-9/-]*) false ;; esac && n="$(printf '%s' "$QUEUE_REF" | sed -nE 's#^refs/heads/gh-readonly-queue/main/pr-([0-9]+)-[0-9a-f]{40}$#\1#p')" && test -n "$n" && mkdir -p "$RUNNER_TEMP/queued" && printf '%s' "$n" > "$RUNNER_TEMP/queued/number" && gh api "repos/$REPO/pulls/$n" --jq '.head.sha' > "$RUNNER_TEMP/queued/head" && gh api "repos/$REPO/pulls/$n" --jq '.body // ""' > "$RUNNER_TEMP/queued/body" || { echo "The queue's build ${QUEUE_REF} names no pull request whose head and body GitHub gives."; exit 1; }; git fetch --no-tags --quiet origin "+refs/pull/${n}/head:refs/pr/head" && test "$(git rev-parse refs/pr/head)" = "$(cat "$RUNNER_TEMP/queued/head")" || { echo "The pull request is no longer at the head GitHub names; its newer commit is judged by its own run."; exit 1; }
+
+      - name: Main's copy of the rules judges the queued pull request
+        if: github.event_name == 'merge_group'
+        run: PR_NUMBER="$(cat "$RUNNER_TEMP/queued/number")" PR_BODY="$(cat "$RUNNER_TEMP/queued/body")" bun scripts/done-gate.ts pr --base origin/main --head refs/pr/head

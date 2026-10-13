@@ -38,8 +38,9 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    return fast; side effects happen in workers.
 7. **main is PR-only with CI green** (required checks: `checks`, and `rules-from-main`, which runs main's
    copy of the rules). Merge authority follows the PHASE line on line 1 of `STATE.md`: SETUP = agents squash-merge
-   independent PRs one at a time on observed-green checks with real evidence, after confirming base == main; LIVE =
-   only humans merge. A rule file is any path `RULE_FILES` in `scripts/done-gate/rules.ts` matches. A change to one
+   independent PRs one at a time on observed-green checks with real evidence, after confirming base == main (once
+   main's ruleset has a merge queue, an agent's merge adds the PR to the queue, which lands it only when `checks` and
+   `rules-from-main` pass on it on top of main and the PRs ahead of it); LIVE = only humans merge. A rule file is any path `RULE_FILES` in `scripts/done-gate/rules.ts` matches. A change to one
    needs nobody's approval to start and is explained before it merges: its PR body has one line per changed rule,
    `Rule change: <rule> · tighter | looser | neutral | mixed · <why>`, naming each changed file by its path, its
    file name or the folder it sits in, and the same PR adds a line per changed rule to STATE.md → Rule changes; the agent shows Devesh that explanation in chat, then, in SETUP, merges
@@ -203,9 +204,14 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    three or more open task PRs, stop taking new work. Merge with
    `gh pr merge <number> --squash --match-head-commit <the PR's full head commit>`, one per command: the
    done gate refuses it unless that commit passed `bun run gate` on this machine (a run without Docker,
-   which skips the database tests, counts too), GitHub reports `checks` passed on that commit, the commit
-   holds main's tip as `git ls-remote` reads it at that moment (an empty or unreadable answer refuses), so CI
-   tested exactly the code the merge lands, and, for product code or a change to .github/workflows/ or the
+   which skips the database tests, counts too), GitHub reports `checks` passed on that commit, and, while
+   main's ruleset has no merge queue, the commit holds main's tip as `git ls-remote` reads it at that moment (an
+   empty or unreadable answer refuses), so CI tested exactly the code the merge lands; the gate asks GitHub whether
+   main's ruleset has a merge queue at that moment and refuses on an unreadable answer. With a merge queue the same
+   command adds the PR to the queue and the head need not hold main's tip: GitHub runs `checks` and `rules-from-main`
+   on it on top of main and the PRs ahead of it and lands it only when they pass. A PR the queue takes out (a
+   conflict, or a check failing on the combined code) never reaches main: fix it, re-gate and re-verify the new
+   head, wait for `checks`, and queue it again. And, for product code or a change to .github/workflows/ or the
    gate's scripts/done-gate/checks.ts, tests-ran.ts, coverage.ts, tests-proven.ts, break-check.ts or
    merge-gate.ts, the verifier ruled PASS on it; a CANNOT_VERIFY means only Devesh merges it. The
    check before each command also refuses the other ways of merging it can read (`--admin`, `gh api`, a

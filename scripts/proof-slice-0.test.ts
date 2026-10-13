@@ -347,6 +347,34 @@ describe("main's copy of rules-from-main, as GitHub runs it", () => {
   }, 300_000);
 });
 
+describe("the merge steps, with a merge queue on main's rules and without one", () => {
+  it("fail on a copy whose merge check never asks GitHub whether main has a merge queue", async () => {
+    const noQueue = copyOf((dir) =>
+      replaced(
+        dir,
+        "scripts/done-gate/merge-gate.ts",
+        "const queue = mainQueue(github, repo);",
+        "const queue = { queue: false };",
+      ),
+    );
+    const results = await prove([wrappedMerge, adminMerge], noQueue);
+    expect(results.map((r) => [r.outcome, r.seen])).toEqual([
+      [
+        "failed",
+        expect.stringContaining(
+          "with a merge queue on main, the merge went through as: Done gate ✓ merge of",
+        ),
+      ],
+      [
+        "failed",
+        expect.stringContaining(
+          "with a merge queue on main, the merge went through as: Done gate ✓ merge of",
+        ),
+      ],
+    ]);
+  }, 300_000);
+});
+
 describe("the gate's hook, as the steps start it", () => {
   it("never gets the run's GitHub token or evals key, whichever helper starts it", async () => {
     const bin = scratch("proof-0-bun-");

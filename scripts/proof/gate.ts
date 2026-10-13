@@ -141,7 +141,8 @@ export const checksRun = (sha: string, over: Run = {}): Run => ({
 
 /**
  * A stand-in GitHub in `bin` for `dir`'s merge check, and the settings its hook needs to reach it: `gh pr view` names
- * `head`; `gh api` answers `runs` (by default `checks` passed on `head`; null: GitHub can't be asked); `git ls-remote
+ * `head`; `gh api` answers `runs` (by default `checks` passed on `head`; null: GitHub can't be asked) and, for main's
+ * rules, whether they hold a merge queue (`queue`; by default not; null: GitHub can't be asked); `git ls-remote
  * origin` reads `main` (a commit of `dir`; by default its main) as main's tip, from a local copy at the origin's
  * owner/name, where `dir`'s origin address leads. `dir` gets an origin at an address that never resolves when it has
  * none. Nothing reaches the network. `calls` lists every gh call.
@@ -150,7 +151,7 @@ export function standInGitHub(
   dir: string,
   bin: string,
   head: string,
-  o: { runs?: Run[] | null; main?: string } = {},
+  o: { runs?: Run[] | null; main?: string; queue?: boolean | null } = {},
 ) {
   const named = sh(dir, ["git", "remote", "get-url", "origin"]);
   const origin =
@@ -163,11 +164,16 @@ export function standInGitHub(
   git(dir, "push", "-q", copy, `${o.main ?? "main"}:refs/heads/main`);
   const runs = o.runs === undefined ? [checksRun(head)] : o.runs;
   write(bin, "answer.json", JSON.stringify({ check_runs: runs ?? [] }));
+  const rules = o.queue
+    ? [{ type: "pull_request" }, { type: "merge_queue" }]
+    : [{ type: "pull_request" }];
+  write(bin, "rules.json", JSON.stringify(rules));
+  const failed = "echo 'HTTP 502' >&2; exit 1";
   const log = join(bin, "calls.txt");
   write(
     bin,
     "gh",
-    `#!/bin/sh\necho "$*" >> "${log}"\ncase "$1" in\n  pr) echo ${head} ;;\n  api) ${runs ? `cat "${join(bin, "answer.json")}"` : "echo 'HTTP 502' >&2; exit 1"} ;;\nesac\n`,
+    `#!/bin/sh\necho "$*" >> "${log}"\ncase "$1 $2" in\n  pr*) echo ${head} ;;\n  api*/rules/branches/*) ${o.queue === null ? failed : `cat "${join(bin, "rules.json")}"`} ;;\n  api*) ${runs ? `cat "${join(bin, "answer.json")}"` : failed} ;;\nesac\n`,
   );
   chmodSync(join(bin, "gh"), 0o755);
   return {

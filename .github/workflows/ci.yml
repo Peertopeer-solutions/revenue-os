@@ -3,6 +3,10 @@ on:
   pull_request:
   push:
     branches: [main]
+  # The merge queue's build of a pull request on top of main and the pull requests ahead of it: main's ruleset
+  # requires `checks` there too, and the queue lands the pull request only when it passes.
+  merge_group:
+    types: [checks_requested]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -29,7 +33,7 @@ jobs:
       # and .gitleaksignore from the checkout.
       - name: Secret scan (gitleaks 8.30.1)
         env:
-          RANGE: ${{ github.event_name == 'pull_request' && format('origin/{0}..{1}', github.base_ref, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+          RANGE: ${{ github.event_name == 'pull_request' && format('origin/{0}..{1}', github.base_ref, github.event.pull_request.head.sha) || github.event_name == 'merge_group' && format('{0}..{1}', github.event.merge_group.base_sha, github.event.merge_group.head_sha) || format('{0}..{1}', github.event.before, github.sha) }}
         run: |
           curl -fsSL -o "$RUNNER_TEMP/gitleaks.tar.gz" https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
           echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
@@ -50,7 +54,9 @@ jobs:
       # change, so they bind every agent and human, not only agents whose stop hook runs them.
       # fetch-depth 0 above fetches every branch, so origin/<base> exists. The pull request's own commit is judged
       # against where it left the base, as rules-from-main and an agent's stop judge it, not GitHub's merge commit:
-      # a removed expect line is then named by the same line number in all three (docs/removed-tests.md).
+      # a removed expect line is then named by the same line number in all three (docs/removed-tests.md). In the merge
+      # queue's build (no base_ref) the base is main, so here and in the two checks below the change judged is this
+      # pull request's together with those queued ahead of it, each of which passed them on its own.
       - name: Done rules (scripts/done-gate.ts)
         env:
           BASE: origin/${{ github.base_ref || 'main' }}

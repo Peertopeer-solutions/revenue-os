@@ -594,8 +594,10 @@ describe("the merge check: every agent merge names the exact commit that passed 
       why: "",
       told: `Done gate ✓ merge of ${head.slice(0, 7)}: typecheck, lint, guards, 3 tests · GitHub reports \`checks\` passed on it · it holds main's tip ${tip} (no product code changed)`,
     });
-    // A full result too waits for GitHub's word, as the Mac's gate leaves the four-runs-at-once test to CI.
+    // A full result too waits for GitHub's word, as the Mac's gate leaves the four-runs-at-once test to CI; and
+    // GitHub is asked whether main has a merge queue.
     expect(gh.calls().filter((c) => c.startsWith("api"))).toEqual([
+      "api repos/o/r/rules/branches/main?per_page=100",
       `api repos/o/r/commits/${head}/check-runs?check_name=checks&filter=latest`,
     ]);
   });
@@ -698,8 +700,9 @@ describe("the merge check: every agent merge names the exact commit that passed 
     const r = merge(dir, command, passed);
     expect(r.refused).toBe(false);
     expect(r.told).toContain("GitHub reports `checks` passed on it");
-    // Asked with a read: the check runs named `checks` on that commit, no method, no fields.
+    // Asked with reads: main's rules, then the check runs named `checks` on that commit, no method, no fields.
     expect(passed.calls().filter((c) => c.startsWith("api"))).toEqual([
+      "api repos/o/r/rules/branches/main?per_page=100",
       `api repos/o/r/commits/${head}/check-runs?check_name=checks&filter=latest`,
     ]);
     for (const [runs, why] of NOT_PASSED(run)) {
@@ -794,6 +797,80 @@ describe("the merge check: every agent merge names the exact commit that passed 
       const r = merge(dir, command, stand);
       expect([why, r.refused]).toEqual([why, true]);
       expect(r.why).toContain(why);
+    }
+  });
+
+  it("with a merge queue on main's rules, queues a head that does not hold main's tip, still only once it passed here and `checks` passed on it; refuses when the rules can't be read", () => {
+    const dir = repo();
+    const { head, tree } = pullRequest(dir);
+    const command = `gh pr merge 7 --squash --match-head-commit ${head}`;
+    const queued = (o: { runs?: Run[] | null; queue?: boolean | null }) =>
+      merge(
+        dir,
+        command,
+        standInGitHub(dir, scratch("guards-gh-"), head, { queue: true, ...o }),
+      );
+    // Never proven here: the queue changes nothing about that.
+    expect(queued({}).why).toContain("has not passed `bun run gate`");
+    record(dir, "checked", tree, "typecheck, lint, guards, 3 tests");
+    // Main moves on after the branch left it.
+    write(dir, "docs/later.md", "landed on main later\n");
+    commit(dir);
+    expect(merge(dir, command, fakeGh(dir, head)).why).toContain(
+      "does not hold main's tip",
+    );
+    const gh = standInGitHub(dir, scratch("guards-gh-"), head, { queue: true });
+    const r = merge(dir, command, gh);
+    expect(r.refused).toBe(false);
+    expect(r.told).toContain(
+      `queueing ${head.slice(0, 7)}: typecheck, lint, guards, 3 tests · GitHub reports \`checks\` passed on it · main has a merge queue`,
+    );
+    // Asked with reads: main's rules, then the check runs on that commit.
+    expect(gh.calls().filter((c) => c.startsWith("api"))).toEqual([
+      "api repos/o/r/rules/branches/main?per_page=100",
+      `api repos/o/r/commits/${head}/check-runs?check_name=checks&filter=latest`,
+    ]);
+    for (const [runs, why] of NOT_PASSED((over) => checksRun(head, over))) {
+      const refused = queued({ runs });
+      expect([why, refused.refused]).toEqual([why, true]);
+      expect(refused.why).toContain(why);
+    }
+    // A product change still needs the verifier's PASS, queue or not.
+    const product = repo();
+    const p = pullRequest(product, "services/worker/src/a.ts");
+    record(product, "checked", p.tree, "typecheck, lint, guards, 3 tests");
+    expect(
+      merge(
+        product,
+        `gh pr merge 7 --squash --match-head-commit ${p.head}`,
+        standInGitHub(product, scratch("guards-gh-"), p.head, { queue: true }),
+      ).why,
+    ).toContain("nobody independent has seen");
+    // Whether main has a queue can't be read: GitHub out of reach, or an answer that is not a list of rules.
+    const unread = queued({ queue: null });
+    expect(unread.refused).toBe(true);
+    expect(unread.why).toContain(
+      "could not read whether main's rules on GitHub hold a merge queue (`gh api`: HTTP 502)",
+    );
+    for (const answer of [
+      "",
+      "{}",
+      "not json",
+      JSON.stringify(Array(100).fill({ type: "x" })),
+    ]) {
+      const stand = standInGitHub(dir, scratch("guards-gh-"), head, {
+        queue: true,
+      });
+      writeFileSync(
+        join(stand.env.PATH.split(":")[0] ?? "", "rules.json"),
+        answer,
+      );
+      const odd = merge(dir, command, stand);
+      expect([answer.slice(0, 9), odd.refused]).toEqual([
+        answer.slice(0, 9),
+        true,
+      ]);
+      expect(odd.why).toContain("an answer it can't read");
     }
   });
 

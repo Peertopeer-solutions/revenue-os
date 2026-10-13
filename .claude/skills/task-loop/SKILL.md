@@ -43,7 +43,9 @@ description: Use when building a roadmap item — any session implementing the n
 11. Merge per PHASE (STATE.md line 1): SETUP = squash-merge one PR at a time after confirming
     `gh pr view <n> --json baseRefName` is main; never loop merges. LIVE = never merge. Merge with
     `gh pr merge <n> --squash --match-head-commit <the PR's full head commit>`; AGENTS.md → The loop,
-    step 5, says what the done gate checks before it lets that through.
+    step 5, says what the done gate checks before it lets that through. Once main's ruleset has a merge
+    queue, that command queues the PR instead (no need to bring main in first): watch it land on main
+    (`gh pr view <n> --json state`); if the queue takes it out, fix it, re-gate, re-verify and queue it again.
 12. After merge, republish the tracker page (see AGENTS.md → The loop, step 6).
 13. If the last item of the slice landed, set the slice to `proof ready`; the proof workflow runs
     `bun run proof <slice>` after the next deploy to main and once a day, and `bun run cycle
