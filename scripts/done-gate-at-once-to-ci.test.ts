@@ -45,9 +45,11 @@ const sh = (dir: string, cmd: string[], env: Record<string, string> = {}) =>
   });
 const GIT = ["git", "-c", "user.email=t@t", "-c", "user.name=t"];
 
-// behaviour already on main: the gate's files are the same in both copies, which differ only in product code; main's gate refuses the switch (exit 2)
-it("its tests command leaves out that one file by its path, never by skipping it, and only when told to", () => {
-  // A repository holding the gate, that test file, a test of the same name in another folder, and another test.
+/**
+ * A repository holding the gate and `files`, committed, and its `bun scripts/done-gate.ts tests <args>`: the exit code
+ * and, sorted, the names of the tests that ran (each writes its name to ran.txt).
+ */
+function gateRepo(files: Record<string, string>) {
   const dir = scratch("at-once-to-ci-");
   cpSync(
     join(ROOT, "scripts", "done-gate"),
@@ -63,18 +65,12 @@ it("its tests command leaves out that one file by its path, never by skipping it
   cpSync(join(ROOT, "docs", "tracker"), join(dir, "docs", "tracker"), {
     recursive: true,
   });
-  write(dir, AT_ONCE, ranTest("four runs at once"));
-  write(
-    dir,
-    "packages/p/test/test-runs-at-once.test.ts",
-    ranTest("same name elsewhere"),
-  );
-  write(dir, "services/worker/test/other.test.ts", ranTest("another test"));
+  for (const [file, body] of Object.entries(files)) write(dir, file, body);
   sh(dir, ["git", "init", "-q", "-b", "main"]);
   sh(dir, ["git", "add", "-A"]);
   sh(dir, [...GIT, "commit", "-qm", "x"]);
   sh(dir, ["git", "update-ref", "refs/remotes/origin/main", "HEAD"]);
-  const tests = (...args: string[]) => {
+  return (...args: string[]) => {
     rmSync(join(dir, "ran.txt"), { force: true });
     const r = sh(dir, ["bun", "scripts/done-gate.ts", "tests", ...args], {
       RAN: join(dir, "ran.txt"),
@@ -82,6 +78,16 @@ it("its tests command leaves out that one file by its path, never by skipping it
     const ran = sh(dir, ["sort", join(dir, "ran.txt")]).stdout;
     return { status: r.status, ran: ran.trim().split("\n").filter(Boolean) };
   };
+}
+
+// behaviour already on main: the gate's files are the same in both copies, which differ only in product code; main's gate refuses the switch (exit 2)
+it("its tests command leaves out that one file by its path, never by skipping it, and only when told to", () => {
+  // A repository holding the gate, that test file, a test of the same name in another folder, and another test.
+  const tests = gateRepo({
+    [AT_ONCE]: ranTest("four runs at once"),
+    "packages/p/test/test-runs-at-once.test.ts": ranTest("same name elsewhere"),
+    "services/worker/test/other.test.ts": ranTest("another test"),
+  });
   expect(tests(LEAVE_AT_ONCE)).toEqual({
     status: 0, // nothing reported skipped
     ran: ["another test", "same name elsewhere"],
@@ -93,6 +99,30 @@ it("its tests command leaves out that one file by its path, never by skipping it
   // No other file can be left out from the command line.
   expect(tests(`--path-ignore-patterns=${AT_ONCE}`).status).toBe(2);
   expect(tests(LEAVE_AT_ONCE, "e2e").status).toBe(2);
+});
+
+it("its tests command runs that file alone when told to, and fails unless its one test ran and passed", () => {
+  const other = { "services/worker/test/other.test.ts": ranTest("another") };
+  const atOnce = (body?: string) =>
+    gateRepo(body === undefined ? other : { ...other, [AT_ONCE]: body })(
+      AT_ONCE_ALONE,
+    );
+  // Its one test passes: only that file runs, and no coverage is asked of it.
+  expect(atOnce(ranTest("four runs at once"))).toEqual({
+    status: 0,
+    ran: ["four runs at once"],
+  });
+  const one = (how: string) =>
+    `import { test } from "bun:test";\ntest${how}("the one", () => {${how === "" ? " throw new Error('failed');" : ""} });\n`;
+  for (const body of [
+    one(""), // fails
+    one(".skip"),
+    one(".todo"),
+    `${ranTest("first")}${ranTest("second").replace("test as one", "test as two").replace("one(", "two(")}`,
+    "export {};\n", // no test
+    undefined, // no file
+  ])
+    expect(atOnce(body).status).toBe(1);
 });
 
 // behaviour already on main: the gate's files are the same in both copies, which differ only in product code; main's tests check runs the whole suite and says nothing of CI
