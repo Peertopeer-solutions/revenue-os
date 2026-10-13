@@ -1,6 +1,6 @@
 // Whether GitHub reports the required check `checks` passed on one exact commit, asked with a read (`gh api`, a GET)
-// and counted only from GitHub Actions, the app main's ruleset pins `checks` to. The merge check asks it when this
-// machine proved a commit only in part (no Docker, so no database tests).
+// and counted only from GitHub Actions, the app main's ruleset pins `checks` to. The merge check asks it before every
+// merge, as the Mac's gate leaves the four-runs-at-once test to CI.
 
 import { spawnSync } from "node:child_process";
 

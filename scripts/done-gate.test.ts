@@ -35,6 +35,7 @@ import { onSharedStack } from "./done-gate/shared-stack";
 import { simpleCommands } from "./done-gate/shell-words";
 import { toolRefusal } from "./done-gate/tools";
 import { removeTranscripts, verifierRun } from "./done-gate-verifier-run";
+import { standInGitHub } from "./proof/gate";
 
 const GATE = join(import.meta.dir, "done-gate.ts");
 // A hook test starts bun and git a dozen times; with other agents busy on the machine that passes bun's 5 s.
@@ -2192,14 +2193,11 @@ describe("the hook", () => {
     });
   });
 
-  /** A stand-in for GitHub's CLI whose `gh pr view` names this head commit. */
-  const fakeGh = (head: string) => {
+  /** A stand-in GitHub for `dir` (scripts/proof/gate.ts): `gh pr view` names this head, `checks` passed on it. */
+  const fakeGh = (dir: string, head: string) => {
     const bin = mkdtempSync(join(tmpdir(), "done-gate-gh-"));
     dirs.push(bin);
-    writeFileSync(join(bin, "gh"), `#!/bin/sh\necho ${head}\n`, {
-      mode: 0o755,
-    });
-    return { PATH: `${bin}:${process.env.PATH}` };
+    return standInGitHub(dir, bin, head).env;
   };
 
   it("refuses an agent's merge until the pull request's head commit passed the gate and, for product code, the verifier", () => {
@@ -2219,7 +2217,7 @@ describe("the hook", () => {
       const r = sh(
         dir,
         ["bun", GATE, "hook", ...(codex ? ["codex"] : [])],
-        fakeGh(pr),
+        fakeGh(dir, pr),
         JSON.stringify({
           hook_event_name: "PreToolUse",
           session_id: session,
@@ -2248,10 +2246,16 @@ describe("the hook", () => {
     expect(merge().why).toContain(`nobody independent has seen ${short} work`);
     expect(merge(undefined, true).why).toContain("Codex has no verifier agent");
     expect(verified(dir, "sent a test SMS and saw it logged").status).toBe(0);
+    const tip = sh(dir, [
+      "git",
+      "rev-parse",
+      "--short=7",
+      "main",
+    ]).stdout.trim();
     expect(merge()).toEqual({
       refused: false,
       why: "",
-      told: `Done gate ✓ merge of ${short}: typecheck, 3 tests · verifier PASS: sent a test SMS and saw it logged`,
+      told: `Done gate ✓ merge of ${short}: typecheck, 3 tests · GitHub reports \`checks\` passed on it · it holds main's tip ${tip} · verifier PASS: sent a test SMS and saw it logged`,
     });
     expect(merge("git push && gh pr merge 7 --squash").refused).toBe(true);
     for (const quiet of [
@@ -2315,7 +2319,7 @@ describe("the hook", () => {
           command: `gh pr merge 7 --squash --match-head-commit ${head}`,
         },
       },
-      fakeGh(head),
+      fakeGh(dir, head),
     );
     expect(r.told).toBe(
       "Done gate ✗ merge refused: the verifier could not verify " +
@@ -2330,7 +2334,7 @@ describe("the hook", () => {
     commitAll(dir);
     checksPassed(dir);
     const head = sh(dir, ["git", "rev-parse", "HEAD"]).stdout.trim();
-    const env = fakeGh(head);
+    const env = fakeGh(dir, head);
     // A fake git beside it answers the first question for the merge's changed files with nothing (oven-sh/bun#34069).
     const bin = env.PATH.split(":")[0] ?? "";
     writeFileSync(

@@ -1,12 +1,13 @@
-// An agent's `gh pr merge` goes through only when it names the exact head commit of the pull request, and that commit
-// was proven on this machine (a partial proof, with no database tests, only once GitHub reports `checks` passed on it).
+// An agent's `gh pr merge` goes through only when it names the exact head commit of the pull request, that commit was
+// proven on this machine, the verifier ruled PASS on it where it must, it holds main's tip as GitHub has it at that
+// moment, and GitHub reports `checks` passed on it: CI tested exactly the code the merge lands.
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { checkoutsOf, toplevel } from "./checkouts";
-import { git } from "./git";
+import { git, gitAnswer } from "./git";
 import { checksNotPassed } from "./github-checks";
 import { type HookInput, say } from "./hook-io";
 import { mergeOf } from "./merge-reading";
@@ -14,6 +15,12 @@ import { isProduct } from "./rules";
 import { gitOf, positionals, program, simpleCommands } from "./shell-words";
 import type { Store } from "./store";
 import { rulingOn } from "./verdict";
+
+// Besides product code, a change to CI's workflows or to the gate's list of checks, test runner, coverage check,
+// tests-proven check, break check or this merge check needs the verifier's PASS to merge (Devesh's choice,
+// 2026-10-12): the Mac's gate leaves a test to CI, so these decide what proves every merge.
+const VERIFIED_TOO =
+  /^(\.github\/workflows\/|scripts\/done-gate\/(checks|tests-ran|coverage|tests-proven|break-check|merge-gate)\.ts$)/i;
 
 const runsGit = (words: string[], sub: string) => gitOf(words)?.sub === sub;
 const mergesThroughApi = (words: string[]) => {
@@ -53,9 +60,10 @@ export const deny = (why: string, what = "merge") =>
 
 /**
  * An agent's `gh pr merge` goes through only for code proven on this machine: it names the pull request's head
- * commit exactly (`--match-head-commit`, so nothing pushed later is merged), that commit passed `bun run gate`
- * (a partial pass only once GitHub reports `checks` passed on it), and for product code the verifier ruled PASS on
- * it. Merging is where work reaches main, so it is checked here however the session got to it.
+ * commit exactly (`--match-head-commit`, so nothing pushed later is merged), that commit passed `bun run gate`, for
+ * product code and VERIFIED_TOO the verifier ruled PASS on it, it holds main's tip as `git ls-remote` reads it now,
+ * and GitHub reports `checks` passed on it. Merging is where work reaches main, so it is checked here however the
+ * session got to it.
  */
 export function mergeGate(
   repo: string,
@@ -164,27 +172,18 @@ export function mergeGate(
       `its head commit ${short} is not in this repository, so nobody here has proven it. Fetch it; ${where.charAt(0).toLowerCase()}${where.slice(1)}, then merge.`,
     );
   const checked = store.get("checked", tree);
+  // A partial pass: no Docker here, so no database checks; a stop's pass while background work ran is never one
+  // (verdict.ts).
   const partial = checked ? undefined : store.get("partial", tree);
   if (!checked && !partial)
     return deny(
       `its head commit ${short} has not passed \`bun run gate\` on this machine. ${where} (and the verifier, for product code), then merge.`,
     );
-  // A partial pass (no Docker here, so no database checks) counts only once GitHub reports `checks` passed on it; a
-  // stop's pass while background work ran is never one (verdict.ts).
-  const missing =
-    partial && checksNotPassed(head, named ? ownerRepo(named) : ours, repo);
-  if (missing)
-    return deny(
-      `its head commit ${short} passed \`bun run gate\` here only in part (${partial}), and ${missing}. Wait until \`gh pr checks ${number}\` shows \`checks\` passed, or run \`bun run gate\` on a machine with Docker, then merge.`,
-    );
-  const checks =
-    checked ??
-    `${partial} · tests, database policies and browser checks did not run here; GitHub reports \`checks\` passed on it`;
   // Against the base GitHub merges into (the local main may be behind), listed as the stop's rules list files.
   const base =
     (baseRef && git(repo, ["merge-base", head, baseRef], {}, true)) ||
     git(repo, ["merge-base", head, "origin/main"], {}, true);
-  const product = git(
+  const files = git(
     repo,
     base
       ? [
@@ -211,21 +210,73 @@ export function mergeGate(
         ],
     {},
     true,
-  )
-    .split("\0")
-    .some(isProduct);
+  ).split("\0");
   const ruling = rulingOn(store, tree);
-  if (!product || ruling?.verdict === "pass")
-    return say(
-      `Done gate ✓ merge of ${short}: ${checks}${ruling?.verdict === "pass" ? ` · verifier PASS: ${ruling.note}` : " (no product code changed)"}`,
+  if (
+    files.some((f) => isProduct(f) || VERIFIED_TOO.test(f)) &&
+    ruling?.verdict !== "pass"
+  )
+    return deny(
+      !ruling
+        ? codex
+          ? `nobody independent has seen ${short} work, and Codex has no verifier agent. Ask Claude to run the verifier on ${short}, or leave the merge to Devesh.`
+          : `nobody independent has seen ${short} work. ${where}, run the verifier agent there, then merge.`
+        : ruling.verdict === "fail"
+          ? `the verifier ruled FAIL on ${short}: ${ruling.note}`
+          : `the verifier could not verify ${short} without something only Devesh can provide (${ruling.note}), so only Devesh merges it.`,
     );
-  return deny(
-    !ruling
-      ? codex
-        ? `nobody independent has seen ${short} work, and Codex has no verifier agent. Ask Claude to run the verifier on ${short}, or leave the merge to Devesh.`
-        : `nobody independent has seen ${short} work. ${where}, run the verifier agent there, then merge.`
-      : ruling.verdict === "fail"
-        ? `the verifier ruled FAIL on ${short}: ${ruling.note}`
-        : `the verifier could not verify ${short} without something only Devesh can provide (${ruling.note}), so only Devesh merges it.`,
+  // CI tested exactly the code this merge lands only if the head holds main as it is now: GitHub runs `checks` on
+  // the head merged with main, which is the head itself once main's tip is in it.
+  const tip = mainTip(repo);
+  if ("why" in tip)
+    return deny(
+      `it could not read main's tip on GitHub (\`git ls-remote origin refs/heads/main\`: ${tip.why}), so it can't tell whether CI tested the code this merge lands. Merge once it answers.`,
+    );
+  if (!have(tip.sha))
+    spawnSync("git", ["fetch", "--quiet", "origin", tip.sha], {
+      cwd: repo,
+      timeout: 20_000,
+    });
+  const holds = spawnSync(
+    "git",
+    ["merge-base", "--is-ancestor", tip.sha, head],
+    { cwd: repo, timeout: 20_000 },
   );
+  if (holds.status !== 0)
+    return deny(
+      `its head commit ${short} does not hold main's tip ${tip.sha.slice(0, 7)} as GitHub has it now, so CI did not test the code this merge would land. Bring main in (\`git fetch origin && git merge origin/main\`), push, run \`bun run gate\` (and the verifier, for product code) on the new head, wait for \`checks\` to pass on it, then merge.`,
+    );
+  // The Mac's gate leaves the four-runs-at-once test to CI (checks.ts), so every merge waits for `checks` to pass.
+  const missing = checksNotPassed(head, named ? ownerRepo(named) : ours, repo);
+  if (missing)
+    return deny(
+      `its head commit ${short} passed \`bun run gate\` here ${partial ? `only in part (${partial}), and` : "(which leaves the four-runs-at-once test to CI), but"} ${missing}. Wait until \`gh pr checks ${number}\` shows \`checks\` passed, then merge.`,
+    );
+  return say(
+    `Done gate ✓ merge of ${short}: ${checked ?? `${partial} · tests, database policies and browser checks did not run here`} · GitHub reports \`checks\` passed on it · it holds main's tip ${tip.sha.slice(0, 7)}${ruling?.verdict === "pass" ? ` · verifier PASS: ${ruling.note}` : " (no product code changed)"}`,
+  );
+}
+
+/** Main's tip on GitHub at this moment, as `git ls-remote` reads it, or why it can't be read (an empty answer too). */
+function mainTip(repo: string): { sha: string } | { why: string } {
+  const r = gitAnswer(
+    repo,
+    ["ls-remote", "--exit-code", "origin", "refs/heads/main"],
+    {},
+    20_000,
+  );
+  const answer = r.stdout?.trim() ?? "";
+  const sha = answer.match(/^([0-9a-f]{40})\trefs\/heads\/main$/)?.[1];
+  if (r.status === 0 && sha) return { sha };
+  const first = (s = "") => s.trim().split("\n")[0] ?? "";
+  return {
+    why:
+      r.status === 0
+        ? answer
+          ? `an answer it can't read: ${first(answer)}`
+          : "an empty answer"
+        : r.status === 2 // --exit-code: no such branch there
+          ? "GitHub names no main"
+          : first(r.stderr) || String(r.error ?? "no answer"),
+  };
 }

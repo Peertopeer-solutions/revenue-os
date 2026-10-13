@@ -8,7 +8,7 @@ import { isLocalUrl } from "../scripts/local-url";
 
 // Bun's synchronous spawn can miss the exit of a command that has finished and wait for it forever, spinning a core:
 // a memory clean-up that runs while it waits releases the main event loop's handles against the spawn's own loop
-// (oven-sh/bun#34069; the fix, oven-sh/bun#40078, is in no release yet). It froze one whole-suite run in about five
+// (oven-sh/bun#34069; the fix, oven-sh/bun#44581, first ships in Bun 1.4.3). It froze one whole-suite run in about five
 // when four ran at once here, and the test step on GitHub. A full clean-up just before each synchronous spawn leaves
 // nothing for one to release while it waits. Remove this once the pinned Bun has the fix.
 for (const name of ["spawnSync", "execFileSync", "execSync"] as const) {
