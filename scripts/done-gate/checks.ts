@@ -1,6 +1,7 @@
-// Every check the gate runs on the code as it stands: typecheck, lint, guards, tests (all but the four-runs-at-once
-// test, left to CI), tests proven (tests-proven.ts), the break check (break-check.ts), database policies and the
-// browser checks, the database ones one run at a time and only while no worker runs.
+// Every check the gate runs on the code as it stands: typecheck, lint, guards, tests proven (tests-proven.ts), the
+// break check (break-check.ts), database policies, tests (all but the four-runs-at-once test, left to CI) and the
+// browser checks, the database ones one run at a time and only while no worker runs. The checks on the change alone
+// come before the whole suite, so their failures show minutes sooner.
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -24,18 +25,6 @@ export const CHECKS: Check[] = [
   { name: "lint", cmd: ["bun", "run", "lint"] },
   { name: "guards", cmd: ["bun", "run", "guards"] },
   {
-    name: "tests",
-    // Four whole-suite runs and a demo at once would load the Mac five times over: CI's required `checks` runs that
-    // test before every merge, which waits for it (merge-gate.ts). The summary says so wherever the checkout holds that
-    // test, and never counts it passed.
-    cmd: ["bun", "run", "local", "bun", "run", "gate", "tests", LEAVE_AT_ONCE],
-    db: true,
-    said: (out, repo) =>
-      existsSync(join(repo, AT_ONCE))
-        ? `${tally("tests", out)} (not run here, left to CI: ${AT_ONCE})`
-        : tally("tests", out),
-  },
-  {
     name: "tests proven",
     cmd: ["bun", "run", "local", "bun", "run", "gate", "proven"],
     db: true,
@@ -50,6 +39,18 @@ export const CHECKS: Check[] = [
       "break check",
   },
   { name: "database policies", cmd: ["bun", "run", "rls:check"], db: true },
+  {
+    name: "tests",
+    // Four whole-suite runs and a demo at once would load the Mac five times over: CI's at-once job runs that test
+    // before every merge, which waits for the required `checks`, which waits for that job (merge-gate.ts, ci-jobs.ts). The summary says so wherever the checkout holds that
+    // test, and never counts it passed.
+    cmd: ["bun", "run", "local", "bun", "run", "gate", "tests", LEAVE_AT_ONCE],
+    db: true,
+    said: (out, repo) =>
+      existsSync(join(repo, AT_ONCE))
+        ? `${tally("tests", out)} (not run here, left to CI: ${AT_ONCE})`
+        : tally("tests", out),
+  },
   {
     name: "browser checks",
     cmd: ["bun", "run", "local", "bun", "run", "gate", "tests", "e2e"],

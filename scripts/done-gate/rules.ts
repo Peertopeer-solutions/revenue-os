@@ -4,9 +4,11 @@
 
 import { changeMarks, markNote } from "./already-on-main";
 import { breakMarkNotes } from "./break-marks";
+import { CI, ciJobProblems } from "./ci-jobs";
 import { exportsOf, statementAt, uncommented } from "./code-text";
 import { markNotes } from "./coverage-marks";
 import type { Added } from "./diff";
+import { gitAnswer } from "./git";
 import { movedNote } from "./moved";
 import { entriesOf, removalProblems } from "./removed-tests";
 import type { Snap } from "./snapshot";
@@ -225,6 +227,10 @@ export const rulesOn = (snap: Snap) => {
     snap.deleted,
   );
   r.notes.push(...changeMarks(snap).map(markNote)); // tests that pass on main, and why (tests-proven.ts)
+  const ci =
+    snap.files.includes(CI) &&
+    gitAnswer(snap.repo, ["cat-file", "blob", `${snap.tree}:${CI}`]);
+  if (ci && ci.status === 0) r.problems.push(...ciJobProblems(ci.stdout));
   return r;
 };
 export const listed = (problems: string[]) =>

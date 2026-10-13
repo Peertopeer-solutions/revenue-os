@@ -149,7 +149,7 @@ describe("proof.yml: the proof runs on GitHub after each deploy to main, once a 
     for (const s of steps)
       if (s !== prove)
         expect(JSON.stringify(s.env ?? {})).not.toContain("secrets.");
-    const start = steps.find((s) => /supabase start/.test(s.run ?? ""));
+    const start = steps.find((s) => s.run === "bash .github/test-stack.sh");
     expect(start?.if).toBe("matrix.slice <= 1");
     const passed = steps.find((s) => s.name === ALL_PASSED);
     expect(passed?.if).toBe("steps.prove.outputs.result == 'passed'");

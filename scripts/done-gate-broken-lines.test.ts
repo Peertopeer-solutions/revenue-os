@@ -329,6 +329,21 @@ describe("breakCheck on a throwaway repo", () => {
     });
   });
 
+  // The whole suite runs after the break check, and in CI in a job of its own, so a file that passes only beside
+  // another test's leftovers must not leave its lines unbroken.
+  it("fails when a test file that runs the line fails alone on the change, naming the file", () => {
+    const r = check(
+      scratch({
+        [METER]: GUARDED_COST,
+        "packages/harness/test/meter.test.ts": `${CATCHES}\nit("finds what another test left", () => expect(Reflect.get(globalThis, "leftover")).toBe(1));\n`,
+      }),
+    );
+    expect(r.ok).toBe(false);
+    expect(r.text).toContain(
+      "- packages/harness/test/meter.test.ts fails when run alone on the change, so it can't show whether a broken line is caught",
+    );
+  });
+
   it("leaves a line no test runs to the coverage check, saying so", () => {
     const r = check(scratch({ [METER]: GUARDED_COST }));
     expect(r.ok).toBe(true);
@@ -420,16 +435,16 @@ describe("where the break check runs", () => {
     ).toBe("break check"); // nothing broken: the gate's line just names the check
   });
 
-  it("runs in CI's checks job right after tests proven, against the pull request's base", () => {
+  it("runs in CI's quick job right after tests proven, against the pull request's base", () => {
     const ci = Bun.YAML.parse(
       readFileSync(
         join(import.meta.dir, "..", ".github", "workflows", "ci.yml"),
         "utf8",
       ),
     ) as {
-      jobs: { checks: { steps: { run?: string; env?: { BASE?: string } }[] } };
+      jobs: { quick: { steps: { run?: string; env?: { BASE?: string } }[] } };
     };
-    const steps = ci.jobs.checks.steps;
+    const steps = ci.jobs.quick.steps;
     const proven = steps.findIndex((s) => s.run?.includes("gate proven"));
     expect(steps[proven + 1]).toMatchObject({
       run: 'bun run gate broken --base "$BASE"',

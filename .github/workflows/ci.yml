@@ -6,23 +6,35 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true # superseded pushes stop burning the ~2m15s stack spin-up
+  cancel-in-progress: true # superseded pushes stop burning the stack spin-ups
 
+# Three jobs run at once, each on a fresh runner and local stack: the quick checks, the whole suite, and the
+# four-runs-at-once test alone. The required check is the `checks` job, which waits for all three and passes only
+# when every one passed (a done rule, scripts/done-gate/ci-jobs.ts, refuses a ci.yml where it doesn't).
 jobs:
-  checks:
+  # Everything but the whole suite, so a failing check shows in minutes.
+  quick:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read # gitleaks lists PR commits
     steps:
       # Actions SHA-pinned (AGENTS.md → Conventions; docs/security.md S12): mutable tags are supply-chain surface
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2 — secret scan first, for fail-fast (docs/security.md S9.3)
+      # Secret scan first, for fail-fast (docs/security.md S9.3): the gitleaks program itself, pinned by version and
+      # checksum (the gitleaks action needs a paid licence in an organization's repository), over the commits this run
+      # brings: a pull request's since it left its base, a push's since the commit before it. It reads .gitleaks.toml
+      # and .gitleaksignore from the checkout.
+      - name: Secret scan (gitleaks 8.30.1)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RANGE: ${{ github.event_name == 'pull_request' && format('origin/{0}..{1}', github.base_ref, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/gitleaks.tar.gz" https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --verbose --log-opts="$RANGE" .
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -57,28 +69,14 @@ jobs:
         with:
           version: 2.109.1 # pin the whole toolchain, CLI included (AGENTS.md → Conventions)
 
-      - name: Start local Supabase stack # real local stack for integration tests
-        run: |
-          test -f supabase/config.toml || supabase init
-          supabase start
+      # Only the database, sign-in, data interface and gateway, failing unless exactly those run; then the tests' settings.
+      - name: Start local Supabase stack
+        run: bash .github/test-stack.sh
 
-      - name: Export local stack env for tests
-        run: |
-          eval "$(supabase status -o env | grep -E '^(API_URL|ANON_KEY)=')"
-          {
-            echo "SUPABASE_URL=$API_URL"
-            echo "SUPABASE_ANON_KEY=$ANON_KEY"
-            echo "DATABASE_URL=postgresql://app_service:app_service_local@127.0.0.1:54322/postgres"
-            echo "LOCAL_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-            echo "VAPI_WEBHOOK_SECRET=local-test-secret"
-          } >> "$GITHUB_ENV"
-
-      # Every test must run: a skipped or todo test fails, however it was switched off (scripts/done-gate/tests-ran.ts, MAY_SKIP).
-      - run: bun run gate tests
-
-      # The pull request's new and edited tests must fail on main's code and pass on its own (scripts/done-gate/tests-proven.ts).
-      # It judges the checkout as it stands, so files this job made (gitleaks' results.sarif, say), which are never the
-      # pull request's (its files are all committed), are ignored for it first, or they would count as product code.
+      # The pull request's new and edited tests must fail on main's code and pass on its own (scripts/done-gate/tests-proven.ts),
+      # here on a fresh database that no whole-suite run has filled. It judges the checkout as it stands, so files this job
+      # made (a build's output, say), which are never the pull request's (its files are all committed), are ignored
+      # for it first, or they would count as product code.
       - name: Tests proven against main's code
         env:
           BASE: origin/${{ github.base_ref || 'main' }}
@@ -87,22 +85,26 @@ jobs:
           bun run gate proven --base "$BASE"
 
       # Each new line of guardrail, tenancy and money code, broken on purpose (a condition flipped, a statement
-      # removed), must make a test fail (scripts/done-gate/break-check.ts). The step above already ignores the job's files.
+      # removed), must make a test fail (scripts/done-gate/break-check.ts); a test file that fails alone fails it too.
+      # The step above already ignores the job's files.
       - name: Break check on guardrail, tenancy and money code
         env:
           BASE: origin/${{ github.base_ref || 'main' }}
         run: bun run gate broken --base "$BASE"
 
-      # Console sign-in e2e against the real local stack: the wrapper exports the stack env, Playwright
-      # starts the worker + a console build (dist-e2e, never the guarded dist/), and the spec seeds its own data.
-      - name: Console e2e (real local stack)
-        run: |
-          bunx playwright install --with-deps chromium
-          bun run local bun run gate tests e2e
-
       - run: bun run rls:check
         env:
           LOCAL_DB_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
+      # Console sign-in e2e against the real local stack: the wrapper exports the stack env, Playwright
+      # starts the worker + a console build (dist-e2e, never the guarded dist/), and the spec seeds its own data.
+      # pw:webserver prints what those servers say, so one that fails to start says why.
+      - name: Console e2e (real local stack)
+        env:
+          DEBUG: pw:webserver
+        run: |
+          bunx playwright install --with-deps chromium
+          bun run local bun run gate tests e2e
 
       # Labelled with the commit it is built from, which the step then reads back from the image.
       - name: Build worker image (build only; deploy is .github/workflows/deploy.yml) # docs/tech-stack.md T14
@@ -116,3 +118,69 @@ jobs:
           if docker build -f docker/Dockerfile -t revenue-os-worker:no-commit . ; then
             echo "an image built without RELEASE was accepted"; exit 1
           fi
+
+  # The whole suite, alone on its own fresh database, as the Mac's gate runs it: every test but the four-runs-at-once
+  # test, left out by its path, with the skipped-test and coverage checks.
+  suite:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # the coverage check compares the change with origin/<base>
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.11"
+
+      - run: bun install --frozen-lockfile
+
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1 branch tip 2026-07-11
+        with:
+          version: 2.109.1
+
+      - name: Start local Supabase stack
+        run: bash .github/test-stack.sh
+
+      # Every test must run: a skipped or todo test fails, however it was switched off (scripts/done-gate/tests-ran.ts, MAY_SKIP).
+      - run: bun run gate tests --leave-at-once-to-ci
+
+  # The four-runs-at-once test alone on its own fresh stack: four whole-suite runs and a demo started together, which
+  # must all pass and leave others' data alone. It fails unless that one test ran and passed; it runs no product line
+  # in its own process, so it has no coverage check.
+  at-once:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0 # the suites it starts hold tests that read origin/main
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.11"
+
+      - run: bun install --frozen-lockfile
+
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1 # v1 branch tip 2026-07-11
+        with:
+          version: 2.109.1
+
+      - name: Start local Supabase stack
+        run: bash .github/test-stack.sh
+
+      - run: bun run gate tests --at-once-alone
+
+  # The required check: it waits for all three jobs, even when one fails, and passes only when every one passed.
+  checks:
+    needs: [quick, suite, at-once]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Every job it waits for passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: for r in $RESULTS; do test "$r" = success || { echo "a job checks waits for ended $r ($RESULTS)"; exit 1; }; done

@@ -90,7 +90,14 @@ describe("our operator list", () => {
         },
       },
     );
-    expect(res.ok).toBe(false);
-    expect(JSON.stringify(await res.json())).not.toContain(operator.userId);
+    // The data interface's own refusal, the database's "permission denied" (42501): the gateway alone, with the data
+    // interface not running, refuses too, which proves nothing about the table.
+    const body = await res.json();
+    expect([res.ok, body.code, body.message]).toEqual([
+      false,
+      "42501",
+      "permission denied for table platform_operators",
+    ]);
+    expect(JSON.stringify(body)).not.toContain(operator.userId);
   });
 });
