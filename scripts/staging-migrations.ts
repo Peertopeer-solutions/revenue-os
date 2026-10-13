@@ -16,12 +16,12 @@ function fail(why: string): never {
   console.error(`✗ ${why}`);
   process.exit(1);
 }
-/** A program's output; the run fails, naming it, when it does. */
+/** A program's output; the run fails, naming it and quoting both its outputs (the CLI's JSON errors go to stdout), when it does. */
 const out = (cmd: string, args: string[]) => {
   const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 64 << 20 });
   if (r.status !== 0)
     fail(
-      `${cmd} ${args.slice(0, 2).join(" ")} failed: ${(r.stderr || String(r.error ?? "")).trim()}`,
+      `${cmd} ${args.slice(0, 2).join(" ")} failed: ${[r.stderr, r.stdout].join("").trim() || String(r.error ?? "")}`,
     );
   return r.stdout;
 };
