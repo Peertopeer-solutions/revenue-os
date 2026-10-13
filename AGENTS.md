@@ -106,7 +106,8 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
   session only looks at, he is told once instead.
 - CI also runs the done rules on every pull request (`bun run gate rules`), so they bind every
   agent and human.
-- Tests and browser checks run through `bun run gate tests [e2e]`, in the gate and in CI: any test
+- Tests and browser checks run through `bun run gate tests [e2e]`, in the gate (whose whole-suite run leaves the
+  four-runs-at-once test to CI: The loop, step 3) and in CI: any test
   reported skipped or todo fails them, however it was switched off, unless `MAY_SKIP` in
   `scripts/done-gate/tests-ran.ts` lists it with why. Bun's run also fails when a line the change adds to a
   .ts or .tsx file under apps, services or packages is run by no test (a line it only moves, or whose comment
@@ -171,8 +172,12 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
 3. `bun run gate` green, run bare — never pipe a gate through anything that can swallow its exit
    code. It runs typecheck, lint, guards, every test and the RLS check against the real local stack,
    the change's new and edited tests again on main's code, the break check on guardrail, tenancy and money
-   code, and the browser checks. Never skip, silence or weaken a check to get past it. CI also runs
-   gitleaks, `bun audit` and a Docker build; CI is the verdict.
+   code, and the browser checks. One test it leaves to CI: the four-runs-at-once test
+   (services/worker/test/test-runs-at-once.test.ts, four whole-suite runs and a demo started together), left
+   out of its whole-suite run by its path (`bun run gate tests --leave-at-once-to-ci`), never skipped; its
+   summary says so and never counts it passed. CI's required `checks` runs it before every merge, which waits
+   for `checks` (step 5), and tests proven still runs it when a change adds or edits it. Never skip, silence
+   or weaken a check to get past it. CI also runs gitleaks, `bun audit` and a Docker build; CI is the verdict.
 4. See it work (`bun run see <console path>` saves what a signed-in person sees), then run the
    verifier agent with Devesh's request word for word (when he gave none, the roadmap item's text,
    word for word). PR body: the first line is `Roadmap: Slice N —
@@ -193,8 +198,11 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    three or more open task PRs, stop taking new work. Merge with
    `gh pr merge <number> --squash --match-head-commit <the PR's full head commit>`, one per command: the
    done gate refuses it unless that commit passed `bun run gate` on this machine (a run without Docker,
-   which skips the database tests, counts only once GitHub reports `checks` passed on that commit) and,
-   for product code, the verifier ruled PASS on it; a CANNOT_VERIFY means only Devesh merges it. The
+   which skips the database tests, counts too), GitHub reports `checks` passed on that commit, the commit
+   holds main's tip as `git ls-remote` reads it at that moment (an empty or unreadable answer refuses), so CI
+   tested exactly the code the merge lands, and, for product code or a change to .github/workflows/ or the
+   gate's scripts/done-gate/checks.ts, tests-ran.ts, coverage.ts, tests-proven.ts, break-check.ts or
+   merge-gate.ts, the verifier ruled PASS on it; a CANNOT_VERIFY means only Devesh merges it. The
    check before each command also refuses the other ways of merging it can read (`--admin`, `gh api`, a
    merge handed to a shell or eval, an MCP tool that merges, a script in a line that names gh and
    merge), and any command or edit that touches the gate's record (`.git/done-gate`) or runs its hook by
