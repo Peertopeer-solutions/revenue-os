@@ -1029,7 +1029,7 @@ describe("where the check runs", () => {
   });
 
   it("counts a file the job made in the checkout as no change once git ignores it, as CI's step does", () => {
-    const dir = scratch({ "results.sarif": "{}\n" }); // what gitleaks' action leaves in CI's checkout
+    const dir = scratch({ "results.sarif": "{}\n" }); // a file a CI step leaves in the checkout
     expect(prove(dir).text).not.toContain("no product code changed");
     const made = sh(dir, ["git", "ls-files", "--others", "--exclude-standard"]);
     writeFileSync(join(dir, ".git", "info", "exclude"), made.stdout);

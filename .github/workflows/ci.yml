@@ -17,16 +17,24 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read # gitleaks lists PR commits
     steps:
       # Actions SHA-pinned (AGENTS.md → Conventions; docs/security.md S12): mutable tags are supply-chain surface
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2 — secret scan first, for fail-fast (docs/security.md S9.3)
+      # Secret scan first, for fail-fast (docs/security.md S9.3): the gitleaks program itself, pinned by version and
+      # checksum (the gitleaks action needs a paid licence in an organization's repository), over the commits this run
+      # brings: a pull request's since it left its base, a push's since the commit before it. It reads .gitleaks.toml
+      # and .gitleaksignore from the checkout.
+      - name: Secret scan (gitleaks 8.30.1)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RANGE: ${{ github.event_name == 'pull_request' && format('origin/{0}..{1}', github.base_ref, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/gitleaks.tar.gz" https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" git --redact --verbose --log-opts="$RANGE" .
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -67,7 +75,7 @@ jobs:
 
       # The pull request's new and edited tests must fail on main's code and pass on its own (scripts/done-gate/tests-proven.ts),
       # here on a fresh database that no whole-suite run has filled. It judges the checkout as it stands, so files this job
-      # made (gitleaks' results.sarif, say), which are never the pull request's (its files are all committed), are ignored
+      # made (a build's output, say), which are never the pull request's (its files are all committed), are ignored
       # for it first, or they would count as product code.
       - name: Tests proven against main's code
         env:
