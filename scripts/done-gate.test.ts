@@ -3471,9 +3471,10 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       ),
       "utf8",
     );
-    // What it may hold: main's copy only, read-only, no secrets, no environment, no credentials kept.
+    // What it may hold: main's copy only (and the merge queue's build), read-only, no secrets, no environment, no
+    // credentials kept.
     expect(yml).toContain(
-      "on:\n  pull_request_target:\n    types: [opened, synchronize, reopened, edited]\n",
+      "on:\n  pull_request_target:\n    types: [opened, synchronize, reopened, edited]\n  merge_group:\n    types: [checks_requested]\n\n",
     );
     expect(yml).toContain("jobs:\n  rules-from-main:\n");
     expect(yml.match(/^\s+ref: (.+)$/gm)).toEqual(["          ref: main"]);
@@ -3481,6 +3482,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     expect(yml.match(/^\s*(contents|[\w-]+): (read|write|none)$/gm)).toEqual([
       "  contents: read",
       "      contents: read",
+      "      pull-requests: read",
     ]);
     for (const banned of [
       /secrets\./,
@@ -3490,13 +3492,28 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       /^\s+pull_request:/m,
     ])
       expect(yml).not.toMatch(banned);
-    // The commit judged is the one the event is about, handed over as data.
+    // The commit judged is the one the event is about, handed over as data: the pull request's, or the queued one's
+    // as GitHub names it.
     expect(yml.match(/^.*\bhead\.sha\b.*$/gm)).toEqual([
       `          HEAD_SHA: \${{ github.event.pull_request.head.sha }}`,
+      expect.stringContaining(
+        `gh api "repos/$REPO/pulls/$n" --jq '.head.sha' > "$RUNNER_TEMP/queued/head"`,
+      ),
     ]);
-    const runs = [...yml.matchAll(/^\s+run: (.+)$/gm)].map(([, c = ""]) => c);
-    expect(runs).toHaveLength(2);
-    for (const c of runs) expect(c).not.toContain("${{"); // the body and number arrive as environment variables
+    const steps = (
+      Bun.YAML.parse(yml) as {
+        jobs: { "rules-from-main": { steps: { if?: string; run?: string }[] } };
+      }
+    ).jobs["rules-from-main"].steps.filter((s) => s.run);
+    expect(steps.map((s) => s.if)).toEqual([
+      "github.event_name == 'pull_request_target'",
+      "github.event_name == 'pull_request_target'",
+      "github.event_name == 'merge_group'",
+      "github.event_name == 'merge_group'",
+    ]);
+    for (const { run = "" } of steps) expect(run).not.toContain("${{"); // the body and number arrive as environment variables
+    const runs = steps.slice(0, 2).map((s) => s.run ?? ""); // a pull request's event
+    const queued = steps.slice(2).map((s) => s.run ?? ""); // the merge queue's build
     // Its two commands, run as GitHub would: a clone of main stands in for the checkout, and the pull request's
     // head sits at refs/pull/7/head on the origin.
     const dir = project();
@@ -3540,6 +3557,73 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     expect(
       readFileSync(join(runner, ".github", "workflows", "ci.yml"), "utf8"),
     ).toContain("runs-on: x"); // main's, not the branch's
+    // The merge queue's build of pull request 7: the event names no pull request, only the queue's branch, so its
+    // head and body come from a stand-in GitHub, and its two commands run.
+    const queue = (o: { body: string; head?: string; ref?: string }) => {
+      const bin = mkdtempSync(join(tmpdir(), "done-gate-queue-gh-"));
+      const qtemp = mkdtempSync(join(tmpdir(), "done-gate-queue-temp-"));
+      dirs.push(bin, qtemp);
+      write(bin, "head", `${o.head ?? sha("feat")}\n`);
+      write(bin, "body", `${o.body}\n`);
+      write(
+        bin,
+        "gh",
+        `#!/bin/sh\necho "$*" >> "${bin}/calls"\ncase "$*" in\n  "api repos/o/r/pulls/${PR} --jq .head.sha") cat "${bin}/head" ;;\n  "api repos/o/r/pulls/${PR} --jq .body // \\"\\"") cat "${bin}/body" ;;\n  *) exit 1 ;;\nesac\n`,
+      );
+      chmodSync(join(bin, "gh"), 0o755);
+      const results: ReturnType<typeof sh>[] = [];
+      for (const c of queued) {
+        const r = sh(runner, ["/bin/sh", "-c", c], {
+          RUNNER_TEMP: qtemp,
+          PATH: `${bin}:${process.env.PATH}`,
+          GH_TOKEN: "stand-in",
+          REPO: "o/r",
+          QUEUE_REF:
+            o.ref ??
+            `refs/heads/gh-readonly-queue/main/pr-${PR}-${"a".repeat(40)}`,
+          PR_NUMBER: "",
+          PR_BODY: "",
+          HEAD_SHA: "",
+        });
+        results.push(r);
+        if (r.status !== 0) break;
+      }
+      const log = join(bin, "calls");
+      return {
+        results,
+        calls: existsSync(log)
+          ? readFileSync(log, "utf8").trim().split("\n")
+          : [],
+      };
+    };
+    const judged = queue({ body: "Roadmap: Slice 0 — x" });
+    // Its own body and commits judged: the body explains no change to the ci.yml its commits change.
+    expect(judged.results.map((r) => r.status)).toEqual([0, 1]);
+    expect(judged.results[1]?.stdout).toContain(
+      "the PR body explains no change to .github/workflows/ci.yml",
+    );
+    expect(judged.calls).toEqual([
+      `api repos/o/r/pulls/${PR} --jq .head.sha`,
+      `api repos/o/r/pulls/${PR} --jq .body // ""`,
+    ]);
+    // GitHub's head is not the commit fetched: refused, as for a pull request that moved on.
+    const movedOn = queue({ body: "x", head: sha("main") });
+    expect(movedOn.results.map((r) => r.status)).toEqual([1]);
+    expect(movedOn.results[0]?.stdout).toContain("judged by its own run");
+    // A branch that names no queued pull request of main's: nothing asked, refused.
+    for (const ref of [
+      `refs/heads/gh-readonly-queue/other/pr-7-${"a".repeat(40)}`,
+      "refs/heads/feat",
+      `refs/heads/gh-readonly-queue/main/pr-7-${"a".repeat(40)}\nx`,
+    ]) {
+      const bad = queue({ body: "x", ref });
+      expect([ref, bad.results.map((r) => r.status), bad.calls]).toEqual([
+        ref,
+        [1],
+        [],
+      ]);
+      expect(bad.results[0]?.stdout).toContain("names no pull request");
+    }
   });
 });
 

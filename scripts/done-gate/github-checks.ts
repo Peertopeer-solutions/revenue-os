@@ -1,6 +1,6 @@
 // Whether GitHub reports the required check `checks` passed on one exact commit, asked with a read (`gh api`, a GET)
 // and counted only from GitHub Actions, the app main's ruleset pins `checks` to. The merge check asks it before every
-// merge, as the Mac's gate leaves the four-runs-at-once test to CI.
+// merge, as the Mac's gate leaves the four-runs-at-once test to CI; and whether main's rules hold a merge queue.
 
 import { spawnSync } from "node:child_process";
 
@@ -53,4 +53,41 @@ export function checksNotPassed(
   );
   if (not.length)
     return `GitHub Actions reports \`checks\` ${not.map((run) => run.conclusion ?? run.status).join(", ")} on it`;
+}
+
+/**
+ * Whether main's rules on GitHub hold a merge queue at this moment, asked with a read (`gh api`, a GET) of the rules
+ * that apply to main, or why that can't be read: GitHub out of reach, an empty answer or one that is not a list of
+ * rules. `repo` is "owner/name"; with none, gh reads it from the checkout at `cwd`.
+ */
+export function mainQueue(
+  repo: string | undefined,
+  cwd: string,
+): { queue: boolean } | { why: string } {
+  const r = spawnSync(
+    "gh",
+    [
+      "api",
+      `repos/${repo ?? "{owner}/{repo}"}/rules/branches/main?per_page=100`,
+    ],
+    { cwd, encoding: "utf8", timeout: 20_000 },
+  );
+  if (r.status !== 0)
+    return {
+      why: `\`gh api\`: ${(r.stderr || "no answer").trim().split("\n")[0]}`,
+    };
+  let rules: unknown;
+  try {
+    rules = JSON.parse(r.stdout);
+  } catch {
+    rules = undefined;
+  }
+  // A full page may leave rules out, so it can't say there is no queue.
+  if (!Array.isArray(rules) || rules.length >= 100)
+    return { why: "an answer it can't read" };
+  return {
+    queue: rules.some(
+      (rule) => (rule as { type?: unknown } | null)?.type === "merge_queue",
+    ),
+  };
 }
