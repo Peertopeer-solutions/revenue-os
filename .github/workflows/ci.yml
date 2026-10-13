@@ -98,7 +98,10 @@ jobs:
 
       # Console sign-in e2e against the real local stack: the wrapper exports the stack env, Playwright
       # starts the worker + a console build (dist-e2e, never the guarded dist/), and the spec seeds its own data.
+      # pw:webserver prints what those servers say, so one that fails to start says why.
       - name: Console e2e (real local stack)
+        env:
+          DEBUG: pw:webserver
         run: |
           bunx playwright install --with-deps chromium
           bun run local bun run gate tests e2e
