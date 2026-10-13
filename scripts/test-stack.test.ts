@@ -26,7 +26,12 @@ afterAll(() => {
  * The script in a scratch checkout whose project is "p", with `running` the container names docker lists. GITHUB_ENV
  * is always set here (`githubEnv`, or empty): on GitHub's runner the test itself runs with the job's own.
  */
-function start(running: string[], startFails = false, githubEnv = "") {
+function start(
+  running: string[],
+  startFails = false,
+  githubEnv = "",
+  loginFails = false,
+) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "test-stack-")));
   dirs.push(dir);
   mkdirSync(join(dir, "supabase"));
@@ -40,7 +45,7 @@ function start(running: string[], startFails = false, githubEnv = "") {
   );
   writeFileSync(
     join(bin, "docker"),
-    `#!/bin/sh\nprintf '%s\\n' ${running.map((n) => `'${n}'`).join(" ")}\n`,
+    `#!/bin/sh\ncase "$1" in\n  exec) echo "docker $*" >> "${bin}/asked.txt"; exit ${loginFails ? 1 : 0} ;;\n  *) printf '%s\\n' ${running.map((n) => `'${n}'`).join(" ")} ;;\nesac\n`,
     { mode: 0o755 },
   );
   const r = spawnSync("bash", [SCRIPT], {
@@ -59,6 +64,10 @@ function start(running: string[], startFails = false, githubEnv = "") {
   };
 }
 
+const START =
+  "start -x edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,vector";
+const LOGIN =
+  "docker exec supabase_db_p psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c alter role app_service with login password 'app_service_local'";
 const FOUR = [
   "supabase_db_p",
   "supabase_auth_p",
@@ -68,13 +77,19 @@ const FOUR = [
 
 it("starts the stack without the nine services the tests don't use, and passes when exactly the four run", () => {
   const r = start([...FOUR, "supabase_db_other", "juice-shop"]);
-  expect(r.asked).toBe(
-    "start -x edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,vector",
-  );
+  expect(r.asked.split("\n")[0]).toBe(START);
   expect([r.status, r.out.trim()]).toEqual([
     0,
     "the local stack runs exactly: auth db kong rest",
   ]);
+});
+
+it("then lets the worker's role log in with its local password, and fails when it can't", () => {
+  expect(start(FOUR).asked.split("\n")).toEqual([START, LOGIN]);
+  const failed = start(FOUR, false, "", true);
+  expect(failed.status).toBe(1);
+  // Not before the four are known to run, and not at all when they aren't.
+  expect(start([...FOUR, "supabase_studio_p"]).asked).toBe(START);
 });
 
 it("fails, naming what runs, when another service runs too, one of the four is missing, or none runs", () => {
@@ -126,10 +141,7 @@ it("in a GitHub job, hands the job's later steps the settings the tests read, fr
   dirs.push(dirname(env));
   const r = start(FOUR, false, env);
   expect(r.status).toBe(0);
-  expect(r.asked.split("\n")).toEqual([
-    "start -x edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,vector",
-    "status -o env",
-  ]);
+  expect(r.asked.split("\n")).toEqual([START, LOGIN, "status -o env"]);
   expect(readFileSync(env, "utf8").trim().split("\n")).toEqual([
     "SUPABASE_URL=http://127.0.0.1:54321",
     "SUPABASE_ANON_KEY=anon-key",

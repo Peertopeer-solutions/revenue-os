@@ -19,6 +19,12 @@ if [ "$running" != "auth db kong rest" ]; then
 fi
 echo "the local stack runs exactly: $running"
 
+# The migrations make app_service, the role the product's database access runs as, unable to log in; on a fresh
+# stack it gets its throwaway local password here, as `bun run db:reset` gives it (scripts/app-service-login.ts), so
+# a job's first step that starts the worker (the browser checks) never relies on a test run having done it first.
+docker exec "supabase_db_${project}" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+  -c "alter role app_service with login password 'app_service_local'"
+
 if [ -n "${GITHUB_ENV:-}" ]; then
   eval "$(supabase status -o env | grep -E '^(API_URL|ANON_KEY)=')"
   {
