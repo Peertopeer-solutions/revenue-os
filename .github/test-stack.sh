@@ -6,7 +6,9 @@
 set -euo pipefail
 
 test -f supabase/config.toml || supabase init
-supabase start -x analytics,edge-runtime,imgproxy,inbucket,meta,realtime,storage,studio,vector
+# -x takes the services' image names (logflare, mailpit, postgres-meta, storage-api), not the container names its
+# help lists (analytics, inbucket, meta, storage), which it ignores; the check below catches any that still run.
+supabase start -x edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,vector
 
 project=$(sed -n 's/^project_id = "\(.*\)"$/\1/p' supabase/config.toml)
 running=$(docker ps --format '{{.Names}}' | sed -n "s/^supabase_\(.*\)_${project}\$/\1/p" | sort | tr '\n' ' ')

@@ -69,7 +69,7 @@ const FOUR = [
 it("starts the stack without the nine services the tests don't use, and passes when exactly the four run", () => {
   const r = start([...FOUR, "supabase_db_other", "juice-shop"]);
   expect(r.asked).toBe(
-    "start -x analytics,edge-runtime,imgproxy,inbucket,meta,realtime,storage,studio,vector",
+    "start -x edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,vector",
   );
   expect([r.status, r.out.trim()]).toEqual([
     0,
@@ -127,7 +127,7 @@ it("in a GitHub job, hands the job's later steps the settings the tests read, fr
   const r = start(FOUR, false, env);
   expect(r.status).toBe(0);
   expect(r.asked.split("\n")).toEqual([
-    "start -x analytics,edge-runtime,imgproxy,inbucket,meta,realtime,storage,studio,vector",
+    "start -x edge-runtime,imgproxy,logflare,mailpit,postgres-meta,realtime,storage-api,studio,vector",
     "status -o env",
   ]);
   expect(readFileSync(env, "utf8").trim().split("\n")).toEqual([
