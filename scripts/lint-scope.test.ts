@@ -38,6 +38,7 @@ function lint(files: Record<string, string>) {
   return { status: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
+// behaviour already on main: biome.json has left .claude/worktrees out since July; this fails if that ever stops
 it("biome.json leaves .claude/worktrees out of lint by itself, while the same file elsewhere fails it", () => {
   const ok = "export const a = 1;\n";
   const inWorktree = lint({
@@ -51,6 +52,7 @@ it("biome.json leaves .claude/worktrees out of lint by itself, while the same fi
   expect(elsewhere.out).toContain("bad.ts");
 });
 
+// behaviour already on main: .gitignore has ignored .claude/worktrees since July; this fails if that ever stops
 it("git ignores .claude/worktrees in this checkout", () => {
   const r = spawnSync(
     "git",

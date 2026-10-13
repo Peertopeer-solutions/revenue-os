@@ -22,25 +22,30 @@ description: Use when building a roadmap item — any session implementing the n
 4. **Failing test first**, at the layer you touch. For security, RLS, migration or guard work,
    review the failing tests line by line before writing the implementation.
 5. Implement **with its production caller** — a capability nothing real calls is not done.
-6. Go through **Before your first verifier run** (below), then `bun run gate` run bare (never piped).
+6. Show it working: run it from a real entry point (API call, script against the local stack,
+   `bun run see <console path>`) and capture the evidence.
+7. Open the PR and write its records now, before the run the merge uses, so the gate and the verifier
+   rule on the final code. PR body: written as AGENTS.md → The loop, step 4, says (its first line,
+   every line that step says it owes, then what / why / evidence), the gate's line and the ruling
+   left for step 10; `PR_BODY="$(cat body.md)" bun run gate pr` judges it as `rules-from-main` will.
+   Same PR: tick the item in `ROADMAP.md` with `· evidence: …`, from what you have seen (a Side-track
+   or off-roadmap PR has no line to tick; its PR body's evidence is the record); update `STATE.md →
+   What works today` if reality changed; add a `Decisions in force` line for any decision.
+8. Go through **Before your first verifier run** (below), then `bun run gate` run bare (never piped).
    Every check passes in `bun run gate` here first, and CI confirms it.
-7. Show it working: run it from a real entry point (API call, script against the local stack,
-   `bun run see <console path>`) and capture the evidence. Then run the verifier agent with
-   Devesh's request word for word (when he gave none, the roadmap item's text, word for word); the
-   done gate won't let you stop on product code without its PASS, or its CANNOT_VERIFY naming what only Devesh can provide (he is told it is NOT verified).
-8. PR body: written as AGENTS.md → The loop, step 4, says (its first line, every line that step says
-   it owes, then what / why / evidence); `PR_BODY="$(cat body.md)" bun run
-   gate pr` judges it as `rules-from-main` will. `gh pr checks <n> --watch` — every required check
-   must be observed green on GitHub; absent or red means stop.
-9. Same PR: tick the item in `ROADMAP.md` with `· evidence: …` (a Side-track or off-roadmap PR has
-   no line to tick; its PR body's evidence is the record); update `STATE.md → What works today` if
-   reality changed; add a `Decisions in force` line for any decision.
-10. Merge per PHASE (STATE.md line 1): SETUP = squash-merge one PR at a time after confirming
+9. Run the verifier agent with Devesh's request word for word (when he gave none, the roadmap item's
+   text, word for word); the done gate won't let you stop on product code without its PASS, or its
+   CANNOT_VERIFY naming what only Devesh can provide (he is told it is NOT verified). A FAIL means a
+   fix, then steps 7 to 9 again on the new code.
+10. Put the gate's line and the verifier's ruling in the PR body, which is not in the files, so the
+    code they ruled on stays the code that merges. `gh pr checks <n> --watch` — every required check
+    must be observed green on GitHub; absent or red means stop.
+11. Merge per PHASE (STATE.md line 1): SETUP = squash-merge one PR at a time after confirming
     `gh pr view <n> --json baseRefName` is main; never loop merges. LIVE = never merge. Merge with
     `gh pr merge <n> --squash --match-head-commit <the PR's full head commit>`; AGENTS.md → The loop,
     step 5, says what the done gate checks before it lets that through.
-11. After merge, republish the tracker page (see AGENTS.md → The loop, step 6).
-12. If the last item of the slice landed, set the slice to `proof ready`; the proof workflow runs
+12. After merge, republish the tracker page (see AGENTS.md → The loop, step 6).
+13. If the last item of the slice landed, set the slice to `proof ready`; the proof workflow runs
     `bun run proof <slice>` after the next deploy to main and once a day, and `bun run cycle
     --banner` shows its latest run. When every step passes, set the slice to `done` and write the
     date and the passing run's link after `Proof passed:` (the banner prints the line), in a PR
@@ -69,8 +74,8 @@ verifier's checks and replaces none; your answers are for you, never evidence yo
 5. **A decision line covers this change only.** Its headline claims no more than the code does, and it
    loosens no rule from outside the rule files (PRs 147, 157).
 6. **The PR is open, and the item's ROADMAP.md and STATE.md lines are written, before the `bun run gate` and
-   verifier run whose results the merge uses**, so both rule on the final code. Claim no ruling or CI result
-   you have not seen, and leave no placeholder (PRs 148, 152, 160).
+   verifier run whose results the merge uses** (step 7), so both rule on the final code. Claim no ruling or
+   CI result you have not seen, and leave no placeholder by the time you merge (PRs 148, 152, 160).
 
 ## Never (any phase)
 Edit applied migrations · touch `.env`/secrets · force-push · add a dependency without a

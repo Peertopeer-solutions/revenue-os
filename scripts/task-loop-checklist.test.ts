@@ -14,11 +14,26 @@ const words = readFileSync(
 
 it("sends the builder through the checklist before the gate and verifier run", () => {
   expect(words).toContain(
-    "6. Go through **Before your first verifier run** (below), then `bun run gate` run bare",
+    "8. Go through **Before your first verifier run** (below), then `bun run gate` run bare",
   );
   expect(words).toContain(
     "## Before your first verifier run: its commonest FAIL reasons",
   );
+});
+
+// The loop's steps run in order, so they must agree with the checklist's last check: a ROADMAP.md tick after the
+// verifier's PASS changes the code it ruled on, and the gate and the verifier must then run again.
+it("has the builder open the PR and write its records before the gate and verifier run the merge uses", () => {
+  const order = [
+    "6. Show it working:",
+    "7. Open the PR and write its records now, before the run the merge uses",
+    "tick the item in `ROADMAP.md` with `· evidence: …`, from what you have seen",
+    "8. Go through **Before your first verifier run**",
+    "9. Run the verifier agent",
+    "10. Put the gate's line and the verifier's ruling in the PR body",
+  ].map((phrase) => words.indexOf(phrase));
+  expect(order.every((at) => at >= 0)).toBe(true);
+  expect(order).toEqual([...order].sort((a, b) => a - b));
 });
 
 it("names each of the six FAIL reasons the verifier's rulings gave", () => {
