@@ -55,11 +55,11 @@ jobs:
       # fetch-depth 0 above fetches every branch, so origin/<base> exists. The pull request's own commit is judged
       # against where it left the base, as rules-from-main and an agent's stop judge it, not GitHub's merge commit:
       # a removed expect line is then named by the same line number in all three (docs/removed-tests.md). In the merge
-      # queue's build the base is the commit the queue built on (main and the pull requests ahead of this one), so
-      # here and in the two checks below the change judged is this pull request's alone.
+      # queue's build (no base_ref) the base is main, so here and in the two checks below the change judged is this
+      # pull request's together with those queued ahead of it, each of which passed them on its own.
       - name: Done rules (scripts/done-gate.ts)
         env:
-          BASE: ${{ github.event.merge_group.base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          BASE: origin/${{ github.base_ref || 'main' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun run gate rules --base "$BASE" --head "$HEAD_SHA"
 
@@ -85,7 +85,7 @@ jobs:
       # for it first, or they would count as product code.
       - name: Tests proven against main's code
         env:
-          BASE: ${{ github.event.merge_group.base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          BASE: origin/${{ github.base_ref || 'main' }}
         run: |
           git ls-files --others --exclude-standard >> .git/info/exclude
           bun run gate proven --base "$BASE"
@@ -95,7 +95,7 @@ jobs:
       # The step above already ignores the job's files.
       - name: Break check on guardrail, tenancy and money code
         env:
-          BASE: ${{ github.event.merge_group.base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          BASE: origin/${{ github.base_ref || 'main' }}
         run: bun run gate broken --base "$BASE"
 
       - run: bun run rls:check
