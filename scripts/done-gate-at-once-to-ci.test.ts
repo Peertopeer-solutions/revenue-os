@@ -114,11 +114,13 @@ describe("the Mac's gate leaves the four-runs-at-once test to CI", () => {
       "tests",
       LEAVE_AT_ONCE,
     ]);
-    expect(
-      tests?.said?.(
-        "bun test v1.3.11\n\n 1234 pass\n 0 fail\nRan 1234 tests across 140 files.",
-      ),
-    ).toBe(`1234 tests (not run here, left to CI: ${AT_ONCE})`);
+    const out =
+      "bun test v1.3.11\n\n 1234 pass\n 0 fail\nRan 1234 tests across 140 files.";
+    expect(tests?.said?.(out, ROOT)).toBe(
+      `1234 tests (not run here, left to CI: ${AT_ONCE})`,
+    );
+    // A checkout without that test has nothing left out, and its summary says nothing of it.
+    expect(tests?.said?.(out, scratch("at-once-none-"))).toBe("1234 tests");
   });
 
   // behaviour already on main: CI's checks job already runs the whole suite with that test; this fails if it is ever left out there

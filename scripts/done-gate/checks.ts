@@ -3,7 +3,9 @@
 // browser checks, the database ones one run at a time and only while no worker runs.
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { type AddressInfo, createConnection, createServer } from "node:net";
+import { join } from "node:path";
 import { noWorkerRunning } from "./running-workers";
 import { onSharedStack } from "./shared-stack";
 import { AT_ONCE, LEAVE_AT_ONCE } from "./tests-ran";
@@ -13,8 +15,8 @@ type Check = {
   cmd: [string, ...string[]];
   db?: true;
   browser?: true;
-  /** What the gate's summary line says of it, from what it printed; `tally` without one. */
-  said?: (out: string) => string;
+  /** What the gate's summary line says of it, from what it printed in `repo`; `tally` without one. */
+  said?: (out: string, repo: string) => string;
 };
 
 export const CHECKS: Check[] = [
@@ -24,11 +26,14 @@ export const CHECKS: Check[] = [
   {
     name: "tests",
     // Four whole-suite runs and a demo at once would load the Mac five times over: CI's required `checks` runs that
-    // test before every merge, which waits for it (merge-gate.ts). The summary says so and never counts it passed.
+    // test before every merge, which waits for it (merge-gate.ts). The summary says so wherever the checkout holds that
+    // test, and never counts it passed.
     cmd: ["bun", "run", "local", "bun", "run", "gate", "tests", LEAVE_AT_ONCE],
     db: true,
-    said: (out) =>
-      `${tally("tests", out)} (not run here, left to CI: ${AT_ONCE})`,
+    said: (out, repo) =>
+      existsSync(join(repo, AT_ONCE))
+        ? `${tally("tests", out)} (not run here, left to CI: ${AT_ONCE})`
+        : tally("tests", out),
   },
   {
     name: "tests proven",
@@ -135,7 +140,7 @@ export async function runChecks(
       const r = run(repo, c.cmd, c.browser ? await browserEnv() : {});
       if (r.status !== 0)
         return `${c.name} failed (\`${c.cmd.join(" ")}\`):\n${tail(r.out)}`;
-      passed.push(c.said?.(r.out) ?? tally(c.name, r.out));
+      passed.push(c.said?.(r.out, repo) ?? tally(c.name, r.out));
     }
   };
   const onDb = CHECKS.filter((c) => c.db);
