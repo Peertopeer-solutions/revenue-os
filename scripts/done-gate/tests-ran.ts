@@ -15,7 +15,7 @@ export const MAY_SKIP: Record<string, string> = {};
 // The four-runs-at-once test (four whole-suite runs and a demo started together), the switch that leaves it out of
 // the whole-suite run by its path, never by skipping it, and the one that runs it alone. The Mac's gate and CI's
 // whole-suite job leave it out (checks.ts, ci.yml); CI's at-once job runs it alone, and every agent merge waits for
-// CI's required `checks`, which waits for both jobs (merge-gate.ts).
+// CI's required `checks`, which waits for every other job (ci-jobs.ts, merge-gate.ts).
 export const AT_ONCE = "services/worker/test/test-runs-at-once.test.ts";
 export const LEAVE_AT_ONCE = "--leave-at-once-to-ci";
 export const AT_ONCE_ALONE = "--at-once-alone";

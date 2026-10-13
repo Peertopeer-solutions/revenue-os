@@ -1,6 +1,6 @@
 // The Mac's gate runs the whole suite once and leaves the four-runs-at-once test (four whole-suite runs and a demo
 // started together) to CI: its tests check leaves that one file out by its path, never by skipping it, and its summary
-// says so. CI's required `checks` and Slice 0's proof still run it; proof.yml runs a proof ready or done slice's proof
+// says so. CI's at-once job, which its required `checks` waits for, and Slice 0's proof still run it; proof.yml runs a proof ready or done slice's proof
 // after each deploy to main and daily (scripts/proof-workflow.test.ts), and every agent merge waits for `checks` to
 // pass on its exact commit (scripts/done-gate-guards.test.ts).
 import { afterAll, expect, it } from "bun:test";

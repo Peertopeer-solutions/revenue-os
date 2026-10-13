@@ -41,8 +41,8 @@ export const CHECKS: Check[] = [
   { name: "database policies", cmd: ["bun", "run", "rls:check"], db: true },
   {
     name: "tests",
-    // Four whole-suite runs and a demo at once would load the Mac five times over: CI's required `checks` runs that
-    // test before every merge, which waits for it (merge-gate.ts). The summary says so wherever the checkout holds that
+    // Four whole-suite runs and a demo at once would load the Mac five times over: CI's at-once job runs that test
+    // before every merge, which waits for the required `checks`, which waits for that job (merge-gate.ts, ci-jobs.ts). The summary says so wherever the checkout holds that
     // test, and never counts it passed.
     cmd: ["bun", "run", "local", "bun", "run", "gate", "tests", LEAVE_AT_ONCE],
     db: true,
