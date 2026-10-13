@@ -348,13 +348,13 @@ describe("main's copy of rules-from-main, as GitHub runs it", () => {
 });
 
 describe("the merge steps, with a merge queue on main's rules and without one", () => {
-  it("fail on a copy whose merge check never takes the queue's way", async () => {
+  it("fail on a copy whose merge check never asks GitHub whether main has a merge queue", async () => {
     const noQueue = copyOf((dir) =>
       replaced(
         dir,
         "scripts/done-gate/merge-gate.ts",
-        "if (!queue.queue) {",
-        "if (queue.queue || !queue.queue) {",
+        "const queue = mainQueue(github, repo);",
+        "const queue = { queue: false };",
       ),
     );
     const results = await prove([wrappedMerge, adminMerge], noQueue);
