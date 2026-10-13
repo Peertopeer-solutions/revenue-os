@@ -26,6 +26,7 @@ import {
   runHook,
   verifierRun,
 } from "./done-gate-verifier-run";
+import { standInGitHub } from "./proof/gate";
 
 const GATE = join(import.meta.dir, "done-gate.ts");
 // A stop starts bun and git a dozen times, and some run every check; with other agents busy that passes bun's 5 s.
@@ -170,33 +171,9 @@ const noDockerBin = () => {
   return bin;
 };
 
-/** A stand-in gh, first on the PATH the hook starts with: its pull request's head is `head`, and `checks` passed on it. */
-const passingGh = (head: string) => {
-  const bin = scratch("gh-");
-  write(
-    bin,
-    "answer.json",
-    JSON.stringify({
-      total_count: 1,
-      check_runs: [
-        {
-          name: "checks",
-          head_sha: head,
-          status: "completed",
-          conclusion: "success",
-          app: { id: 15368 },
-        },
-      ],
-    }),
-  );
-  write(
-    bin,
-    "gh",
-    `#!/bin/sh\ncase "$1" in\n  pr) echo ${head} ;;\n  api) cat "${join(bin, "answer.json")}" ;;\nesac\n`,
-  );
-  chmodSync(join(bin, "gh"), 0o755);
-  return { PATH: `${bin}:${process.env.PATH}` };
-};
+/** A stand-in GitHub for `dir` (scripts/proof/gate.ts): its pull request's head is `head`, and `checks` passed on it. */
+const passingGh = (dir: string, head: string) =>
+  standInGitHub(dir, scratch("gh-"), head).env;
 
 describe("a stop judges a checkout whose latest commit main does not hold, however it got there", () => {
   it("judges work the session committed after it switches to main and back", () => {
@@ -420,7 +397,7 @@ describe("while background work runs, a stop still judges the done rules and the
         },
         env,
       ).out;
-    const refused = merge(passingGh(head));
+    const refused = merge(passingGh(dir, head));
     expect(refused.hookSpecificOutput?.permissionDecision).toBe("deny");
     expect(refused.systemMessage).toBe(
       `Done gate ✗ merge refused: its head commit ${head.slice(0, 7)} has not passed \`bun run gate\` on this machine. Check out ${head.slice(0, 7)} with nothing else changed (a clean worktree: \`git worktree add --detach .claude/worktrees/check ${head.slice(0, 7)}\`), run \`bun run gate\` there (and the verifier, for product code), then merge.`,
@@ -429,8 +406,14 @@ describe("while background work runs, a stop still judges the done rules and the
     expect(
       stop(dir, {}, { PATH: `${noDockerBin()}:${process.env.PATH}` }).told,
     ).toBe(HERE);
-    expect(merge(passingGh(head)).systemMessage).toBe(
-      `Done gate ✓ merge of ${head.slice(0, 7)}: typecheck, lint, guards · tests, database policies and browser checks did not run here; GitHub reports \`checks\` passed on it (no product code changed)`,
+    const tip = sh(dir, [
+      "git",
+      "rev-parse",
+      "--short=7",
+      "main",
+    ]).stdout.trim();
+    expect(merge(passingGh(dir, head)).systemMessage).toBe(
+      `Done gate ✓ merge of ${head.slice(0, 7)}: typecheck, lint, guards · tests, database policies and browser checks did not run here · GitHub reports \`checks\` passed on it · it holds main's tip ${tip} (no product code changed)`,
     );
   });
 });

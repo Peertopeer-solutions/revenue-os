@@ -1,5 +1,5 @@
 // Slice 0's proof: what the done gate refuses at a stop and at a merge, driven in a clone of the proved commit as an
-// agent's session drives it (its hook's inputs on stdin, a stand-in `gh` for the pull request). The checks a
+// agent's session drives it (its hook's inputs on stdin, a stand-in GitHub for the pull request). The checks a
 // passing `bun run gate` would run are recorded as passed rather than run (in a clone they would take minutes), so
 // each refusal is the one under test. The verifier's runs are the inputs Claude Code gives the hook, as the gate's
 // own tests record them (scripts/done-gate-verifier-run.ts).
@@ -8,7 +8,14 @@ import { chmodSync, constants, copyFileSync, linkSync } from "node:fs";
 import { join } from "node:path";
 import { snapshot } from "../done-gate/snapshot";
 import { removeTranscripts, verifierRun } from "../done-gate-verifier-run";
-import { bash, checksPassed, hook, said, standInGh, type Told } from "./gate";
+import {
+  bash,
+  checksPassed,
+  hook,
+  said,
+  standInGitHub,
+  type Told,
+} from "./gate";
 import { namedTestsPass } from "./named-tests";
 import { commit, git, inScratch, plainEnv, sh, write } from "./scratch";
 import type { Step } from "./step";
@@ -42,12 +49,15 @@ function heldForVerifier(dir: string, when: string): Told {
   return s;
 }
 
-/** The unverified change committed on a branch whose checks passed, and a stand-in gh naming it pull request 7's head. */
+/**
+ * The unverified change committed on a branch whose checks passed, and a stand-in GitHub naming it pull request 7's
+ * head, `checks` passed on it and main's tip in it.
+ */
 function pullRequest(dir: string, base: string) {
   git(dir, "checkout", "-qb", "feat/proof-sample");
   unverified(dir);
   const head = commit(dir, "a sample product change");
-  return { head, env: standInGh(base, head) };
+  return { head, env: standInGitHub(dir, join(base, "gh-bin"), head).env };
 }
 const merge = (head: string, extra = "") =>
   `gh pr merge 7 --squash${extra} --match-head-commit ${head}`;

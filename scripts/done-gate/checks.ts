@@ -1,11 +1,12 @@
-// Every check the gate runs on the code as it stands: typecheck, lint, guards, tests, tests proven (tests-proven.ts),
-// the break check (break-check.ts), database policies and the browser checks, the database ones one run at a time and
-// only while no worker runs.
+// Every check the gate runs on the code as it stands: typecheck, lint, guards, tests (all but the four-runs-at-once
+// test, left to CI), tests proven (tests-proven.ts), the break check (break-check.ts), database policies and the
+// browser checks, the database ones one run at a time and only while no worker runs.
 
 import { spawnSync } from "node:child_process";
 import { type AddressInfo, createConnection, createServer } from "node:net";
 import { noWorkerRunning } from "./running-workers";
 import { onSharedStack } from "./shared-stack";
+import { AT_ONCE, LEAVE_AT_ONCE } from "./tests-ran";
 
 type Check = {
   name: string;
@@ -22,8 +23,12 @@ export const CHECKS: Check[] = [
   { name: "guards", cmd: ["bun", "run", "guards"] },
   {
     name: "tests",
-    cmd: ["bun", "run", "local", "bun", "run", "gate", "tests"],
+    // Four whole-suite runs and a demo at once would load the Mac five times over: CI's required `checks` runs that
+    // test before every merge, which waits for it (merge-gate.ts). The summary says so and never counts it passed.
+    cmd: ["bun", "run", "local", "bun", "run", "gate", "tests", LEAVE_AT_ONCE],
     db: true,
+    said: (out) =>
+      `${tally("tests", out)} (not run here, left to CI: ${AT_ONCE})`,
   },
   {
     name: "tests proven",

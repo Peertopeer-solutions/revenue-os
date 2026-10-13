@@ -1,6 +1,7 @@
 // The check before each command guards the done gate's own record and every merge. Each test drives the real hook
 // in a throwaway repository holding a copy of the gate, as a session's tool call would, or the command check the hook
-// runs (toolRefusal); GitHub is a stand-in `gh` on the PATH, never the real one.
+// runs (toolRefusal); GitHub is a stand-in (scripts/proof/gate.ts): a `gh` on the PATH and a local copy of the
+// repository for `git ls-remote`, never the real one.
 import { afterAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
@@ -8,7 +9,6 @@ import {
   constants,
   copyFileSync,
   cpSync,
-  existsSync,
   linkSync,
   mkdirSync,
   mkdtempSync,
@@ -21,6 +21,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { toolRefusal } from "./done-gate/tools";
+import { checksRun, type Run, standInGitHub } from "./proof/gate";
 
 // A hook test starts bun and git several times; with other agents busy on the machine that passes bun's 5 s.
 setDefaultTimeout(60_000);
@@ -520,40 +521,16 @@ describe("a line that names gh and merge must read as a plain `gh pr merge <numb
 });
 
 describe("the merge check: every agent merge names the exact commit that passed the gate", () => {
-  type Run = {
-    name?: string;
-    head_sha?: string;
-    status?: string;
-    conclusion?: string | null;
-    app?: { id: number };
-  };
-  /** A stand-in gh: `gh pr view` names `head`, `gh api` answers `runs` (or fails), and every call is logged. */
-  const fakeGh = (head: string, runs?: Run[]) => {
-    const bin = scratch("guards-gh-");
-    const log = join(bin, "calls.txt");
-    write(
-      bin,
-      "answer.json",
-      JSON.stringify({
-        total_count: runs?.length ?? 0,
-        check_runs: runs ?? [],
-      }),
-    );
-    writeFileSync(
-      join(bin, "gh"),
-      `#!/bin/sh\necho "$*" >> "${log}"\ncase "$1" in\n  pr) echo ${head} ;;\n  api) ${runs ? `cat "${join(bin, "answer.json")}"` : "echo 'HTTP 502' >&2; exit 1"} ;;\nesac\n`,
-      { mode: 0o755 },
-    );
-    return {
-      env: { PATH: `${bin}:${process.env.PATH}` },
-      calls: () =>
-        existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [],
-    };
-  };
-  /** A pull request's head: a commit changing only notes (no product code, so no verifier is needed). */
-  const pullRequest = (dir: string) => {
+  /**
+   * A stand-in GitHub for `dir`: `gh pr view` names `head`, `gh api` answers `runs` (by default `checks` passed on
+   * `head`; null: it fails), `git ls-remote` reads `dir`'s main, and every gh call is logged.
+   */
+  const fakeGh = (dir: string, head: string, runs?: Run[] | null) =>
+    standInGitHub(dir, scratch("guards-gh-"), head, { runs });
+  /** A pull request's head: a commit changing only `file`, by default notes (no product code, so no verifier is needed). */
+  const pullRequest = (dir: string, file = "docs/notes.md") => {
     sh(dir, ["git", "checkout", "-qb", "feat/notes"]);
-    write(dir, "docs/notes.md", `notes ${Math.random()}\n`);
+    write(dir, file, `notes ${Math.random()}\n`);
     const head = commit(dir);
     sh(dir, ["git", "checkout", "-q", "main"]);
     return {
@@ -573,11 +550,27 @@ describe("the merge check: every agent merge names the exact commit that passed 
     gh: ReturnType<typeof fakeGh>,
     cwd = dir,
   ) => hook(dir, bash(command), { cwd, env: gh.env });
+  /** GitHub's answers that don't show `checks` passed (null: it can't be asked), each with what a refusal names. */
+  const NOT_PASSED = (run: (over?: Run) => Run) =>
+    [
+      [[run({ conclusion: "failure" })], "failure"],
+      [[run({ status: "in_progress", conclusion: null })], "in_progress"],
+      [[run({ app: { id: 99 } })], "no `checks` run by GitHub Actions"],
+      [[run({ head_sha: SHA })], "no `checks` run by GitHub Actions"],
+      [[], "no `checks` run by GitHub Actions"],
+      [null, "HTTP 502"],
+    ] as [Run[] | null, string][];
 
   it("refuses a merge that doesn't name the exact commit the gate proved, and lets the one that does through", () => {
     const dir = repo();
     const { head, tree } = pullRequest(dir);
-    const gh = fakeGh(head);
+    const gh = fakeGh(dir, head);
+    const tip = sh(dir, [
+      "git",
+      "rev-parse",
+      "--short=7",
+      "main",
+    ]).stdout.trim();
     record(dir, "checked", tree, "typecheck, lint, guards, 3 tests");
     const bare = merge(dir, "gh pr merge 7 --squash", gh);
     expect(bare.refused).toBe(true);
@@ -599,15 +592,18 @@ describe("the merge check: every agent merge names the exact commit that passed 
     ).toEqual({
       refused: false,
       why: "",
-      told: `Done gate ✓ merge of ${head.slice(0, 7)}: typecheck, lint, guards, 3 tests (no product code changed)`,
+      told: `Done gate ✓ merge of ${head.slice(0, 7)}: typecheck, lint, guards, 3 tests · GitHub reports \`checks\` passed on it · it holds main's tip ${tip} (no product code changed)`,
     });
-    expect(gh.calls().some((c) => c.startsWith("api"))).toBe(false); // a full result needs no word from GitHub
+    // A full result too waits for GitHub's word, as the Mac's gate leaves the four-runs-at-once test to CI.
+    expect(gh.calls().filter((c) => c.startsWith("api"))).toEqual([
+      `api repos/o/r/commits/${head}/check-runs?check_name=checks&filter=latest`,
+    ]);
   });
 
   it("reads a merge as gh reads it: quotes in its name, its options before `pr`, or from a folder outside the checkout", () => {
     const dir = repo();
     const { head } = pullRequest(dir); // never proven here
-    const gh = fakeGh(head);
+    const gh = fakeGh(dir, head);
     for (const command of [
       `g''h pr merge 7 --squash --match-head-commit ${head}`,
       `g\\h pr merge 7 --squash --match-head-commit ${head}`,
@@ -652,7 +648,7 @@ describe("the merge check: every agent merge names the exact commit that passed 
   it("checks a merge in every folder the command visits before it, even from another repository", () => {
     const dir = repo();
     const { head } = pullRequest(dir); // never proven here
-    const gh = fakeGh(head);
+    const gh = fakeGh(dir, head);
     const other = scratch("guards-other-");
     sh(other, ["git", "init", "-q"]);
     sh(other, [
@@ -697,15 +693,8 @@ describe("the merge check: every agent merge names the exact commit that passed 
     const { head, tree } = pullRequest(dir);
     record(dir, "partial", tree, "typecheck, lint, guards");
     const command = `gh pr merge 7 --squash --match-head-commit ${head}`;
-    const run = (over: Run = {}): Run => ({
-      name: "checks",
-      head_sha: head,
-      status: "completed",
-      conclusion: "success",
-      app: { id: 15368 },
-      ...over,
-    });
-    const passed = fakeGh(head, [run()]);
+    const run = (over: Run = {}): Run => checksRun(head, over);
+    const passed = fakeGh(dir, head, [run()]);
     const r = merge(dir, command, passed);
     expect(r.refused).toBe(false);
     expect(r.told).toContain("GitHub reports `checks` passed on it");
@@ -713,19 +702,133 @@ describe("the merge check: every agent merge names the exact commit that passed 
     expect(passed.calls().filter((c) => c.startsWith("api"))).toEqual([
       `api repos/o/r/commits/${head}/check-runs?check_name=checks&filter=latest`,
     ]);
-    for (const [runs, why] of [
-      [[run({ conclusion: "failure" })], "failure"],
-      [[run({ status: "in_progress", conclusion: null })], "in_progress"],
-      [[run({ app: { id: 99 } })], "no `checks` run by GitHub Actions"],
-      [[run({ head_sha: SHA })], "no `checks` run by GitHub Actions"],
-      [[], "no `checks` run by GitHub Actions"],
-      [undefined, "HTTP 502"],
-    ] as [Run[] | undefined, string][]) {
-      const refused = merge(dir, command, fakeGh(head, runs));
+    for (const [runs, why] of NOT_PASSED(run)) {
+      const refused = merge(dir, command, fakeGh(dir, head, runs));
       expect(refused.refused).toBe(true);
       expect(refused.why).toContain("passed `bun run gate` here only in part");
       expect(refused.why).toContain(why);
     }
+  });
+
+  // The Mac's gate leaves the four-runs-at-once test to CI, so a full pass here no longer proves a commit alone.
+  it("counts a full pass here too only when GitHub reports `checks` passed on that exact commit", () => {
+    const dir = repo();
+    const { head, tree } = pullRequest(dir);
+    record(dir, "checked", tree, "typecheck, lint, guards, 3 tests");
+    const command = `gh pr merge 7 --squash --match-head-commit ${head}`;
+    const r = merge(dir, command, fakeGh(dir, head));
+    expect(r.refused).toBe(false);
+    expect(r.told).toContain(
+      "typecheck, lint, guards, 3 tests · GitHub reports `checks` passed on it",
+    );
+    const wrong = NOT_PASSED((over) => checksRun(head, over)).flatMap(
+      ([runs, why]) => {
+        const refused = merge(dir, command, fakeGh(dir, head, runs));
+        return refused.refused &&
+          refused.why.includes(
+            "passed `bun run gate` here (which leaves the four-runs-at-once test to CI), but",
+          ) &&
+          refused.why.includes(why)
+          ? []
+          : [`${why}: ${refused.why || refused.told}`];
+      },
+    );
+    expect(wrong).toEqual([]);
+  });
+
+  it("refuses a merge whose head does not hold main's tip as `git ls-remote` reads it at that moment, or when it can't be read", () => {
+    const dir = repo();
+    const { head, tree } = pullRequest(dir);
+    record(dir, "checked", tree, "typecheck, lint, guards, 3 tests");
+    const command = `gh pr merge 7 --squash --match-head-commit ${head}`;
+    expect(merge(dir, command, fakeGh(dir, head)).refused).toBe(false);
+    // Main moves on after the branch left it: GitHub's `checks` ran on the head with the old main.
+    write(dir, "docs/later.md", "landed on main later\n");
+    const later = commit(dir);
+    const behind = merge(dir, command, fakeGh(dir, head));
+    expect(behind.refused).toBe(true);
+    expect(behind.why).toContain(
+      `does not hold main's tip ${later.slice(0, 7)} as GitHub has it now`,
+    );
+    // The local main is no guide: only GitHub's answer counts, here a main this checkout never saw.
+    sh(dir, ["git", "reset", "-q", "--hard", "HEAD~1"]);
+    const other = scratch("guards-main-elsewhere-");
+    sh(other, ["git", "init", "-q", "-b", "main"]);
+    write(other, "a.md", "another history\n");
+    commit(other);
+    sh(dir, ["git", "fetch", "-q", other, "main:refs/heads/elsewhere"]);
+    expect(
+      merge(
+        dir,
+        command,
+        standInGitHub(dir, scratch("guards-gh-"), head, { main: "elsewhere" }),
+      ).why,
+    ).toContain("does not hold main's tip");
+    // An answer that can't be had or read: GitHub out of reach, an empty answer, a garbled one, no main there.
+    const gh = fakeGh(dir, head);
+    const fakeGit = (answer: string) => {
+      const bin = scratch("guards-git-");
+      writeFileSync(
+        join(bin, "git"),
+        `#!/bin/sh\ncase "$1" in ls-remote) ${answer} ;; esac\nexec ${Bun.which("git")} "$@"\n`,
+        { mode: 0o755 },
+      );
+      return { ...gh, env: { ...gh.env, PATH: `${bin}:${gh.env.PATH}` } };
+    };
+    const unreached = { ...gh, env: { PATH: gh.env.PATH } }; // origin's own address, which never resolves
+    const noMain = fakeGh(dir, head);
+    sh(dir, [
+      "git",
+      "--git-dir",
+      noMain.env.GIT_CONFIG_KEY_0.replace(/^url\.|\.insteadOf$/g, ""),
+      "update-ref",
+      "-d",
+      "refs/heads/main",
+    ]);
+    for (const [stand, why] of [
+      [unreached, "could not read main's tip on GitHub"],
+      [fakeGit("exit 0"), "an empty answer"],
+      [fakeGit("echo 'not a commit'; exit 0"), "an answer it can't read"],
+      [noMain, "GitHub names no main"],
+    ] as const) {
+      const r = merge(dir, command, stand);
+      expect([why, r.refused]).toEqual([why, true]);
+      expect(r.why).toContain(why);
+    }
+  });
+
+  it("refuses a change to CI's workflows or the gate's checks, test runner, coverage, tests-proven, break or merge check without the verifier's PASS", () => {
+    const needs = [
+      ".github/workflows/ci.yml",
+      ".github/workflows/proof.yml",
+      "scripts/done-gate/checks.ts",
+      "scripts/done-gate/tests-ran.ts",
+      "scripts/done-gate/coverage.ts",
+      "scripts/done-gate/tests-proven.ts",
+      "scripts/done-gate/break-check.ts",
+      "scripts/done-gate/merge-gate.ts",
+    ];
+    const free = [
+      "docs/notes.md",
+      "scripts/done-gate/rules.ts",
+      ".github/CODEOWNERS",
+    ];
+    const wrong = [...needs, ...free].flatMap((file) => {
+      const dir = repo();
+      const { head, tree } = pullRequest(dir, file);
+      record(dir, "checked", tree, "typecheck, lint, guards, 3 tests");
+      const r = merge(
+        dir,
+        `gh pr merge 7 --squash --match-head-commit ${head}`,
+        fakeGh(dir, head),
+      );
+      const refused =
+        r.refused && r.why.includes("nobody independent has seen");
+      return refused === needs.includes(file)
+        ? []
+        : [`${file}: ${r.why || r.told}`];
+    });
+    expect(wrong).toEqual([]);
   });
 
   // The stand-in gh must win over a real one that sits beside bun, as Homebrew installs both in /opt/homebrew/bin.
@@ -734,7 +837,7 @@ describe("the merge check: every agent merge names the exact commit that passed 
   it("asks the gh the caller's PATH names first, not one beside bun", () => {
     const dir = repo();
     const { head } = pullRequest(dir); // never proven here
-    const gh = fakeGh(head);
+    const gh = fakeGh(dir, head);
     const brew = scratch("guards-brew-");
     const bun = join(brew, "bun");
     try {

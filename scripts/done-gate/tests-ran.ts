@@ -12,6 +12,12 @@ import { coverageProblems, gapsTold } from "./coverage";
 // test it listed, the dev login's sign-up, went with self sign-up (Slice 1), and its replacement runs everywhere.
 export const MAY_SKIP: Record<string, string> = {};
 
+// The four-runs-at-once test (four whole-suite runs and a demo started together) and the switch that leaves it out
+// of the whole-suite run by its path, never by skipping it. The Mac's gate sets it (checks.ts); CI's required
+// `checks` never does, and every agent merge waits for `checks` to pass (merge-gate.ts).
+export const AT_ONCE = "services/worker/test/test-runs-at-once.test.ts";
+export const LEAVE_AT_ONCE = "--leave-at-once-to-ci";
+
 /** PURE: a JUnit report, bun's or Playwright's → every test it lists as skipped or todo, as "file > name". */
 export function notRun(report: string): string[] {
   const entity: Record<string, string> = {
@@ -38,8 +44,13 @@ export function notRun(report: string): string[] {
  * `bun run gate tests [e2e]`: bun's tests, or the browser checks, as CI runs them (CI=1, so bun and Playwright
  * refuse .only), then fails if any test was skipped or left todo, however it was switched off, unless MAY_SKIP
  * lists it. Bun's run also writes its coverage, and fails if a product line the change adds is run by no test.
+ * `leaveAtOnce`: bun's run leaves out AT_ONCE by its path.
  */
-export function allTestsRun(repo: string, e2e: boolean): number {
+export function allTestsRun(
+  repo: string,
+  e2e: boolean,
+  leaveAtOnce = false,
+): number {
   const dir = mkdtempSync(join(tmpdir(), "done-gate-tests-"));
   const report = join(dir, "junit.xml");
   try {
@@ -54,6 +65,7 @@ export function allTestsRun(repo: string, e2e: boolean): number {
             "--coverage",
             "--coverage-reporter=lcov",
             `--coverage-dir=${dir}`,
+            ...(leaveAtOnce ? [`--path-ignore-patterns=${AT_ONCE}`] : []),
           ],
       {
         cwd: repo,

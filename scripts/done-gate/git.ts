@@ -14,6 +14,7 @@ export function gitAnswer(
   cwd: string,
   args: string[],
   env: Record<string, string> = {},
+  timeout?: number, // milliseconds, for a question that goes over the network
 ) {
   const ask = () =>
     spawnSync("git", args, {
@@ -21,6 +22,7 @@ export function gitAnswer(
       env: { ...process.env, ...env },
       encoding: "utf8",
       maxBuffer: 256 << 20,
+      timeout,
     });
   const r = ask();
   return r.status === 0 && !r.stdout ? ask() : r;
