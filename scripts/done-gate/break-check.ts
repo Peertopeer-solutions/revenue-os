@@ -148,10 +148,13 @@ export function breakCheck(
       }
       const run = runTestFile(dir, t, { coverage: true, ms: left() });
       runs++;
+      // A file that fails alone would leave the lines it runs unbroken, so it fails the break check: the whole-suite
+      // run comes after this check, and in CI in a job of its own, and a file may pass there only on what another
+      // test left behind.
       if (run.finished && run.status === 0) hits.set(t, run.hits);
       else
-        notes.push(
-          `${t} ${run.finished ? "fails" : "doesn't finish"} on the change itself, so it can't show a break (the tests check reports it)`,
+        problems.push(
+          `${t} ${run.finished ? "fails" : "doesn't finish"} when run alone on the change, so it can't show whether a broken line is caught: make it pass alone (it may rely on data another test left behind)`,
         );
     }
     for (const { file, line } of judged) {

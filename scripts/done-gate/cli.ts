@@ -17,10 +17,23 @@ import { onSharedStack } from "./shared-stack";
 import { snapshot } from "./snapshot";
 import { Store, stateDir } from "./store";
 import { testsProven } from "./tests-proven";
-import { allTestsRun, LEAVE_AT_ONCE } from "./tests-ran";
+import {
+  AT_ONCE_ALONE,
+  allTestsRun,
+  LEAVE_AT_ONCE,
+  type TestsRun,
+} from "./tests-ran";
 import { prove, rulingOn } from "./verdict";
 
-const USAGE = `usage: bun run gate [rules [--base <ref>] [--head <ref>] | pr [--base <ref>] [--head <ref>] | tests [e2e | --leave-at-once-to-ci] | pause "<question>" | checkpoint [--done "<…>" --failed "<…>" --next "<…>"]]
+/** `bun run gate tests` with nothing more, or with each word it takes, and what it then runs. */
+const TESTS_RUNS = new Map<string | undefined, TestsRun>([
+  [undefined, "suite"],
+  ["e2e", "e2e"],
+  [LEAVE_AT_ONCE, "leave-at-once"],
+  [AT_ONCE_ALONE, "at-once-alone"],
+]);
+
+const USAGE = `usage: bun run gate [rules [--base <ref>] [--head <ref>] | pr [--base <ref>] [--head <ref>] | tests [e2e | --leave-at-once-to-ci | --at-once-alone] | pause "<question>" | checkpoint [--done "<…>" --failed "<…>" --next "<…>"]]
        bun run see <console path> [more paths]   (":org" in a path becomes the seeded workspace)
        pr reads the pull request's body from PR_BODY and its number from PR_NUMBER; --head judges a commit as data
        bun run gate proven [--base <ref>]   the change's new and edited tests fail on main's code and pass on it
@@ -126,14 +139,8 @@ export async function cli(cmd: string, args: string[]) {
         notes.map((n) => `\n⚠ ${oneLine(n)}`).join(""),
     );
     process.exit(problems.length ? 1 : 0);
-  } else if (
-    cmd === "tests" &&
-    args.length <= 1 &&
-    [undefined, "e2e", LEAVE_AT_ONCE].includes(args[0])
-  ) {
-    process.exit(
-      allTestsRun(repo, args[0] === "e2e", args[0] === LEAVE_AT_ONCE),
-    );
+  } else if (cmd === "tests" && args.length <= 1 && TESTS_RUNS.has(args[0])) {
+    process.exit(allTestsRun(repo, TESTS_RUNS.get(args[0])));
   } else if (cmd === "proven" && refs && !refs.head) {
     // Lines the change only moved are left out as the snapshot marks them (moved.ts, read in test-edits.ts).
     const r = testsProven(repo, changeOf("Tests proven", repo, refs.base));
