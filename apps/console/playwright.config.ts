@@ -67,7 +67,6 @@ export default defineConfig({
             url: `${apiUrl}/health`,
             reuseExistingServer,
             stdout: "pipe",
-            stdout: "pipe",
             timeout: 60_000,
           },
         ]
@@ -101,7 +100,6 @@ export default defineConfig({
             url: WWW_URL,
             reuseExistingServer,
             stdout: "pipe",
-            stdout: "pipe",
             timeout: 120_000,
           },
           // The console built with its settings empty, for e2e/no-settings.e2e.ts on 4175. Empty, not left out:
@@ -112,7 +110,6 @@ export default defineConfig({
               "bun run build --outDir dist-e2e-no-settings && bun run preview --outDir dist-e2e-no-settings --port 4175 --strictPort",
             url: "http://localhost:4175",
             reuseExistingServer,
-            stdout: "pipe",
             stdout: "pipe",
             timeout: 120_000,
             env: {
