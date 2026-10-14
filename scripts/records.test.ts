@@ -141,6 +141,21 @@ describe("one file per record", () => {
     expect(parseRecords(markdown(r))).toEqual(lists);
   });
 
+  it("names a records folder that is missing, and a folder where a record file should be, instead of failing", () => {
+    const dir = scratch();
+    write(dir, "STATE.md", STATE(rule(100, "AGENTS.md", "2026-09-25")));
+    write(dir, "docs/rule-changes/2026-10-14-nested/x.md", "- one\n");
+    const r = records(dir);
+    expect(r.decisions).toEqual([]);
+    expect(r.ruleChanges).toEqual([
+      rule(100, "AGENTS.md", "2026-09-25").slice(2),
+    ]);
+    expect(r.problems).toEqual([
+      "docs/decisions-in-force/ is missing: it holds the records",
+      "docs/rule-changes/2026-10-14-nested: a record is a file, not a folder",
+    ]);
+  });
+
   it("names a record file that is badly named, holds more than one line or, for a rule change, is not a record", () => {
     const dir = scratch();
     write(dir, "STATE.md", STATE());

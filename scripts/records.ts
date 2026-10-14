@@ -2,7 +2,7 @@
 // then the older ones STATE.md → Rule changes keeps), newest first, printed as the records.md the tracker page reads
 // (AGENTS.md → The loop, step 6). One file per record, so two pull requests that each add one never edit the same
 // lines. `bun run cycle --check` reports a record file that is not written as its folder's README says.
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseState } from "../docs/tracker/parse.js";
 import { RECORDED, RECORDS } from "./done-gate/rule-changes";
@@ -14,11 +14,17 @@ const NAME = /^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/;
 function folder(root: string, dir: string, shape: RegExp, how: string) {
   const lines: string[] = [];
   const problems: string[] = [];
-  const files = readdirSync(join(root, dir))
-    .filter((f) => f !== "README.md")
-    .sort()
-    .reverse();
-  for (const f of files) {
+  if (!existsSync(join(root, dir)))
+    return { lines, problems: [`${dir} is missing: it holds the records`] };
+  const files = readdirSync(join(root, dir), { withFileTypes: true })
+    .filter((f) => f.name !== "README.md")
+    .sort((a, b) => (a.name < b.name ? 1 : -1));
+  for (const e of files) {
+    const f = e.name;
+    if (!e.isFile()) {
+      problems.push(`${dir}${f}: a record is a file, not a folder`);
+      continue;
+    }
     const text = readFileSync(join(root, dir, f), "utf8")
       .trim()
       .split(/\r?\n/);
