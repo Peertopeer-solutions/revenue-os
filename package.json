@@ -13,6 +13,7 @@
     "local": "bun scripts/local-env.ts",
     "cycle": "bun scripts/cycle.ts",
     "proof": "bun scripts/proof/cli.ts",
+    "records": "bun scripts/records.ts",
     "dev": "bun --watch services/worker/src/index.ts & bun run --filter console dev",
     "test": "bun test",
     "lint": "biome check .",

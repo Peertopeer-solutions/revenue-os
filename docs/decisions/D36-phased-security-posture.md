@@ -1,6 +1,6 @@
 # D36 — Phased security posture: SETUP → LIVE (one explicit switch, no ambient contradictions)
 
-**Status:** In force. Its rules are restated in `AGENTS.md` (hard rail 7) and `STATE.md` (PHASE line and Decisions in force); this file keeps the reasoning.
+**Status:** In force. Its rules are restated in `AGENTS.md` (hard rail 7) and `STATE.md` (PHASE line) and `docs/decisions-in-force/`; this file keeps the reasoning.
 
 ## Context
 
@@ -61,7 +61,7 @@ step.
 ### LIVE phase (flip = go-live): maximum force, structurally enforced
 
 - Ruleset back to: 1 approval + code-owner review on `docs/**`/`CLAUDE.md` + required checks
-  (backup JSON: `orchestrator/state/ruleset-18778679-backup-2026-07-11.json`). Agents cannot
+  (the exact settings are the go-live runbook's, below; the retired orchestrator's backup of them is gone). Agents cannot
   merge — enforced by GitHub, not by promise. S13.1–S13.9 apply in full, preflight mandatory
   before any autonomous run.
 - All SETUP-era secrets rotated; demo users/orgs deleted; monitoring (uptime on /health + /ready,

@@ -1,0 +1,1 @@
+- **Workflow task content** is validated in packages/harness/src/workflow/schema.ts, not packages/shared.

@@ -1,0 +1,1 @@
+- 2026-09-29 · **A do-not-call block may come from the AI's reading of a call, add-only** (Devesh): the one exception to "model output never writes consent or guardrail fields"; that reading may add a block, never remove one or grant consent.

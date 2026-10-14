@@ -1,5 +1,5 @@
 // Slice 1's proof steps, in the order ROADMAP.md → Slice 1 → Proof gives the checks they make. Each Slice 1 item adds
-// the steps for what it builds and strikes its check from NOT_YET (STATE.md → Decisions in force), so until every
+// the steps for what it builds and strikes its check from NOT_YET (docs/decisions-in-force/), so until every
 // check has its step, `bun run proof 1` fails on the last step, naming the checks no step makes yet, and never reads
 // as passed.
 

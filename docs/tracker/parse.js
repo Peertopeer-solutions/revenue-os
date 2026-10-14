@@ -132,11 +132,29 @@ export function parseRoadmap(md) {
   return { slices, problems };
 }
 
+const list = (sec, h) =>
+  (sec[h] || []).filter((l) => /^- /.test(l)).map((l) => l.slice(2));
+
+// The records.md `bun run records` prints from docs/decisions-in-force/ and docs/rule-changes/, newest first.
+export function parseRecords(md) {
+  const sec = sections(lf(md));
+  const heads = ["Decisions in force", "Rule changes"];
+  return {
+    decisions: list(sec, heads[0]),
+    ruleChanges: list(sec, heads[1]),
+    problems: heads
+      .filter((h) => !(h in sec))
+      .map(
+        (h) =>
+          `records.md: missing the "## ${h}" heading (publish the output of \`bun run records\`)`,
+      ),
+  };
+}
+
 export function parseState(md) {
   md = lf(md);
   // Line 1 decides who merges, so only the exact words count; a comment may follow after a space.
   const phase = (md.match(/^PHASE: (SETUP|LIVE)(?=\s|$)/) || [])[1] || "?";
-  const updated = (md.match(/^Updated:\s*(.+)$/m) || [])[1] || "";
   const sec = sections(md);
   const problems = [];
   const table = (sec["What works today"] || [])
@@ -160,11 +178,7 @@ export function parseState(md) {
     problems.push(
       `STATE.md: line 1 must be "PHASE: SETUP" or "PHASE: LIVE", not "${md.split("\n")[0]}"`,
     );
-  for (const h of [
-    "What works today",
-    "Waiting on Devesh",
-    "Decisions in force",
-  ])
+  for (const h of ["What works today", "Waiting on Devesh"])
     if (!(h in sec))
       problems.push(`STATE.md: missing the "## ${h}" heading (exact wording)`);
   for (const r of rows)
@@ -175,13 +189,11 @@ export function parseState(md) {
     return m ? { done: m[1] === "x", text: m[2] } : null;
   };
   const waiting = (sec["Waiting on Devesh"] || []).map(checks).filter(Boolean);
-  const list = (h) =>
-    (sec[h] || []).filter((l) => /^- /.test(l)).map((l) => l.slice(2));
-  const decisions = list("Decisions in force");
-  const ruleChanges = list("Rule changes");
+  // The rule changes recorded before docs/rule-changes/ held one file per record (scripts/records.ts).
+  const ruleChanges = list(sec, "Rule changes");
   if (!rows.length)
     problems.push('STATE.md: the "What works today" table is empty or missing');
-  return { phase, updated, rows, waiting, decisions, ruleChanges, problems };
+  return { phase, rows, waiting, ruleChanges, problems };
 }
 
 // The rule at the top of ROADMAP.md: the lowest-numbered slice that is not done, not proof ready,

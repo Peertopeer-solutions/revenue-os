@@ -1,0 +1,1 @@
+- 2026-10-02 · **A removed test's reason lives in docs/removed-tests.md**, one added line per removed test file, test or expect line, which the done gate reads from the same change; a moved line is found by git's moved-code detection, never declared in the PR body.

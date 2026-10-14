@@ -100,7 +100,7 @@ Check every one. Each has already cost Devesh a cleanup.
 - `STATE.md` saying more works than does.
 - A new step kind, or new logic that branches on the call's one-word result, in the fixed step map
   (`packages/harness/src/workflow/`): it is frozen until Slice 3 deletes it (moving where that result
-  arrives is allowed; STATE.md → Decisions in force holds the decision). Rule FAIL.
+  arrives is allowed; docs/decisions-in-force/ holds the decision). Rule FAIL.
 The prevent-repeat skill adds a line here whenever Devesh catches a new kind.
 
 ## Ruling

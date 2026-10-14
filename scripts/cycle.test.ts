@@ -19,7 +19,7 @@ import {
   parseRoadmap,
   parseState,
 } from "../docs/tracker/parse.js";
-import { banner, type Cycle, pin, problems } from "./cycle";
+import { banner, type Cycle, check, pin, problems } from "./cycle";
 
 const ROOT = join(import.meta.dir, "..");
 const slice = (
@@ -668,4 +668,25 @@ it("a run whose stdin stays open does not wait for it", async () => {
   p.kill();
   expect(code).toBe(0);
   expect(await new Response(p.stdout).text()).toStartWith("CYCLE:");
+});
+
+it("`bun run cycle --check` names a badly written record file, and skips a hidden one a computer leaves behind", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cycle-check-"));
+  try {
+    const put = (f: string, body: string) => {
+      mkdirSync(join(dir, f, ".."), { recursive: true });
+      writeFileSync(join(dir, f), body);
+    };
+    put("ROADMAP.md", roadmap(slice(0, "in progress")));
+    put("STATE.md", `${STATE}\n## Rule changes\n\n`);
+    put("docs/decisions-in-force/2026-10-14-good.md", "- a decision\n");
+    put("docs/decisions-in-force/2026-10-14-two.md", "- one\n- two\n");
+    put("docs/decisions-in-force/.DS_Store", "\0\0binary");
+    put("docs/rule-changes/README.md", "# How\n");
+    expect(await check(dir)).toEqual([
+      "docs/decisions-in-force/2026-10-14-two.md: hold one line, `- <the decision>`",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

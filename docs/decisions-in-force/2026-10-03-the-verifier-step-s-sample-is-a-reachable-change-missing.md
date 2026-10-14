@@ -1,0 +1,1 @@
+- 2026-10-03 · **The verifier step's sample is a reachable change missing only its cross-company test**: an API route, the database function it calls and an API test for one company; the verifier's FAIL counts only when its ruling line names the other company; and the step holds the proved checkout's turn on the local stack while the verifier runs the whole gate.

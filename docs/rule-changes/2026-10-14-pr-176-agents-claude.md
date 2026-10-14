@@ -1,0 +1,1 @@
+- 2026-10-14 · [#176](https://github.com/Peertopeer-solutions/revenue-os/pull/176) · AGENTS.md and CLAUDE.md: a decision is a file in docs/decisions-in-force/ and a rule-change record a file in docs/rule-changes/, not a line in STATE.md; the tracker page is republished with records.md from `bun run records` · neutral

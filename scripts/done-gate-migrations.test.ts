@@ -300,7 +300,8 @@ describe("bun run gate pr: a migration already on main never changes, and no two
 });
 
 describe("bun run gate pr: the script that makes the cloud test database wait for `checks` is a rule file", () => {
-  it("refuses a change to it, or to its test, that the PR body doesn't explain and STATE.md doesn't record", () => {
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts it names STATE.md, not docs/rule-changes/, and fails
+  it("refuses a change to it, or to its test, that the PR body doesn't explain and no file in docs/rule-changes/ records", () => {
     const dir = project();
     write(dir, "scripts/staging-migrations.ts", "console.log('apply');\n");
     write(dir, "scripts/staging-migrations.test.ts", "// no test\n");
@@ -311,7 +312,7 @@ describe("bun run gate pr: the script that makes the cloud test database wait fo
         "the PR body explains no change to scripts/staging-migrations.test.ts, scripts/staging-migrations.ts",
       ),
       expect.stringContaining(
-        "STATE.md → Rule changes gains no line for #7 naming scripts/staging-migrations.test.ts, scripts/staging-migrations.ts",
+        "docs/rule-changes/ gains no record of #7 naming scripts/staging-migrations.test.ts, scripts/staging-migrations.ts",
       ),
     ]);
   });

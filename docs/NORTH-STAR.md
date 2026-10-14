@@ -105,7 +105,7 @@ here, rather than leaving it in a chat, when Devesh and an agent agree an idea c
 |---|---|
 | What are we building and why? | `docs/NORTH-STAR.md` (this page) |
 | What are we building next, and what counts as done? | `ROADMAP.md` |
-| What actually works today, what is waiting on Devesh, what have we decided? | `STATE.md` |
+| What actually works today, what is waiting on Devesh, what have we decided? | `STATE.md` (each decision a file in `docs/decisions-in-force/`) |
 | How do agents and people work in this repo? | `AGENTS.md` |
 | How was X designed, and why? | `docs/` reference files — useful, never rules |
 | What did we think in July–September 2026? | `docs/archive/` — history only |

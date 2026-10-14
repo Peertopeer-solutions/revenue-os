@@ -1,0 +1,1 @@
+- 2026-10-14 · [#176](https://github.com/Peertopeer-solutions/revenue-os/pull/176) · .github/CODEOWNERS and package.json: CODEOWNERS' comment points at docs/rule-changes/; package.json gains the `records` script · neutral

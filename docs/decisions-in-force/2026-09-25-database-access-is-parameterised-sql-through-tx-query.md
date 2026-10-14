@@ -1,0 +1,1 @@
+- 2026-09-25 · **Database access is parameterised SQL through `tx.query` inside `withOrg`** — what the code does. Drizzle is not a dependency (its unused copy of three tables and the library went in #154); adopting a query library would be a new dependency, with its own PR and decision line.

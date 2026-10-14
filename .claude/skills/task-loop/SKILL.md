@@ -10,7 +10,7 @@ description: Use when building a roadmap item — any session implementing the n
 2. `ROADMAP.md` — the current slice (`bun run cycle --banner` prints it; the rule is at the top of
    ROADMAP.md): its goal, its proof, your item.
 3. `STATE.md` — line 1 PHASE, **What works today** (is the thing you touch a Stub? a Tests-only?),
-   **Decisions in force**.
+   and `docs/decisions-in-force/` (one file per decision in force).
 4. `docs/NORTH-STAR.md` if the item touches what the product does for a customer.
 
 ## The loop (every step blocking)
@@ -30,7 +30,7 @@ description: Use when building a roadmap item — any session implementing the n
    left for step 10; `PR_BODY="$(cat body.md)" bun run gate pr` judges it as `rules-from-main` will.
    Same PR: tick the item in `ROADMAP.md` with `· evidence: …`, from what you have seen (a Side-track
    or off-roadmap PR has no line to tick; its PR body's evidence is the record); update `STATE.md →
-   What works today` if reality changed; add a `Decisions in force` line for any decision.
+   What works today` if reality changed; add a file to `docs/decisions-in-force/` for any decision.
 8. Go through **Before your first verifier run** (below), then `bun run gate` run bare (never piped).
    Every check passes in `bun run gate` here first, and CI confirms it.
 9. Run the verifier agent with Devesh's request word for word (when he gave none, the roadmap item's
@@ -73,7 +73,7 @@ verifier's checks and replaces none; your answers are for you, never evidence yo
    empty or missing input, a value too long (PRs 154, 157, 159).
 4. **Each new or edited test fails on main for its stated reason**, not for another one: run it on main's
    code and read why it fails (PRs 148, 160).
-5. **A decision line covers this change only.** Its headline claims no more than the code does, and it
+5. **A decision file covers this change only.** Its headline claims no more than the code does, and it
    loosens no rule from outside the rule files (PRs 147, 157).
 6. **The PR is open, and the item's ROADMAP.md and STATE.md lines are written, before the `bun run gate` and
    verifier run whose results the merge uses** (step 7), so both rule on the final code. Claim no ruling or
@@ -108,4 +108,4 @@ are checks now:
   refuses a pull request naming an item main already ticked unless it adds to its evidence
   (scripts/done-gate/pr-first-line.ts).
 
-Read `STATE.md → Decisions in force`; where it and this file disagree, AGENTS.md decides, then that list.
+Read `docs/decisions-in-force/`; where it and this file disagree, AGENTS.md decides, then that list.

@@ -1,0 +1,1 @@
+- 2026-10-06 · **Self sign-up is off through `[auth] enable_signup = false` only**: `[auth.email] enable_signup` turns off the whole email provider, password sign-in included, so it stays on. Logins are made in the local database as the local superuser (`ensureLocalUser`, scripts/dev-login.ts), never through the sign-in server's admin API, which needs the service-role key.

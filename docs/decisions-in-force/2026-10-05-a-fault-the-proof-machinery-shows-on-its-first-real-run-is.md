@@ -1,0 +1,1 @@
+- 2026-10-05 · **A fault the proof machinery shows on its first real run is fixed as an item of the current slice**: the proof workflow's posting fault came to light once Slice 0 was proof ready and Slice 1 current, and the same workflow will post Slice 1's reports, so its fix is a ticked Slice 1 item (#142) rather than a reopened Slice 0, whose proof steps all passed or waited.

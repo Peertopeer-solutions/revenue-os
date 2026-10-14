@@ -1,0 +1,1 @@
+- 2026-10-04 · **The proof steps run git with its automatic clean-up off** (scripts/proof/scratch.ts): newer git runs it in the background after a fetch, and a clone made a moment later failed on GitHub's runner copying the lock file it held.

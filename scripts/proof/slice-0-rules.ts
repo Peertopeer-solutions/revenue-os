@@ -6,9 +6,10 @@
 // own gate, ci.yml) also run main's rules-from-main workflow as GitHub runs it (rules-from-main.ts): a branch can't
 // escape main's copy only because GitHub runs main's copy of that file.
 
-import { appendFileSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { areasOf, TABLE } from "../done-gate/fix-when-touched";
+import { RECORDS } from "../done-gate/rule-changes";
 import { judged, PR, rules } from "./gate";
 import { byWorkflow } from "./rules-from-main";
 import { commit, git, inScratch, sh, write } from "./scratch";
@@ -47,21 +48,14 @@ function body(
   ].join("\n");
 }
 
-/** Adds this pull request's line for `rule` to STATE.md → Rule changes, above the newest. */
+/** Adds this pull request's record for `rule`, a file of its own in docs/rule-changes/. */
 function record(dir: string, rule: string) {
-  const file = join(dir, "STATE.md");
-  const lines = readFileSync(file, "utf8").split("\n");
-  const at = lines.indexOf("## Rule changes");
-  if (at < 0) throw new Error("STATE.md has no Rule changes section");
-  const next = lines.findIndex(
-    (l, i) => i > at && (l.startsWith("- ") || l.startsWith("## ")),
+  const day = new Date().toISOString().slice(0, 10);
+  write(
+    dir,
+    `${RECORDS}${day}-pr-${PR}-sample.md`,
+    `- ${day} · [#${PR}](https://github.com/devesh911/revenue-os/pull/${PR}) · ${rule} · looser\n`,
   );
-  lines.splice(
-    next < 0 ? lines.length : next,
-    0,
-    `- ${new Date().toISOString().slice(0, 10)} · [#${PR}](https://github.com/devesh911/revenue-os/pull/${PR}) · ${rule} · looser`,
-  );
-  writeFileSync(file, lines.join("\n"));
 }
 
 type Run = { status: number; out: string };
@@ -96,7 +90,7 @@ function passes(r: Run, what: string) {
 }
 
 export const unexplainedRuleChange: Step = {
-  does: "Judges with main's copy of `rules-from-main` (`--head <scratch branch>` and a sample PR body) a rule-file change to AGENTS.md whose body doesn't explain it or that adds no line to STATE.md → Rule changes, and checks that each is refused and the same change, explained and recorded, passes",
+  does: "Judges with main's copy of `rules-from-main` (`--head <scratch branch>` and a sample PR body) a rule-file change to AGENTS.md whose body doesn't explain it or that adds no record to docs/rule-changes/, and checks that each is refused and the same change, explained and recorded, passes",
   check: ({ root }) =>
     inScratch(root, ({ dir }) => {
       const change = () =>
@@ -112,7 +106,7 @@ export const unexplainedRuleChange: Step = {
         MAIN,
         judged(dir, body(dir, said), "unrecorded"),
         "AGENTS.md",
-        "Rule changes",
+        "docs/rule-changes/",
       );
       passes(
         judged(dir, body(dir, said), "recorded"),

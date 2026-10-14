@@ -1,0 +1,1 @@
+- 2026-10-02 · **The break-every-new-line check comes first in Slice 1** (Devesh): it lands before invite-only sign-in, the per-company links, the company filter, do-not-call and the WhatsApp opt-in, which are all guardrail or tenancy code it must check.

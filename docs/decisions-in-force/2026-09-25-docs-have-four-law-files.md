@@ -1,0 +1,1 @@
+- 2026-09-25 · **Docs have four law files**: AGENTS.md (how we work), docs/NORTH-STAR.md (what and why), ROADMAP.md (what next and what done means), STATE.md (what works, what waits, what we decided). Everything else in docs/ is reference or archive. docs/sdlc.md is retired; git log is the history.

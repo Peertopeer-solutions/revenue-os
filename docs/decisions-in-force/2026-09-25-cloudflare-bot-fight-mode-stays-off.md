@@ -1,0 +1,1 @@
+- **Cloudflare Bot Fight Mode stays off** because it would challenge Vapi webhooks. Vapi's webhook secret is write-only: rotating it means updating the assistant and the server together.

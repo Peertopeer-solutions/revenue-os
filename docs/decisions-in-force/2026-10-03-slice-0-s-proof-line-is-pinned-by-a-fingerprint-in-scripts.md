@@ -1,0 +1,1 @@
+- 2026-10-03 · **Slice 0's Proof line is pinned by a fingerprint in scripts/proof-slice-0-fingerprint.test.ts**: changing the line fails that test until each changed check has its step and the fingerprint is updated.

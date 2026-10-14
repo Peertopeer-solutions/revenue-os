@@ -1,0 +1,1 @@
+- 2026-10-03 · **The PR body shows each exception as `Exception: <file> · <why>` and copies each line docs/removed-tests.md gains**, in a line GitHub shows (not in an HTML comment or a code block), with or without a leading "- "; main's copy (`bun run gate pr`) refuses it otherwise and prints the line to paste ([#135](https://github.com/devesh911/revenue-os/pull/135)).

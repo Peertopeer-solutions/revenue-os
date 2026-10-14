@@ -1,0 +1,1 @@
+- 2026-10-03 · **A move that changes no behaviour keeps its tests, except a test that reads the moved file's own text**: that test reads the file where it moved (docs/patterns/one-job-per-file.md); the guards' split needed exactly that one change.

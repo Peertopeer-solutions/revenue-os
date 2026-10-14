@@ -1,0 +1,1 @@
+- 2026-10-02 · **Each checkout's Claude Code permissions stay local**: `.claude/settings.local.json`, at any depth, is in the repo's .gitignore, so lint and the done gate's record of a checkout's code leave it out on every machine, not only where a global ignore list does; it is never committed, and a copy forced into a pull request is still judged there as a rule file

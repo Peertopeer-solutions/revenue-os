@@ -1,0 +1,1 @@
+- 2026-10-14 · **Engineering ideas that can wait go in docs/NORTH-STAR.md → Later** (Devesh): one line each saying what it would fix, next to the product's "Not now" list; none is planned, and each comes back only as a roadmap item with a proof

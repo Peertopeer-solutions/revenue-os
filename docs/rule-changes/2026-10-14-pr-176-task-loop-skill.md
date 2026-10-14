@@ -1,0 +1,1 @@
+- 2026-10-14 · [#176](https://github.com/Peertopeer-solutions/revenue-os/pull/176) · .claude/skills/task-loop/SKILL.md: it points at docs/decisions-in-force/ · neutral

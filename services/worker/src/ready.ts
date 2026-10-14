@@ -1,7 +1,7 @@
 // GET /ready answers ready only when the worker reaches its database and its job queue, each within a time limit so a
 // hung database can't hang the answer; GET /release names the commit the worker was built from. Both sit behind the
-// ready token (docs/security.md S5.9; STATE.md → Decisions in force). A caller sees only what failed, in plain words;
-// the error itself goes to the log, never to the caller (docs/security.md S5.8).
+// ready token (docs/security.md S5.9; the decision on /ready's token in docs/decisions-in-force/). A caller sees only
+// what failed, in plain words; the error itself goes to the log, never to the caller (docs/security.md S5.8).
 import { Hono } from "hono";
 import type { Pool } from "pg";
 import { requireReadyToken } from "./auth";

@@ -1,0 +1,1 @@
+- 2026-09-25 · **/ready has its own bearer token (READY_TOKEN)**, refused for everyone when unset: Cloudflare adds X-Edge-Auth to every request it forwards, so that header proves "came through our zone", not "internal". Replaces security.md S5.9's "requires the shared edge header".

@@ -1,0 +1,1 @@
+- 2026-09-29 · **In the site's sample call, the agent says it is an AI in its first line** (Devesh), and **the site's sample call is a dramatised Hinglish call voiced with ElevenLabs** (ElevenLabs voices Koyal for Asha and Amit for Rohan), labelled as such beside the button, with its full transcript on the page, until a consented real recording exists.

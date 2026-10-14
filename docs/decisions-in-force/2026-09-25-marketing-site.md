@@ -1,0 +1,1 @@
+- **Marketing site**: keep the editorial design from #98; any restyle is shown to Devesh first. It uses the console's stack (React, Vite, Tailwind). Cal.com is its only outside API. Copy labels illustrative examples and never claims unbuilt features as working.
