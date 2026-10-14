@@ -164,6 +164,7 @@ describe("a pull request that sets a slice to done", () => {
     expect(await judge({ main: DONE, now: more })).toEqual([]);
   });
 
+  // behaviour already on main: main's copy carries the gate's own code over (scripts/done-gate/mac-record.ts and proof-link.ts are not product code), so it passes there
   it("refuses Slice 0 set to done, its run passing, while main's record of its AI steps does not hold; asks it of no other slice", async () => {
     for (const outcome of ["waiting", "failed"] as const)
       expect(
@@ -417,6 +418,7 @@ describe("bun run gate pr: main's copy judges a pull request that sets a slice t
     }
   });
 
+  // behaviour already on main: main's copy carries the gate's own code over (scripts/done-gate/mac-record.ts and proof-link.ts are not product code), so it passes there
   it("refuses Slice 0 set to done, though its run passed, while main has no record of its AI steps run on Devesh's Mac", async () => {
     const { dir, main } = project(false);
     const r = await judged(dir, answers(main));
@@ -426,6 +428,7 @@ describe("bun run gate pr: main's copy judges a pull request that sets a slice t
     expect(r.status).toBe(1);
   });
 
+  // behaviour already on main: main's copy carries the gate's own code over (scripts/done-gate/mac-record.ts and proof-link.ts are not product code), so it passes there
   it("refuses it once a file those steps test changed on main after the record was made", async () => {
     const { dir } = project();
     appendFileSync(join(dir, "scripts", "done-gate.ts"), "\n// changed\n");

@@ -6,36 +6,24 @@
 // 0`: the whole suite run at once (it starts the suite, this file included) and the read of GitHub's real run
 // records (judged as data in scripts/proof-slice-0-runs.test.ts).
 import { afterAll, describe, expect, it, setDefaultTimeout } from "bun:test";
-import { spawnSync } from "node:child_process";
-import {
-  appendFileSync,
-  copyFileSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readlinkSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { currentSlice, nextItem, parseRoadmap } from "../docs/tracker/parse.js";
 import {
-  AGAIN,
-  AI_STEPS,
-  fingerprints,
-  MAC_COMMAND,
-  RECORD,
-  RECORD_DIR,
-} from "./done-gate/mac-record";
+  copyOf,
+  failures,
+  git,
+  HERE,
+  prove,
+  ROOT,
+  removeScratch,
+  STATE,
+  scratch,
+  standIn,
+} from "../tests/proof-stand-ins";
 import { stateDir } from "./done-gate/store";
-import { NO_TOKEN, proveOnMac } from "./proof/on-mac";
 import { runSteps } from "./proof/run";
-import { agentSession, crossCompany, onMac } from "./proof/slice-0-agents";
+import { agentSession, crossCompany } from "./proof/slice-0-agents";
 import {
   adminMerge,
   disallowedModel,
@@ -65,116 +53,9 @@ import {
 } from "./proof/slice-0-tests";
 import { agentToolsRefused, hooksWarn } from "./proof/slice-0-tools";
 import { SLICES } from "./proof/slices";
-import type { Step } from "./proof/step";
 
 setDefaultTimeout(120_000); // a step clones this checkout and starts bun and git several times
-const ROOT = join(import.meta.dir, "..");
-const dirs: string[] = [];
-afterAll(() => {
-  for (const d of dirs) rmSync(d, { recursive: true, force: true });
-});
-const scratch = (name: string) => {
-  const d = realpathSync(mkdtempSync(join(tmpdir(), name)));
-  dirs.push(d);
-  return d;
-};
-const KEY = "A second Anthropic key for the automatic test conversations";
-const STATE = `PHASE: SETUP\n\n## Waiting on Devesh\n- [ ] **${KEY}**: saved in GitHub as ANTHROPIC_EVALS_KEY\n## Decisions in force\n`;
-/** git in `dir` (its background clean-up off, as scripts/proof/scratch.ts has it): its output; throws when it fails. */
-const git = (dir: string, ...args: string[]) => {
-  const r = spawnSync(
-    "git",
-    ["-c", "maintenance.auto=false", "-c", "gc.auto=0", ...args],
-    { cwd: dir, encoding: "utf8", maxBuffer: 64 << 20 },
-  );
-  if (r.status !== 0)
-    throw new Error(`git ${args.join(" ")} failed: ${r.stderr.trim()}`);
-  return r.stdout.trim();
-};
-let here: string | undefined;
-/**
- * The repository the steps prove: this checkout's files as they are on disk (those git would track), as one commit,
- * which is also its origin/main. A step proves a commit (it clones it, or archives its gate), and this checkout's may
- * not hold what is on disk: the tests-proven check runs this file with a change copied over main's commit,
- * uncommitted. Nothing is fetched from this checkout, which may be shallow (on GitHub's runner the check's copy was,
- * and git then writes no fetched ref, though the fetch succeeds); its packages are this checkout's, for the tests the
- * steps run by name.
- */
-const HERE = () => {
-  if (here) return here;
-  const dir = scratch("proof-0-here-");
-  git(dir, "init", "-q", "-b", "main");
-  const listed = git(
-    ROOT,
-    "ls-files",
-    "-z",
-    "--cached",
-    "--others",
-    "--exclude-standard",
-  );
-  for (const f of new Set(listed.split("\0").filter(Boolean))) {
-    const from = join(ROOT, f);
-    const st = lstatSync(from, { throwIfNoEntry: false });
-    if (!st?.isFile() && !st?.isSymbolicLink()) continue; // deleted, or another repository's folder
-    mkdirSync(dirname(join(dir, f)), { recursive: true });
-    if (st.isSymbolicLink()) symlinkSync(readlinkSync(from), join(dir, f));
-    else copyFileSync(from, join(dir, f));
-  }
-  git(dir, "add", "-A", "-f");
-  git(
-    dir,
-    "-c",
-    "user.email=proof@example.invalid",
-    "-c",
-    "user.name=proof",
-    "-c",
-    "commit.gpgsign=false",
-    "commit",
-    "-q",
-    "-m",
-    "this checkout as it is on disk",
-  );
-  git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
-  if (existsSync(join(ROOT, "node_modules")))
-    symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"));
-  here = dir;
-  return dir;
-};
-const prove = (steps: Step[], root = HERE(), env: NodeJS.ProcessEnv = {}) =>
-  runSteps(steps, {
-    root,
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env },
-    state: STATE,
-    dir: scratch("proof-0-report-"),
-  });
-const failures = (results: { does: string; outcome: string; seen: string }[]) =>
-  results.flatMap((r) =>
-    r.outcome === "passed" ? [] : [`${r.does}\n  ${r.seen}`],
-  );
-/** A scratch copy of the proved repository's commit with `edit` applied and committed, as `main`. */
-const copyOf = (edit: (dir: string) => void, message = "a changed copy") => {
-  const dir = scratch("proof-0-copy-");
-  git(dir, "init", "-q", "-b", "main");
-  git(dir, "fetch", "-q", "--no-tags", HERE(), "+HEAD:refs/proof/base");
-  git(dir, "checkout", "-q", "-B", "main", "refs/proof/base");
-  edit(dir);
-  spawnSync(
-    "git",
-    [
-      "-c",
-      "user.email=proof@example.invalid",
-      "-c",
-      "user.name=proof",
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "-qam",
-      message,
-    ],
-    { cwd: dir },
-  );
-  return dir;
-};
+afterAll(removeScratch);
 /** `file` in `dir` with `from` replaced by `to`; throws when `from` is not there, so a copy never silently stays the same. */
 const replaced = (dir: string, file: string, from: string, to: string) => {
   const text = readFileSync(join(dir, file), "utf8"); // done-gate: allow read only to write a changed copy into a scratch clone, never to check what it says
@@ -479,52 +360,6 @@ if (two && input.hook_event_name === "Stop" && !existsSync(\`\${common}/done-gat
   }, 120_000);
 });
 
-type Answer = { when?: string; first?: string; say: string; error?: boolean };
-/**
- * A stand-in `claude` that logs each call (its arguments, key, GitHub token, home and folder) and answers as
- * `claude -p --output-format stream-json` does: the first answer whose `when` the prompt (its last argument) holds,
- * after running `first` in its folder (`error`: as Claude Code reports an error from Anthropic's API).
- */
-const standIn = (answers: Answer[]) => {
-  const bin = scratch("proof-0-claude-");
-  const log = join(bin, "calls.txt");
-  const events = (text: string, error = false) =>
-    [
-      { type: "system", subtype: "init", session_id: "stand-in" },
-      { type: "assistant", message: { content: [{ type: "text", text }] } },
-      {
-        type: "result",
-        subtype: "success",
-        is_error: error,
-        session_id: "stand-in",
-        result: text,
-      },
-    ]
-      .map((e) => `${JSON.stringify(e)}\n`)
-      .join("");
-  const cases = answers.map((a, i) => {
-    writeFileSync(join(bin, `answer-${i}.txt`), events(a.say, a.error));
-    return `  *"${a.when ?? ""}"*) ${a.first ?? ":"} >/dev/null 2>&1; cat "${join(bin, `answer-${i}.txt`)}" ;;`;
-  });
-  writeFileSync(
-    join(bin, "claude"),
-    [
-      "#!/bin/sh",
-      `{ echo "args: $*"; echo "token: $CLAUDE_CODE_OAUTH_TOKEN"; echo "api key: \${ANTHROPIC_API_KEY:-none}"; echo "scrub: \${CLAUDE_CODE_SUBPROCESS_ENV_SCRUB:-off}"; echo "gh: \${GH_TOKEN:-none}"; echo "home: $HOME"; echo "cwd: $(pwd)"; } >> "${log}"`,
-      "for last; do :; done",
-      'case "$last" in',
-      ...cases,
-      "esac",
-    ].join("\n"),
-    { mode: 0o755 },
-  );
-  return {
-    env: { PATH: `${bin}:${process.env.PATH}` },
-    calls: () =>
-      existsSync(log) ? readFileSync(join(bin, "calls.txt"), "utf8") : "", // the log above
-  };
-};
-
 const TOKEN = "login-token-for-tests";
 
 describe("the scripted fresh agent session, on Devesh's Mac", () => {
@@ -546,7 +381,7 @@ describe("the scripted fresh agent session, on Devesh's Mac", () => {
       { say: `We are on Slice ${cur?.n}, item: ${item}.` },
     ]);
   };
-  const live = onMac["agent-session"];
+  const live = agentSession;
 
   it("holds four exchanges in one session in a fresh clone of main, with only Devesh's Claude login (kept from the commands it runs) and a home of its own, and saves the transcript", async () => {
     const claude = session();
@@ -617,7 +452,7 @@ describe("the verifier's run on a change missing a cross-company test, on Devesh
   // A copy of this checkout's commit: the step takes the proved checkout's turn on the shared local stack, which a
   // gate run of this checkout may be holding while it runs these tests.
   const root = () => copyOf(() => {});
-  const live = onMac.verifier;
+  const live = crossCompany;
 
   it("passes when the verifier, started as the verifier agent with only Devesh's Claude login, rules FAIL for the other company, while it holds the shared local stack", async () => {
     const copy = root();
@@ -670,181 +505,5 @@ describe("the verifier's run on a change missing a cross-company test, on Devesh
     const changed = readFileSync(join(diffDir, "changed.txt"), "utf8");
     expect(changed).toContain("services/worker/src/routes/screens.ts");
     expect(changed).toMatch(/services\/worker\/test\/[\w-]+\.test\.ts/);
-  });
-});
-
-describe("Slice 0's AI steps on GitHub: the record Devesh's Mac run committed", () => {
-  /** A copy of the proved commit with a record of a Mac run committed (each step's outcome as `outcomes` says), then `edit`. */
-  const recorded = (
-    outcomes: Partial<Record<(typeof AI_STEPS)[number], string>> = {},
-    edit: (dir: string) => void = () => {},
-  ) =>
-    copyOf((dir) => {
-      rmSync(join(dir, RECORD_DIR), { recursive: true, force: true });
-      mkdirSync(join(dir, RECORD_DIR), { recursive: true });
-      writeFileSync(
-        join(dir, RECORD),
-        JSON.stringify({
-          commit: git(dir, "rev-parse", "HEAD"),
-          date: "2026-10-14",
-          claude: "2.1.299",
-          steps: AI_STEPS.map((name) => ({
-            name,
-            outcome: outcomes[name] ?? "passed",
-            seen: `${name} seen on the Mac`,
-          })),
-          files: fingerprints(dir, "HEAD"),
-        }),
-      );
-      git(dir, "add", RECORD);
-      edit(dir);
-    }, "a record of a Mac run");
-  const both = [agentSession, crossCompany];
-
-  it("pass, naming the Mac run, when the committed record passed them and every file they test is as that run had it; no model runs", async () => {
-    const claude = standIn([{ say: "never asked" }]);
-    const results = await prove(both, recorded(), claude.env);
-    expect(failures(results)).toEqual([]);
-    for (const [i, r] of results.entries()) {
-      expect(r.seen).toContain("passed on Devesh's Mac on 2026-10-14");
-      expect(r.seen).toContain(`${AI_STEPS[i]} seen on the Mac`);
-    }
-    expect(claude.calls()).toBe("");
-  });
-
-  it("wait on Devesh's Mac, naming the command, with no record committed", async () => {
-    const results = await prove(
-      both,
-      copyOf((dir) =>
-        rmSync(join(dir, RECORD_DIR), { recursive: true, force: true }),
-      ),
-    );
-    for (const r of results) {
-      expect(r.outcome).toBe("waiting");
-      expect(r.seen).toContain(AGAIN);
-      expect(r.seen).toContain(MAC_COMMAND);
-      expect(r.seen).toContain(`${RECORD} is not committed`);
-    }
-  });
-
-  it("wait once a file they test changed since the Mac run, naming it", async () => {
-    const results = await prove(
-      both,
-      recorded({}, (dir) => {
-        appendFileSync(join(dir, "AGENTS.md"), "\nA new rule.\n");
-        appendFileSync(join(dir, ".claude", "agents", "verifier.md"), "\n");
-      }),
-    );
-    for (const r of results) {
-      expect(r.outcome).toBe("waiting");
-      expect(r.seen).toContain("2 file(s) those steps test changed");
-      expect(r.seen).toContain(".claude/agents/verifier.md, AGENTS.md");
-    }
-  });
-
-  it("fail the step the Mac run failed, saying what it saw there; the other still passes", async () => {
-    const [session, verifierRun] = await prove(
-      both,
-      recorded({ verifier: "failed" }),
-    );
-    expect(session?.outcome).toBe("passed");
-    expect(verifierRun?.outcome).toBe("failed");
-    expect(verifierRun?.seen).toContain(
-      "the verifier step failed on Devesh's Mac on 2026-10-14",
-    );
-    expect(verifierRun?.seen).toContain("verifier seen on the Mac");
-  });
-});
-
-describe("bun run proof 0 --on-my-mac", () => {
-  it("refuses without Devesh's Claude login, saying how to make one, and starts no session", async () => {
-    const claude = standIn([{ say: "never asked" }]);
-    const copy = copyOf(() => {});
-    const r = await proveOnMac({
-      root: copy,
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, ...claude.env },
-      state: STATE,
-      dir: scratch("proof-0-mac-"),
-    });
-    expect(r.code).toBe(2);
-    expect(r.text).toBe(NO_TOKEN);
-    expect(r.text).toContain("claude setup-token");
-    expect(claude.calls()).toBe("");
-    expect(existsSync(join(copy, RECORD_DIR))).toBe(false);
-  });
-
-  it("runs both steps with his login and writes their record, transcripts and report, which GitHub's steps then pass on once committed", async () => {
-    const roadmap = parseRoadmap(git(HERE(), "show", "HEAD:ROADMAP.md"));
-    const cur = currentSlice(roadmap.slices);
-    const claude = standIn([
-      {
-        when: "word for word",
-        say: "I ran its test.\nRuling: FAIL — no test asks for another company's open tasks",
-      },
-      {
-        when: "/ready",
-        say: "It checks the READY_TOKEN bearer token, then that the worker reaches its database and its job queue (pg-boss), each within 2 seconds.",
-      },
-      { when: "dark mode", say: "off-roadmap PR, or replan?" },
-      {
-        say: `We are on Slice ${cur?.n}, item: ${nextItem(cur)?.text.split(/:\s/)[0] ?? ""}.`,
-      },
-    ]);
-    const copy = copyOf(() => {});
-    const r = await proveOnMac({
-      root: copy,
-      env: {
-        PATH: process.env.PATH,
-        HOME: process.env.HOME,
-        ...claude.env,
-        CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
-      },
-      state: STATE,
-      dir: scratch("proof-0-mac-"),
-    });
-    expect(r.text).toContain("Both AI steps passed.");
-    expect(r.code).toBe(0);
-    const record = JSON.parse(
-      readFileSync(join(copy, "docs/proof/slice-0-ai/record.json"), "utf8"),
-    );
-    expect(record.commit).toBe(git(copy, "rev-parse", "HEAD"));
-    expect(
-      record.steps.map((s: { name: string; outcome: string }) => [
-        s.name,
-        s.outcome,
-      ]),
-    ).toEqual(AI_STEPS.map((name) => [name, "passed"]));
-    expect(record.files).toEqual(fingerprints(copy, "HEAD"));
-    expect(Object.keys(record.files)).toEqual(
-      expect.arrayContaining([
-        "AGENTS.md",
-        "CLAUDE.md",
-        ".claude/settings.json",
-        ".claude/agents/verifier.md",
-        "scripts/done-gate.ts",
-        "scripts/cycle.ts",
-      ]),
-    );
-    for (const f of ["agent-session.txt", "verifier.txt", "report.md"])
-      expect(existsSync(join(copy, RECORD_DIR, f))).toBe(true);
-    expect(
-      readFileSync(join(copy, RECORD_DIR, "agent-session.txt"), "utf8"),
-    ).toContain("Devesh: which item are you on?");
-    git(copy, "add", RECORD_DIR);
-    git(
-      copy,
-      "-c",
-      "user.email=p@p",
-      "-c",
-      "user.name=p",
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "-qm",
-      "the record",
-    );
-    expect(failures(await prove([agentSession, crossCompany], copy))).toEqual(
-      [],
-    );
   });
 });

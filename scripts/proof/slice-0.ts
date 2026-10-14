@@ -1,9 +1,10 @@
 // Slice 0's proof steps, in the order ROADMAP.md → Slice 0 → Proof gives them, one per check it names. Each runs
 // against the local stack and scratch clones, branches and repositories it makes and removes: it never pushes, opens
 // a pull request, touches the cloud or runs a refused command (the gate's hook is only handed it). The step for
-// GitHub's run records only reads them. The two steps a model takes part in wait on ANTHROPIC_EVALS_KEY.
+// GitHub's run records only reads them. The two steps a model takes part in are taken from the record of their run
+// on Devesh's Mac (slice-0-agents.ts).
 
-import { agentSession, crossCompany } from "./slice-0-agents";
+import { agentSessionRecord, crossCompanyRecord } from "./slice-0-agents";
 import {
   adminMerge,
   disallowedModel,
@@ -39,7 +40,7 @@ import type { Step } from "./step";
 export const steps: Step[] = [
   lawFiles,
   banner,
-  agentSession,
+  agentSessionRecord,
   hooksWarn,
   unexplainedRuleChange,
   loosenedGate,
@@ -63,6 +64,6 @@ export const steps: Step[] = [
   barrelExport,
   unrunLine,
   passesOnMain,
-  crossCompany,
+  crossCompanyRecord,
   interrupted,
 ];

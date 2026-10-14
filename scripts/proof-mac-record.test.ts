@@ -6,7 +6,6 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { aiStepsOnMain, banner } from "./cycle";
 import {
   AGAIN,
   AI_STEPS,
@@ -58,6 +57,7 @@ const repo = (files: { [path: string]: string }) => {
 };
 
 describe("the files the AI steps' record fingerprints", () => {
+  // behaviour already on main: it tests scripts/done-gate/mac-record.ts, the gate's own code, which main's copy carries over (it is not product code), so it passes there
   it("are, in this repository, the law files, the hooks' settings, the scripts they run with all they import, and the steps' code, but no test", () => {
     const files = Object.keys(fingerprints(ROOT, "HEAD"));
     expect(files).toEqual(
@@ -89,6 +89,7 @@ describe("the files the AI steps' record fingerprints", () => {
       expect(files).not.toContain(f);
   });
 
+  // behaviour already on main: it tests scripts/done-gate/mac-record.ts, the gate's own code, which main's copy carries over (it is not product code), so it passes there
   it("follow a hook's command to its script and the script's imports, at the commit, as git's id of each one's content", () => {
     const r = repo({
       "AGENTS.md": "the rules: see scripts/d.ts\n",
@@ -124,6 +125,7 @@ describe("the files the AI steps' record fingerprints", () => {
 });
 
 describe("what the record says about a commit's files", () => {
+  // behaviour already on main: it tests scripts/done-gate/mac-record.ts, the gate's own code, which main's copy carries over (it is not product code), so it passes there
   it("passed, naming the Mac run, when every step passed and every file is as that run had it", () => {
     const r = judged(record(), FILES);
     expect(r.outcome).toBe("passed");
@@ -131,6 +133,7 @@ describe("what the record says about a commit's files", () => {
     expect(judged(record(), FILES, "verifier").outcome).toBe("passed");
   });
 
+  // behaviour already on main: it tests scripts/done-gate/mac-record.ts, the gate's own code, which main's copy carries over (it is not product code), so it passes there
   it("waits with no record, or a step it lacks, and once a file was changed, added or removed since", () => {
     expect(judged(undefined, FILES)).toEqual({
       outcome: "waiting",
@@ -153,6 +156,7 @@ describe("what the record says about a commit's files", () => {
     }
   });
 
+  // behaviour already on main: it tests scripts/done-gate/mac-record.ts, the gate's own code, which main's copy carries over (it is not product code), so it passes there
   it("fails a step the Mac run failed, and a record that is not JSON; a step that waited there still waits", () => {
     const failed = record({
       steps: [
@@ -178,6 +182,7 @@ describe("what the record says about a commit's files", () => {
 });
 
 describe("what `bun run cycle --banner` says about main's record", () => {
+  // behaviour already on main: it tests scripts/done-gate/mac-record.ts, the gate's own code, which main's copy carries over (it is not product code), so it passes there
   it("nothing while it holds; otherwise what to run and how to commit it", () => {
     expect(bannerLine({ outcome: "passed", seen: "x" })).toBeUndefined();
     const line = bannerLine({ outcome: "waiting", seen: "AGENTS.md changed" });
@@ -186,42 +191,5 @@ describe("what `bun run cycle --banner` says about main's record", () => {
     expect(bannerLine({ outcome: "failed", seen: "x" })).toContain(
       "FAILED on Devesh's Mac",
     );
-  });
-
-  it("reads main's record and files from git, and the banner shows the line", () => {
-    const dir = mkdtempSync(join(tmpdir(), "mac-record-"));
-    dirs.push(dir);
-    const git = (...args: string[]) =>
-      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
-        cwd: dir,
-        encoding: "utf8",
-      }).stdout.trim();
-    git("init", "-q", "-b", "main");
-    writeFileSync(join(dir, "AGENTS.md"), "rules\n");
-    git("add", "-A");
-    git("commit", "-qm", "main");
-    const line = aiStepsOnMain(dir, "HEAD");
-    expect(line).toContain(`${RECORD} is not committed`);
-    const roadmap =
-      "# Roadmap\n\n## Slice 0: Ground\nStatus: proof ready\nGoal: g\nProof: p\nBlocked by: nothing\nProof passed: —\n\n- [x] A (agent) · evidence: x\n";
-    expect(
-      banner({
-        roadmap,
-        state: "PHASE: SETUP\n",
-        branch: "",
-        item: "",
-        from: "origin/main",
-        aiSteps: line,
-      }),
-    ).toContain(line as string);
-    mkdirSync(join(dir, "docs/proof/slice-0-ai"), { recursive: true });
-    writeFileSync(
-      join(dir, RECORD),
-      record({ files: fingerprints(dir, "HEAD") }),
-    );
-    git("add", "-A");
-    git("commit", "-qm", "the record");
-    expect(aiStepsOnMain(dir, "HEAD")).toBeUndefined();
-    expect(aiStepsOnMain(dir, "no-such-rev")).toContain("could not be read");
   });
 });

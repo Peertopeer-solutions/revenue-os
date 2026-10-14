@@ -28,6 +28,7 @@ const START = [
   "CLAUDE.md",
   ".claude/settings.json",
   ".claude/agents/verifier.md",
+  "scripts/done-gate.ts",
   "scripts/proof/slice-0-agents.ts",
 ];
 const GATE = /^scripts\/done-gate\/[^/]+$/;

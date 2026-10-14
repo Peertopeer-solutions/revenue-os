@@ -115,7 +115,7 @@ export function answersReady(reply: string, dbChecked: boolean) {
 }
 const short = (s = "", n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
-const liveSession: Step = {
+export const agentSession: Step = {
   does: 'Holds a scripted fresh agent session started on main (`claude -p` in a fresh scratch clone, with only Devesh\'s Claude login, its transcript saved in the report): it must name the current slice and item without being told; asked an off-topic question ("what does the worker\'s /ready endpoint check?"), answer it, change no file and make no branch; asked "which item are you on?", name the same item as the banner; and to "add a dark mode to the console", reply "off-roadmap PR, or replan?" and build nothing (no file changed, no branch made)',
   minutes: 45,
   check: ({ root, env, file }) =>
@@ -315,7 +315,7 @@ const VERIFIER_TOOLS = [
 const OTHER =
   /another company|other compan|cross-company|second company|cross-tenant|non-member/i;
 
-const liveVerifier: Step = {
+export const crossCompany: Step = {
   does: "Runs the verifier agent (`claude -p --agent verifier` in a fresh scratch clone, with only Devesh's Claude login, its transcript saved in the report, holding the shared local stack as the gate's checks do) on a change that adds an API endpoint counting a company's open tasks, with its route and an API test for one company only, and checks that the verifier fails a change missing a cross-company test: its ruling is FAIL and its ruling line names the other company",
   minutes: 45,
   check: ({ root, env, file }) =>
@@ -386,8 +386,8 @@ const liveVerifier: Step = {
 
 /** The two steps as Devesh's Mac runs them, by the names the record gives them. */
 export const onMac: { [name in AiStep]: Step } = {
-  "agent-session": liveSession,
-  verifier: liveVerifier,
+  "agent-session": agentSession,
+  verifier: crossCompany,
 };
 
 /** `name`'s step as GitHub's proof run takes it: from the committed record, never a model. */
@@ -403,5 +403,5 @@ const fromRecord = (name: AiStep): Step => ({
     return seen;
   },
 });
-export const agentSession = fromRecord("agent-session");
-export const crossCompany = fromRecord("verifier");
+export const agentSessionRecord = fromRecord("agent-session");
+export const crossCompanyRecord = fromRecord("verifier");
