@@ -1,1 +1,0 @@
-- 2026-10-14 · [#176](https://github.com/Peertopeer-solutions/revenue-os/pull/176) · SKILL.md of the console-feature, db-work, harness-agent and worker-webhook skills, and .claude/agents/verifier.md: they point at docs/decisions-in-force/ · neutral
