@@ -1,6 +1,6 @@
 # D36 — Phased security posture: SETUP → LIVE (one explicit switch, no ambient contradictions)
 
-**Status:** In force. Its rules are restated in `AGENTS.md` (hard rail 7) and `STATE.md` (PHASE line) and docs/decisions-in-force/; this file keeps the reasoning.
+**Status:** In force. Its rules are restated in `AGENTS.md` (hard rail 7) and `STATE.md` (PHASE line and Decisions in force); this file keeps the reasoning.
 
 ## Context
 
