@@ -2,7 +2,13 @@
 // login. It refuses without one, and with one runs both steps and writes their record, transcripts and report into
 // docs/proof/slice-0-ai/, which GitHub's steps then pass on once committed. A stand-in `claude` answers, never a model.
 import { afterAll, describe, expect, it, setDefaultTimeout } from "bun:test";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { currentSlice, nextItem, parseRoadmap } from "../docs/tracker/parse.js";
 import {
@@ -27,7 +33,10 @@ const TOKEN = "login-token-for-tests";
 describe("bun run proof 0 --on-my-mac", () => {
   it("refuses without Devesh's Claude login, saying how to make one, and starts no session", async () => {
     const claude = standIn([{ say: "never asked" }]);
-    const copy = copyOf(() => {});
+    // a copy without a record, whatever the checkout holds (a Mac run leaves its folder there until it is committed)
+    const copy = copyOf((dir) =>
+      rmSync(join(dir, RECORD_DIR), { recursive: true, force: true }),
+    );
     const r = await proveOnMac({
       root: copy,
       env: { PATH: process.env.PATH, HOME: process.env.HOME, ...claude.env },
