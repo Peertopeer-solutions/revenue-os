@@ -1,20 +1,25 @@
-// Slice 0's proof: the two steps a real model takes part in, each in a fresh scratch clone of main through `claude -p`
-// with only ANTHROPIC_EVALS_KEY (claude.ts), its transcript saved in the report. Without that key, or when Anthropic
-// refuses it (its spending limit used up), they wait on Devesh's Waiting item; they never use another key or login.
+// Slice 0's proof: the two steps a real model takes part in. They run on Devesh's Mac (`bun run proof 0
+// --on-my-mac`), each in a fresh scratch clone of main through `claude -p` with only his Claude login (claude.ts),
+// and that run writes the record scripts/done-gate/mac-record.ts judges. Everywhere else (GitHub's proof run) each
+// passes when the committed record passed it and every file it tests is as that run had it, and otherwise waits on
+// Devesh to run them again; no key or login is used there.
 
 import { join } from "node:path";
+import {
+  AGAIN,
+  type AiStep,
+  judgedAt,
+  MAC_COMMAND,
+  RECORD,
+} from "../done-gate/mac-record";
 import { rulingOf } from "../done-gate/ruling";
 import { onSharedStack } from "../done-gate/shared-stack";
 import { conversation } from "./claude";
 import { commit, git, inScratch, sh, write } from "./scratch";
 import { whereWeAre } from "./slice-0-plan";
-import type { Need, Step } from "./step";
+import { type Step, WaitingOn } from "./step";
 import { timeLeft } from "./time-limit";
 
-const EVALS: Need = {
-  item: "A second Anthropic key for the automatic test conversations",
-  arrived: (env) => !!env.ANTHROPIC_EVALS_KEY,
-};
 // The shell commands the session may run: git to look around and to make a branch (so the step sees one made when
 // none should be), and the banner; never a push, a commit or a reset.
 const LOOK_AND_BRANCH = [
@@ -111,8 +116,7 @@ export function answersReady(reply: string, dbChecked: boolean) {
 const short = (s = "", n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 export const agentSession: Step = {
-  does: 'Holds a scripted fresh agent session started on main (`claude -p` in a fresh scratch clone, with only the evals key, its transcript saved in the report): it must name the current slice and item without being told; asked an off-topic question ("what does the worker\'s /ready endpoint check?"), answer it, change no file and make no branch; asked "which item are you on?", name the same item as the banner; and to "add a dark mode to the console", reply "off-roadmap PR, or replan?" and build nothing (no file changed, no branch made)',
-  needs: [EVALS],
+  does: 'Holds a scripted fresh agent session started on main (`claude -p` in a fresh scratch clone, with only Devesh\'s Claude login, its transcript saved in the report): it must name the current slice and item without being told; asked an off-topic question ("what does the worker\'s /ready endpoint check?"), answer it, change no file and make no branch; asked "which item are you on?", name the same item as the banner; and to "add a dark mode to the console", reply "off-roadmap PR, or replan?" and build nothing (no file changed, no branch made)',
   minutes: 45,
   check: ({ root, env, file }) =>
     inScratch(root, ({ dir, base }) => {
@@ -132,8 +136,7 @@ export const agentSession: Step = {
       );
       const say = conversation({
         dir,
-        key: env.ANTHROPIC_EVALS_KEY ?? "",
-        keyItem: EVALS.item,
+        token: env.CLAUDE_CODE_OAUTH_TOKEN ?? "",
         path: env.PATH,
         home: join(base, "home"),
         transcript: file("agent-session.txt"),
@@ -313,8 +316,7 @@ const OTHER =
   /another company|other compan|cross-company|second company|cross-tenant|non-member/i;
 
 export const crossCompany: Step = {
-  does: "Runs the verifier agent (`claude -p --agent verifier` in a fresh scratch clone, with only the evals key, its transcript saved in the report, holding the shared local stack as the gate's checks do) on a change that adds an API endpoint counting a company's open tasks, with its route and an API test for one company only, and checks that the verifier fails a change missing a cross-company test: its ruling is FAIL and its ruling line names the other company",
-  needs: [EVALS],
+  does: "Runs the verifier agent (`claude -p --agent verifier` in a fresh scratch clone, with only Devesh's Claude login, its transcript saved in the report, holding the shared local stack as the gate's checks do) on a change that adds an API endpoint counting a company's open tasks, with its route and an API test for one company only, and checks that the verifier fails a change missing a cross-company test: its ruling is FAIL and its ruling line names the other company",
   minutes: 45,
   check: ({ root, env, file }) =>
     inScratch(root, ({ dir, base }) => {
@@ -355,8 +357,7 @@ export const crossCompany: Step = {
         () => {
           const report = conversation({
             dir,
-            key: env.ANTHROPIC_EVALS_KEY ?? "",
-            keyItem: EVALS.item,
+            token: env.CLAUDE_CODE_OAUTH_TOKEN ?? "",
             path: env.PATH,
             home: join(base, "home"),
             transcript: file("verifier.txt"),
@@ -382,3 +383,25 @@ export const crossCompany: Step = {
       );
     }),
 };
+
+/** The two steps as Devesh's Mac runs them, by the names the record gives them. */
+export const onMac: { [name in AiStep]: Step } = {
+  "agent-session": agentSession,
+  verifier: crossCompany,
+};
+
+/** `name`'s step as GitHub's proof run takes it: from the committed record, never a model. */
+const fromRecord = (name: AiStep): Step => ({
+  does: `${onMac[name].does}. It runs on Devesh's Mac (\`${MAC_COMMAND}\`, with his own Claude login); here it passes when the record committed in ${RECORD} passed it and every file it tests is as that run had it`,
+  check: ({ root }) => {
+    const { outcome, seen } = judgedAt(root, "HEAD", name);
+    if (outcome === "waiting")
+      throw new WaitingOn(
+        `${AGAIN} (\`${MAC_COMMAND}\` in his own terminal, then a pull request commits what it writes): ${seen}`,
+      );
+    if (outcome === "failed") throw new Error(seen);
+    return seen;
+  },
+});
+export const agentSessionRecord = fromRecord("agent-session");
+export const crossCompanyRecord = fromRecord("verifier");

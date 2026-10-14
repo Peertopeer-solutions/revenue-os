@@ -98,23 +98,12 @@ jobs:
         if: matrix.slice <= 1
         run: bash .github/test-stack.sh
 
-      # Claude Code, for the steps a model takes part in (Slice 0's scripted agent session and its verifier run),
-      # pinned like every other tool (AGENTS.md → Conventions); it runs only with ANTHROPIC_EVALS_KEY.
-      - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code@2.1.288
-
-      # The browser the gate's browser checks use, as ci.yml installs it: Slice 0's verifier run runs the whole gate.
-      - name: Install the browser checks' browser
-        if: matrix.slice <= 1
-        run: bunx playwright install --with-deps chromium
-
-      # A step that needs an AI model reads ANTHROPIC_EVALS_KEY; while the secret is absent it reports waiting on
-      # STATE.md → Waiting on Devesh. Exit 1 only when a step failed; `result` says passed, waiting or failed.
+      # No AI model runs here: Slice 0's two AI steps run on Devesh's Mac, and this run reads their committed record
+      # (scripts/done-gate/mac-record.ts). Exit 1 only when a step failed; `result` says passed, waiting or failed.
       - name: Prove the slice
         id: prove
         env:
           SLICE: ${{ matrix.slice }}
-          ANTHROPIC_EVALS_KEY: ${{ secrets.ANTHROPIC_EVALS_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: bun run proof "$SLICE" --out "proof-report/slice-$SLICE"
 

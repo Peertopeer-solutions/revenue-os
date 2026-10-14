@@ -1,7 +1,9 @@
-// A scripted Claude Code session for a proof step: `claude -p` in a scratch clone, whose only credential is the
-// proof's own Anthropic key (ANTHROPIC_EVALS_KEY, handed on as ANTHROPIC_API_KEY). It gets no GitHub token, no other
-// key and a home folder of its own, so it never uses Devesh's login or settings, and it loads only the project's
-// settings, so the clone's hooks (the banner, the done gate) run as in any session. Edits are allowed and nothing
+// A scripted Claude Code session for a proof step on Devesh's Mac: `claude -p` in a scratch clone, whose only
+// credential is the sign-in token Devesh made with `claude setup-token` and put in his own terminal
+// (CLAUDE_CODE_OAUTH_TOKEN). Claude Code strips it from every command the session runs
+// (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB), so no agent sees it. It gets no GitHub token, no key and a home folder of its
+// own, so it never uses Devesh's settings, and it loads only the project's settings, so the clone's hooks (the
+// banner, the done gate) run as in any session. Edits are allowed and nothing
 // else is unless `tools` names it; nothing ever asks. Each exchange is added to the transcript: readable (.txt) and
 // as Claude Code's own events (.jsonl). Each exchange stops after 20 minutes, or sooner when the step's time is up.
 
@@ -14,8 +16,7 @@ import { timeLeft } from "./time-limit";
 
 export type Session = {
   dir: string; // the scratch clone it works in
-  key: string; // ANTHROPIC_EVALS_KEY
-  keyItem: string; // the STATE.md → Waiting on Devesh item that key is
+  token: string; // CLAUDE_CODE_OAUTH_TOKEN, from Devesh's terminal
   path?: string; // the PATH that finds claude, bun and git
   home: string; // a folder of its own
   transcript: string; // the readable transcript
@@ -25,10 +26,10 @@ export type Session = {
   dollars: number; // the most one exchange may spend
 };
 
-// Anthropic refusing the key itself (its credit or spending limit used up, or the key revoked): only Devesh can put
+// Anthropic refusing the login itself (its usage limit reached, or the token revoked or expired): only Devesh can put
 // that right, so the step waits on him. Our own cap (--max-budget-usd) is no refusal: it fails the step, saying so.
 const REFUSED =
-  /credit balance is too low|usage limits?|spend(?:ing)? limit|billing|invalid (?:x-)?api[ -]key|authentication_error/i;
+  /credit balance is too low|usage limits?|spend(?:ing)? limit|billing|invalid (?:x-)?api[ -]key|authentication_error|oauth token|token (?:has )?expired/i;
 
 type Event = {
   type?: string;
@@ -71,7 +72,8 @@ export function conversation(s: Session) {
           PATH: s.path,
           HOME: s.home,
           CLAUDE_CONFIG_DIR: join(s.home, ".claude"),
-          ANTHROPIC_API_KEY: s.key,
+          CLAUDE_CODE_OAUTH_TOKEN: s.token,
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1",
         }),
         encoding: "utf8",
         timeout: timeLeft(20 * 60_000),
@@ -105,7 +107,7 @@ export function conversation(s: Session) {
       .split("\n")[0];
     if (result?.is_error && REFUSED.test(why ?? ""))
       throw new WaitingOn(
-        `"${s.keyItem}" (STATE.md → Waiting on Devesh): Anthropic refused the key, saying: ${why}`,
+        `Devesh's Claude login: Anthropic refused it, saying: ${why}. Make a new token with \`claude setup-token\`, or wait until its usage limit resets, and run the command again`,
       );
     if (!result || result.is_error)
       throw new Error(

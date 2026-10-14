@@ -129,7 +129,7 @@ describe("proof.yml: the proof runs on GitHub after each deploy to main, once a 
   });
 
   // behaviour already on main: main's copy carries .github/workflows/proof.yml and the gate's own code over (neither is product code), so it passes there
-  it("proves each due slice in its own job: the local stack for Slices 0 and 1, the AI key only where the proof runs, the report kept as the run's artifact", () => {
+  it("proves each due slice in its own job: the local stack for Slices 0 and 1, no AI key or model, the report kept as the run's artifact", () => {
     const proof = workflow().jobs.proof as Job;
     expect(proof.needs).toBe("due");
     expect(proof.strategy).toEqual({
@@ -143,7 +143,6 @@ describe("proof.yml: the proof runs on GitHub after each deploy to main, once a 
     );
     expect(prove.env).toEqual({
       SLICE: expr("matrix.slice"),
-      ANTHROPIC_EVALS_KEY: expr("secrets.ANTHROPIC_EVALS_KEY"),
       GH_TOKEN: expr("github.token"),
     });
     for (const s of steps)
@@ -153,13 +152,11 @@ describe("proof.yml: the proof runs on GitHub after each deploy to main, once a 
     expect(start?.if).toBe("matrix.slice <= 1");
     const passed = steps.find((s) => s.name === ALL_PASSED);
     expect(passed?.if).toBe("steps.prove.outputs.result == 'passed'");
-    // The verifier's run in Slice 0's proof runs the whole gate, browser checks included, as ci.yml installs them.
-    const browsers = steps.findIndex((s) =>
-      /playwright install --with-deps chromium/.test(s.run ?? ""),
-    );
-    expect(browsers).toBeGreaterThan(-1);
-    expect(browsers).toBeLessThan(steps.indexOf(prove));
-    expect(steps[browsers]?.if).toBe("matrix.slice <= 1");
+    // No AI model or browser runs in the proof: Slice 0's two AI steps run on Devesh's Mac, and this run reads their record.
+    const runs = steps.map((s) => s.run ?? "").join("\n");
+    expect(runs).not.toMatch(/claude-code|playwright install/);
+    expect(JSON.stringify(workflow())).not.toContain("ANTHROPIC");
+    expect(steps.indexOf(prove)).toBeGreaterThan(steps.indexOf(start as Step_));
     // That the run stops its steps in time to write its report before this job's limit: scripts/proof-run.test.ts.
     const upload = steps.find((s) =>
       s.uses?.startsWith("actions/upload-artifact@"),

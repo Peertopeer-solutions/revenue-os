@@ -18,6 +18,7 @@ import {
   parseState,
   plain,
 } from "../docs/tracker/parse.js";
+import { AI_SLICE, bannerLine, judgedAt } from "./done-gate/mac-record";
 import { type Latest, proofLines, readLatest } from "./proof/latest";
 
 export type Cycle = {
@@ -28,6 +29,7 @@ export type Cycle = {
   from: string;
   branchRoadmap?: string; // ROADMAP.md in the agent's folder: a replan adds its line there before it merges
   proofRuns?: Latest[] | string; // --banner: each proof-ready or done slice's latest proof run, or why gh could not read them
+  aiSteps?: string; // --banner, while Slice 0 is proof ready or done: what main's record of its AI steps says, when it does not hold
 };
 
 const ROOT = join(import.meta.dir, "..");
@@ -109,6 +111,7 @@ export function banner(c: Cycle): string {
       ? `Current slice: Slice ${cur.n}: ${cur.title} (${cur.Status}, ${cur.items.filter((i) => i.done).length} of ${cur.items.length} items done).\nProof (a script runs it; the slice is done when every step passes): ${cur.Proof ?? ""}\nNext item: ${next ? next.text : "none left for agents. Set the slice to proof ready and run its proof (AGENTS.md → Definition of done)."}`
       : "No slice can be built now: each unfinished slice is proof ready (run its proof: when every step passes, set it to done; when one fails, add an item naming the failure) or blocked. Tell Devesh what blocks it; do not start other work.",
     ...proofLines(slices, c.proofRuns),
+    ...(c.aiSteps ? [c.aiSteps] : []),
     !c.item
       ? `${c.branch ? `This branch (${c.branch})` : "This checkout"} has no roadmap item. Build only on a branch made for one item, off origin/main, and record it: ${record(name)}.`
       : !k
@@ -201,6 +204,15 @@ async function workDir(): Promise<string> {
   return theirs !== null && theirs === repo(ROOT) ? cwd : ROOT;
 }
 
+/** What the banner says about main's record of Slice 0's AI steps: nothing while it holds. */
+export function aiStepsOnMain(root = ROOT, rev = "origin/main") {
+  try {
+    return bannerLine(judgedAt(root, rev));
+  } catch (e) {
+    return `Slice ${AI_SLICE}'s two AI steps: their record on main could not be read (${(e as Error).message}).`;
+  }
+}
+
 if (import.meta.main) {
   const flag = process.argv[2] ?? "--check";
   const local = (f: string) => readFileSync(join(ROOT, f), "utf8");
@@ -250,6 +262,8 @@ if (import.meta.main) {
       .map((s) => s.n);
     if (flag === "--banner" && proved.length)
       c.proofRuns = readLatest(ROOT, proved);
+    if (flag === "--banner" && proved.includes(AI_SLICE))
+      c.aiSteps = aiStepsOnMain();
     out = flag === "--banner" ? banner(c) : pin(c);
   } catch (e) {
     out = unknown((e as Error).message);

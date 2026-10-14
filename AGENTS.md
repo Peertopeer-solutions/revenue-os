@@ -78,6 +78,17 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
   cannot run because something in `STATE.md → Waiting on Devesh` is missing (a test number, a key,
   a login) is reported as waiting and names that Waiting item; the slice and its items stay as
   they are.
+- **Slice 0's two AI steps run on Devesh's Mac**, never with an Anthropic key: the scripted agent
+  session and the verifier's run need a real model, so Devesh runs `bun run proof 0 --on-my-mac`
+  in his own terminal, signed in through the token `claude setup-token` makes (it stays in that
+  terminal; no agent ever sees it), with the local stack up. It writes a record of the run (the
+  commit, the date, each step's result and a fingerprint of every file those steps test) and the
+  transcripts into docs/proof/slice-0-ai/, which an agent commits in a pull request whose first
+  line is `Roadmap: off-roadmap — Slice 0's AI steps, run on Devesh's Mac`. GitHub's proof run
+  takes each step as passed on Devesh's Mac while that record passed it and matches the files as
+  main has them, and otherwise reports it waiting on "run the AI steps again on Devesh's Mac",
+  which the report and `bun run cycle --banner` name; `rules-from-main` sets Slice 0 to done only
+  while main's record passed both and matches main (scripts/done-gate/mac-record.ts).
 - Passing tests are required and never sufficient. Tests with fakes prove logic, not the product.
 - **The done gate enforces this, so nobody has to remember it.** Whenever a Claude agent stops,
   `scripts/done-gate.ts` checks what its session changed in each checkout it worked in (and was the last

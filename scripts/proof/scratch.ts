@@ -2,7 +2,8 @@
 // whose `main` and origin/main are the proved commit, or a small repository holding only that commit's gate. Each
 // step makes its own and removes it, whatever happens. Nothing in them can reach GitHub: their origin is an address
 // that never resolves. Commands in them get only the PATH and home folder, never a token or key the run holds,
-// except the scripted Claude Code session, which gets the evals key alone (claude.ts).
+// except the scripted Claude Code session on Devesh's Mac, which gets his Claude login token alone, kept from the
+// commands it runs (claude.ts).
 
 import { spawnSync } from "node:child_process";
 import {

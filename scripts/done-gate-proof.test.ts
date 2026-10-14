@@ -6,6 +6,7 @@
 import { afterAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
+  appendFileSync,
   copyFileSync,
   cpSync,
   mkdirSync,
@@ -15,6 +16,14 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  AGAIN,
+  AI_STEPS,
+  fingerprints,
+  RECORD,
+  RECORD_DIR,
+  recordFiles,
+} from "./done-gate/mac-record";
 import { proofLinkProblems } from "./done-gate/proof-link";
 import { reportHeading, sliceOutcome } from "./done-gate/proof-run";
 
@@ -79,6 +88,7 @@ const judge = (
     repo: REPO,
     ask: gh.ask,
     onMain: (sha) => sha === SHA,
+    aiRecord: () => ({ outcome: "passed", seen: "a record that holds" }),
     ...over,
   });
 
@@ -153,6 +163,40 @@ describe("a pull request that sets a slice to done", () => {
       "evidence: [#1](https://example.com), and seen again in [#2](https://example.com/2)",
     );
     expect(await judge({ main: DONE, now: more })).toEqual([]);
+  });
+
+  // behaviour already on main: main's copy carries the gate's own code over (scripts/done-gate/mac-record.ts and proof-link.ts are not product code), so it passes there
+  it("refuses Slice 0 set to done, its run passing, while main's record of its AI steps does not hold; asks it of no other slice", async () => {
+    for (const outcome of ["waiting", "failed"] as const)
+      expect(
+        await judge({ aiRecord: () => ({ outcome, seen: "a file changed" }) }),
+      ).toEqual([
+        expect.stringMatching(
+          new RegExp(
+            `Slice 0 to done, but its two AI steps.*a file changed.*${AGAIN}`,
+          ),
+        ),
+      ]);
+    let asked = 0;
+    const one = (s: string) => s.replace(/Slice 0:/, "Slice 1:");
+    expect(
+      await judge(
+        {
+          now: one(DONE),
+          main: one(MAIN),
+          body: BODY.replace(
+            reportHeading(0, "passed"),
+            reportHeading(1, "passed"),
+          ),
+          aiRecord: () => {
+            asked++;
+            return { outcome: "waiting", seen: "x" };
+          },
+        },
+        github(run(), [passedJob(1)]),
+      ),
+    ).toEqual([]);
+    expect(asked).toBe(0);
   });
 
   // behaviour already on main: main's copy carries the gate's own code and the tracker's parser over (scripts/done-gate/proof-run.ts, proof-link.ts, pr.ts and docs/tracker/parse.js are not product code), so it passes there
@@ -246,7 +290,7 @@ describe("bun run gate pr: main's copy judges a pull request that sets a slice t
     ]);
   };
   /** A scratch repo holding the gate, with Slice 0 proof ready on main and set to done on branch feat; main's commit. */
-  const project = () => {
+  const project = (record = true) => {
     const dir = mkdtempSync(join(tmpdir(), "done-gate-proof-"));
     dirs.push(dir);
     mkdirSync(join(dir, "scripts"));
@@ -268,6 +312,24 @@ describe("bun run gate pr: main's copy judges a pull request that sets a slice t
     writeFileSync(join(dir, "ROADMAP.md"), MAIN);
     sh(dir, ["git", "init", "-q", "-b", "main"]);
     commit(dir);
+    if (record) {
+      // Devesh's Mac run of Slice 0's AI steps, passed on main's files as they are
+      mkdirSync(join(dir, RECORD_DIR), { recursive: true });
+      const written = recordFiles({
+        commit: sh(dir, ["git", "rev-parse", "HEAD"]).stdout.trim(),
+        date: "2026-10-14",
+        claude: "2.1.299",
+        steps: AI_STEPS.map((name) => ({
+          name,
+          outcome: "passed",
+          seen: "ok",
+        })),
+        files: fingerprints(dir, "HEAD"),
+      });
+      for (const [path, text] of Object.entries(written))
+        writeFileSync(join(dir, path), text);
+      commit(dir);
+    }
     const main = sh(dir, ["git", "rev-parse", "HEAD"]).stdout.trim();
     sh(dir, ["git", "checkout", "-qb", "feat"]);
     writeFileSync(join(dir, "ROADMAP.md"), DONE);
@@ -354,5 +416,30 @@ describe("bun run gate pr: main's copy judges a pull request that sets a slice t
       expect(r.out).toContain(why);
       expect(r.status).toBe(1);
     }
+  });
+
+  // behaviour already on main: main's copy carries the gate's own code over (scripts/done-gate/mac-record.ts and proof-link.ts are not product code), so it passes there
+  it("refuses Slice 0 set to done, though its run passed, while main has no record of its AI steps run on Devesh's Mac", async () => {
+    const { dir, main } = project(false);
+    const r = await judged(dir, answers(main));
+    expect(r.out).toContain("Pull request ✗");
+    expect(r.out).toContain(`${RECORD} is not committed`);
+    expect(r.out).toContain(AGAIN);
+    expect(r.status).toBe(1);
+  });
+
+  // behaviour already on main: main's copy carries the gate's own code over (scripts/done-gate/mac-record.ts and proof-link.ts are not product code), so it passes there
+  it("refuses it once a file those steps test changed on main after the record was made", async () => {
+    const { dir } = project();
+    appendFileSync(join(dir, "scripts", "done-gate.ts"), "\n// changed\n");
+    commit(dir);
+    const main = sh(dir, ["git", "rev-parse", "HEAD"]).stdout.trim();
+    sh(dir, ["git", "checkout", "-q", "feat"]);
+    sh(dir, ["git", "merge", "-q", "--no-edit", "main"]);
+    sh(dir, ["git", "checkout", "-q", "main"]);
+    const r = await judged(dir, answers(main));
+    expect(r.out).toContain("Pull request ✗");
+    expect(r.out).toContain("scripts/done-gate.ts");
+    expect(r.status).toBe(1);
   });
 });

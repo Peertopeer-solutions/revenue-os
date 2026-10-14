@@ -451,6 +451,8 @@ function scratchRepo() {
       "docs/tracker/parse.js",
       "scripts/proof/latest.ts",
       "scripts/done-gate/proof-run.ts",
+      "scripts/done-gate/mac-record.ts",
+      "scripts/done-gate/git.ts",
     ].map((f) => [f, readFileSync(join(ROOT, f), "utf8")]), // done-gate: allow copies the real scripts into a scratch repo to run them
     [
       "ROADMAP.md",

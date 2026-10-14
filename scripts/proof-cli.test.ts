@@ -109,9 +109,52 @@ describe("bun run proof <slice>", () => {
     expect(toProve(["99"], ROOT)).toEqual({
       refused: "ROADMAP.md has no Slice 99",
     });
-    const usage = "usage: bun run proof <slice number> [--out <folder>]";
-    for (const args of [[], ["0", "--elsewhere"], ["0", "--out"], ["x1"]])
+    const usage =
+      "usage: bun run proof <slice number> [--out <folder>] | bun run proof 0 --on-my-mac [--out <folder>]";
+    for (const args of [
+      [],
+      ["0", "--elsewhere"],
+      ["0", "--out"],
+      ["x1"],
+      ["0", "--on-my-mac", "--on-my-mac"],
+      ["0", "--out", "a", "--out", "b"],
+    ])
       expect(toProve(args, ROOT)).toEqual({ refused: usage });
+  });
+
+  it("takes --on-my-mac for Slice 0 alone, before or after --out, and refuses it for any other slice without running a step", () => {
+    for (const args of [
+      ["0", "--on-my-mac"],
+      ["0", "--out", "r", "--on-my-mac"],
+      ["0", "--on-my-mac", "--out", "r"],
+    ])
+      expect(toProve(args, ROOT)).toMatchObject({ n: 0, onMac: true });
+    expect(toProve(["0", "--on-my-mac", "--out", "r"], ROOT)).toMatchObject({
+      out: "r",
+    });
+    expect(toProve(["0"], ROOT)).not.toHaveProperty("onMac");
+    const other = spawnSync("bun", ["run", "proof", "1", "--on-my-mac"], {
+      cwd: ROOT,
+      encoding: "utf8",
+    });
+    expect(other.status).toBe(2);
+    expect(other.stderr).toContain(
+      "--on-my-mac runs Slice 0's two AI steps only",
+    );
+  });
+
+  it("with --on-my-mac and no Claude login in the terminal, says how to make one and exits 2", () => {
+    const env = { ...process.env };
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    const r = spawnSync("bun", ["run", "proof", "0", "--on-my-mac"], {
+      cwd: ROOT,
+      encoding: "utf8",
+      env,
+    });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("claude setup-token");
+    expect(r.stderr).toContain("export CLAUDE_CODE_OAUTH_TOKEN=");
+    expect(r.stdout).not.toContain("The report and its files");
   });
 });
 

@@ -1,0 +1,1 @@
+- 2026-10-14 · [#177](https://github.com/Peertopeer-solutions/revenue-os/pull/177) · scripts/done-gate-proof.test.ts: tests that a pull request setting Slice 0 to done is refused with no record on main or once a file those steps test changed after it, and that no other slice is asked about it · tighter

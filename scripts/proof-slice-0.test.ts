@@ -6,23 +6,21 @@
 // 0`: the whole suite run at once (it starts the suite, this file included) and the read of GitHub's real run
 // records (judged as data in scripts/proof-slice-0-runs.test.ts).
 import { afterAll, describe, expect, it, setDefaultTimeout } from "bun:test";
-import { spawnSync } from "node:child_process";
-import {
-  copyFileSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readlinkSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { currentSlice, nextItem, parseRoadmap } from "../docs/tracker/parse.js";
+import {
+  copyOf,
+  failures,
+  git,
+  HERE,
+  prove,
+  ROOT,
+  removeScratch,
+  STATE,
+  scratch,
+  standIn,
+} from "../tests/proof-stand-ins";
 import { stateDir } from "./done-gate/store";
 import { runSteps } from "./proof/run";
 import { agentSession, crossCompany } from "./proof/slice-0-agents";
@@ -55,116 +53,9 @@ import {
 } from "./proof/slice-0-tests";
 import { agentToolsRefused, hooksWarn } from "./proof/slice-0-tools";
 import { SLICES } from "./proof/slices";
-import type { Step } from "./proof/step";
 
 setDefaultTimeout(120_000); // a step clones this checkout and starts bun and git several times
-const ROOT = join(import.meta.dir, "..");
-const dirs: string[] = [];
-afterAll(() => {
-  for (const d of dirs) rmSync(d, { recursive: true, force: true });
-});
-const scratch = (name: string) => {
-  const d = realpathSync(mkdtempSync(join(tmpdir(), name)));
-  dirs.push(d);
-  return d;
-};
-const KEY = "A second Anthropic key for the automatic test conversations";
-const STATE = `PHASE: SETUP\n\n## Waiting on Devesh\n- [ ] **${KEY}**: saved in GitHub as ANTHROPIC_EVALS_KEY\n## Decisions in force\n`;
-/** git in `dir` (its background clean-up off, as scripts/proof/scratch.ts has it): its output; throws when it fails. */
-const git = (dir: string, ...args: string[]) => {
-  const r = spawnSync(
-    "git",
-    ["-c", "maintenance.auto=false", "-c", "gc.auto=0", ...args],
-    { cwd: dir, encoding: "utf8", maxBuffer: 64 << 20 },
-  );
-  if (r.status !== 0)
-    throw new Error(`git ${args.join(" ")} failed: ${r.stderr.trim()}`);
-  return r.stdout.trim();
-};
-let here: string | undefined;
-/**
- * The repository the steps prove: this checkout's files as they are on disk (those git would track), as one commit,
- * which is also its origin/main. A step proves a commit (it clones it, or archives its gate), and this checkout's may
- * not hold what is on disk: the tests-proven check runs this file with a change copied over main's commit,
- * uncommitted. Nothing is fetched from this checkout, which may be shallow (on GitHub's runner the check's copy was,
- * and git then writes no fetched ref, though the fetch succeeds); its packages are this checkout's, for the tests the
- * steps run by name.
- */
-const HERE = () => {
-  if (here) return here;
-  const dir = scratch("proof-0-here-");
-  git(dir, "init", "-q", "-b", "main");
-  const listed = git(
-    ROOT,
-    "ls-files",
-    "-z",
-    "--cached",
-    "--others",
-    "--exclude-standard",
-  );
-  for (const f of new Set(listed.split("\0").filter(Boolean))) {
-    const from = join(ROOT, f);
-    const st = lstatSync(from, { throwIfNoEntry: false });
-    if (!st?.isFile() && !st?.isSymbolicLink()) continue; // deleted, or another repository's folder
-    mkdirSync(dirname(join(dir, f)), { recursive: true });
-    if (st.isSymbolicLink()) symlinkSync(readlinkSync(from), join(dir, f));
-    else copyFileSync(from, join(dir, f));
-  }
-  git(dir, "add", "-A", "-f");
-  git(
-    dir,
-    "-c",
-    "user.email=proof@example.invalid",
-    "-c",
-    "user.name=proof",
-    "-c",
-    "commit.gpgsign=false",
-    "commit",
-    "-q",
-    "-m",
-    "this checkout as it is on disk",
-  );
-  git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
-  if (existsSync(join(ROOT, "node_modules")))
-    symlinkSync(join(ROOT, "node_modules"), join(dir, "node_modules"));
-  here = dir;
-  return dir;
-};
-const prove = (steps: Step[], root = HERE(), env: NodeJS.ProcessEnv = {}) =>
-  runSteps(steps, {
-    root,
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env },
-    state: STATE,
-    dir: scratch("proof-0-report-"),
-  });
-const failures = (results: { does: string; outcome: string; seen: string }[]) =>
-  results.flatMap((r) =>
-    r.outcome === "passed" ? [] : [`${r.does}\n  ${r.seen}`],
-  );
-/** A scratch copy of the proved repository's commit with `edit` applied and committed, as `main`. */
-const copyOf = (edit: (dir: string) => void, message = "a changed copy") => {
-  const dir = scratch("proof-0-copy-");
-  git(dir, "init", "-q", "-b", "main");
-  git(dir, "fetch", "-q", "--no-tags", HERE(), "+HEAD:refs/proof/base");
-  git(dir, "checkout", "-q", "-B", "main", "refs/proof/base");
-  edit(dir);
-  spawnSync(
-    "git",
-    [
-      "-c",
-      "user.email=proof@example.invalid",
-      "-c",
-      "user.name=proof",
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "-qam",
-      message,
-    ],
-    { cwd: dir },
-  );
-  return dir;
-};
+afterAll(removeScratch);
 /** `file` in `dir` with `from` replaced by `to`; throws when `from` is not there, so a copy never silently stays the same. */
 const replaced = (dir: string, file: string, from: string, to: string) => {
   const text = readFileSync(join(dir, file), "utf8"); // done-gate: allow read only to write a changed copy into a scratch clone, never to check what it says
@@ -469,53 +360,9 @@ if (two && input.hook_event_name === "Stop" && !existsSync(\`\${common}/done-gat
   }, 120_000);
 });
 
-type Answer = { when?: string; first?: string; say: string; error?: boolean };
-/**
- * A stand-in `claude` that logs each call (its arguments, key, GitHub token, home and folder) and answers as
- * `claude -p --output-format stream-json` does: the first answer whose `when` the prompt (its last argument) holds,
- * after running `first` in its folder (`error`: as Claude Code reports an error from Anthropic's API).
- */
-const standIn = (answers: Answer[]) => {
-  const bin = scratch("proof-0-claude-");
-  const log = join(bin, "calls.txt");
-  const events = (text: string, error = false) =>
-    [
-      { type: "system", subtype: "init", session_id: "stand-in" },
-      { type: "assistant", message: { content: [{ type: "text", text }] } },
-      {
-        type: "result",
-        subtype: "success",
-        is_error: error,
-        session_id: "stand-in",
-        result: text,
-      },
-    ]
-      .map((e) => `${JSON.stringify(e)}\n`)
-      .join("");
-  const cases = answers.map((a, i) => {
-    writeFileSync(join(bin, `answer-${i}.txt`), events(a.say, a.error));
-    return `  *"${a.when ?? ""}"*) ${a.first ?? ":"} >/dev/null 2>&1; cat "${join(bin, `answer-${i}.txt`)}" ;;`;
-  });
-  writeFileSync(
-    join(bin, "claude"),
-    [
-      "#!/bin/sh",
-      `{ echo "args: $*"; echo "key: $ANTHROPIC_API_KEY"; echo "gh: \${GH_TOKEN:-none}"; echo "home: $HOME"; echo "cwd: $(pwd)"; } >> "${log}"`,
-      "for last; do :; done",
-      'case "$last" in',
-      ...cases,
-      "esac",
-    ].join("\n"),
-    { mode: 0o755 },
-  );
-  return {
-    env: { PATH: `${bin}:${process.env.PATH}` },
-    calls: () =>
-      existsSync(log) ? readFileSync(join(bin, "calls.txt"), "utf8") : "", // the log above
-  };
-};
+const TOKEN = "login-token-for-tests";
 
-describe("the scripted fresh agent session", () => {
+describe("the scripted fresh agent session, on Devesh's Mac", () => {
   /** Answers each scripted question as the repo's rules ask; on "dark mode" it first runs `onDarkMode`. */
   const session = (onDarkMode = ":") => {
     const roadmap = parseRoadmap(git(HERE(), "show", "HEAD:ROADMAP.md"));
@@ -534,20 +381,13 @@ describe("the scripted fresh agent session", () => {
       { say: `We are on Slice ${cur?.n}, item: ${item}.` },
     ]);
   };
+  const live = agentSession;
 
-  it("waits on Devesh's evals key, naming the Waiting item, and starts no session without it", async () => {
+  it("holds four exchanges in one session in a fresh clone of main, with only Devesh's Claude login (kept from the commands it runs) and a home of its own, and saves the transcript", async () => {
     const claude = session();
-    const [r] = await prove([agentSession], HERE(), claude.env);
-    expect(r?.outcome).toBe("waiting");
-    expect(r?.seen).toContain(KEY);
-    expect(claude.calls()).toBe("");
-  });
-
-  it("with the key, holds four exchanges in one session in a fresh clone of main, with only that key and a home of its own, and saves the transcript", async () => {
-    const claude = session();
-    const [r] = await prove([agentSession], HERE(), {
+    const [r] = await prove([live], HERE(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
       GH_TOKEN: "never-handed-on",
       ANTHROPIC_API_KEY: "another-key",
     });
@@ -556,7 +396,9 @@ describe("the scripted fresh agent session", () => {
     expect(r?.files).toEqual(["1-agent-session.txt", "1-agent-session.jsonl"]);
     const calls = claude.calls();
     expect(calls.match(/^args: /gm)?.length).toBe(4);
-    expect(calls.match(/^key: evals-key-for-tests$/gm)?.length).toBe(4);
+    expect(calls.match(new RegExp(`^token: ${TOKEN}$`, "gm"))?.length).toBe(4);
+    expect(calls.match(/^scrub: 1$/gm)?.length).toBe(4);
+    expect(calls.match(/^api key: none$/gm)?.length).toBe(4);
     expect(calls).not.toContain("another-key");
     expect(calls).toContain("gh: none");
     expect(calls).not.toContain(`home: ${process.env.HOME}\n`);
@@ -567,9 +409,9 @@ describe("the scripted fresh agent session", () => {
 
   it("fails, naming the branch, when the session makes one on 'add a dark mode to the console'", async () => {
     const claude = session("git checkout -qb feat/dark-mode");
-    const [r] = await prove([agentSession], HERE(), {
+    const [r] = await prove([live], HERE(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     expect(r?.outcome).toBe("failed");
     expect(r?.seen).toContain("feat/dark-mode");
@@ -577,9 +419,9 @@ describe("the scripted fresh agent session", () => {
 
   it("may run git to look around and make a branch, never to push", async () => {
     const claude = session();
-    await prove([agentSession], HERE(), {
+    await prove([live], HERE(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     const args = claude.calls().split("\n")[0] ?? "";
     expect(args).toContain("Bash(git checkout:*)");
@@ -587,38 +429,32 @@ describe("the scripted fresh agent session", () => {
     expect(args).not.toContain("push");
   });
 
-  it("waits on Devesh, naming the key's Waiting item, when Anthropic refuses the key for its spending limit", async () => {
+  it("waits on Devesh, naming his Claude login, when Anthropic refuses it for its usage limit", async () => {
     const claude = standIn([
       {
-        say: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+        say: "Claude AI usage limit reached. Your limit will reset at 5pm.",
         error: true,
       },
     ]);
-    const [r] = await prove([agentSession], HERE(), {
+    const [r] = await prove([live], HERE(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     expect(r?.outcome).toBe("waiting");
-    expect(r?.seen).toContain(KEY);
-    expect(r?.seen).toContain("credit balance is too low");
+    expect(r?.seen).toContain("Devesh's Claude login");
+    expect(r?.seen).toContain("usage limit reached");
   });
 });
 
-describe("the verifier's run on a change missing a cross-company test", () => {
+describe("the verifier's run on a change missing a cross-company test, on Devesh's Mac", () => {
   const verifier = (ruling: string, first?: string) =>
     standIn([{ say: `I ran its test.\n${ruling}`, first }]);
   // A copy of this checkout's commit: the step takes the proved checkout's turn on the shared local stack, which a
   // gate run of this checkout may be holding while it runs these tests.
   const root = () => copyOf(() => {});
+  const live = crossCompany;
 
-  it("waits on Devesh's evals key without it", async () => {
-    const claude = verifier("Ruling: PASS — x");
-    const [r] = await prove([crossCompany], root(), claude.env);
-    expect(r?.outcome).toBe("waiting");
-    expect(claude.calls()).toBe("");
-  });
-
-  it("passes when the verifier, started as the verifier agent with only the evals key, rules FAIL for the other company, while it holds the shared local stack", async () => {
+  it("passes when the verifier, started as the verifier agent with only Devesh's Claude login, rules FAIL for the other company, while it holds the shared local stack", async () => {
     const copy = root();
     const lock = join(stateDir(copy), "local-stack.lock");
     const lockDir = scratch("proof-0-lock-");
@@ -627,15 +463,16 @@ describe("the verifier's run on a change missing a cross-company test", () => {
       "Ruling: FAIL — no test asks for another company's open tasks; add a cross-company test",
       `{ { test -f "${lock}" && echo held || echo free; } > "${seen}"; }`,
     );
-    const [r] = await prove([crossCompany], copy, {
+    const [r] = await prove([live], copy, {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     expect(r?.outcome).toBe("passed");
     expect(r?.files).toEqual(["1-verifier.txt", "1-verifier.jsonl"]);
     const calls = claude.calls();
     expect(calls).toContain("--agent verifier");
-    expect(calls).toContain("key: evals-key-for-tests");
+    expect(calls).toContain(`token: ${TOKEN}`);
+    expect(calls).toContain("scrub: 1");
     expect(readFileSync(join(lockDir, "seen.txt"), "utf8").trim()).toBe("held");
   });
 
@@ -645,9 +482,9 @@ describe("the verifier's run on a change missing a cross-company test", () => {
       "Another company's tasks are never counted, I checked.\nRuling: FAIL — nothing outside tests calls openTaskCount",
     ]) {
       const claude = verifier(ruling);
-      const [r] = await prove([crossCompany], root(), {
+      const [r] = await prove([live], root(), {
         ...claude.env,
-        ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+        CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
       });
       expect(r?.outcome).toBe("failed");
       expect(r?.seen).toContain(ruling.includes("PASS") ? "PASS" : "FAIL");
@@ -661,9 +498,9 @@ describe("the verifier's run on a change missing a cross-company test", () => {
       "Ruling: FAIL — add a cross-company test",
       `{ git diff --name-only main > "${out}"; }`,
     );
-    await prove([crossCompany], root(), {
+    await prove([live], root(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     const changed = readFileSync(join(diffDir, "changed.txt"), "utf8");
     expect(changed).toContain("services/worker/src/routes/screens.ts");

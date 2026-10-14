@@ -251,6 +251,7 @@ describe("the banner and rules-from-main judge a run alike", () => {
           repo: "devesh911/revenue-os",
           ask: r.api,
           onMain: () => true,
+          aiRecord: () => ({ outcome: "passed", seen: "a record that holds" }),
         })
       : undefined;
     return { line, problems };
