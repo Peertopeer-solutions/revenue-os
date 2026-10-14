@@ -1,0 +1,1 @@
+- 2026-10-14 · [#176](https://github.com/Peertopeer-solutions/revenue-os/pull/176) · scripts/cycle.ts: `bun run cycle --check` also names a badly named or badly written record file in docs/decisions-in-force/ or docs/rule-changes/ · tighter

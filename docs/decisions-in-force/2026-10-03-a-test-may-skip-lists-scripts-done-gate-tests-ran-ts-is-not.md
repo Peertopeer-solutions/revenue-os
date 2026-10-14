@@ -1,0 +1,1 @@
+- 2026-10-03 · **A test MAY_SKIP lists (scripts/done-gate/tests-ran.ts) is not judged by the tests-proven check when it skips on either side**: it is noted with MAY_SKIP's reason. MAY_SKIP is empty since 2026-10-06: the one test it listed, the dev login's sign-up, went with self sign-up, and the test that replaced it runs everywhere

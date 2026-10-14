@@ -1,0 +1,1 @@
+- 2026-10-03 · **"Seen by Devesh:" became "Proof passed:" in one step**: the tracker's parser reports an old "Seen by Devesh:" line as renamed instead of reading it, so a branch cut earlier shows that problem in `bun run cycle --check` until it takes main's ROADMAP.md.

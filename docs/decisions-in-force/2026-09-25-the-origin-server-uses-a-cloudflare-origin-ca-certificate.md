@@ -1,0 +1,1 @@
+- 2026-09-25 · **The origin server uses a Cloudflare Origin CA certificate**, not Let's Encrypt: port 80 is closed and Cloudflare proxies 443, so Let's Encrypt cannot check the box. Replaces security.md S3.6.

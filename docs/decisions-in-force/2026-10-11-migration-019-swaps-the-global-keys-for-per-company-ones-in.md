@@ -1,0 +1,1 @@
+- 2026-10-11 · **Migration 019 swaps the global keys for per-company ones in one step, not expand then contract**: no deployed worker uses the old keys, as the worker runs only by hand until Slice 2's tested deploy. From that deploy on, a migration that removes something a running release uses is split into an add and a later remove.

@@ -1,0 +1,1 @@
+- 2026-10-03 · **CI's `checks` judges a pull request's own commit against where it left main, not GitHub's merge commit**, as `rules-from-main` and a stop do, so all three number a removed expect line the same; a change main gained since the branch was cut is not part of the change judged ([#135](https://github.com/devesh911/revenue-os/pull/135)).

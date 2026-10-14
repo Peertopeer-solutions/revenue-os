@@ -1,0 +1,1 @@
+- 2026-10-02 · **The app_service test login is written only when it doesn't work**: test start-up (tests/setup.local.ts) tries to log in and turns the login on only if it fails, accepting a lost race with another run (scripts/app-service-login.ts); `bun run db:reset` still sets it; CI needs no step of its own, because the first test run on its fresh stack turns it on.

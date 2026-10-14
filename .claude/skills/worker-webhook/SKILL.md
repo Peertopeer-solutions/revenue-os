@@ -23,8 +23,8 @@ description: Use BEFORE touching services/worker — webhook receivers or proces
 `bun run local bun test services/worker` (`bun run local <cmd>` runs a command with the running local stack's settings) · every check: `bun run gate`.
 
 ## Learned since this router was written (dynamic — run it, don't skip)
-`grep -inE 'webhook|vapi|pg-?boss|worker|hono|cors|dedupe' lessons.md` and read `STATE.md → Decisions in force`.
-AGENTS.md, then STATE.md → Decisions in force, decide; a lesson that contradicts this file means this skill needs a refresh.
+`grep -inE 'webhook|vapi|pg-?boss|worker|hono|cors|dedupe' lessons.md` and read `docs/decisions-in-force/`.
+AGENTS.md, then docs/decisions-in-force/, decide; a lesson that contradicts this file means this skill needs a refresh.
 
 ## Before you finish
 AGENTS.md → Definition of done. Contract tests must cover out-of-order + duplicate delivery. Synthetic fixtures are interim — real recorded payloads replace them once a real call or message has flowed (ROADMAP Slices 2 and 4). Production send seams are stubs today: check `STATE.md → What works today`. Browser-shaped surfaces need one browser-shaped verification before "done" (lessons.md 2026-07-11).

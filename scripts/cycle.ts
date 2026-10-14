@@ -1,7 +1,7 @@
 // `bun run cycle` — where we are in ROADMAP.md, printed so no agent has to remember it. The agent
 // hooks (.claude/settings.json and .codex/hooks.json, through scripts/cycle-hook.sh) show it to
 // every session, so the plan survives /clear, compaction and off-topic prompts.
-//   --check   (default) format problems in this checkout's ROADMAP.md and STATE.md; exit 1 if any
+//   --check   (default) format problems in this checkout's ROADMAP.md, STATE.md and record files; exit 1 if any
 //   --banner  session start, resume, /clear, compaction: fetch main, then the whole picture
 //   --pin     every prompt: one line
 // --banner and --pin read the plan from origin/main (a build branch ticks its own item before it
@@ -65,6 +65,16 @@ export const problems = (roadmap: string, state: string) => [
   ...parseRoadmap(roadmap).problems,
   ...parseState(state).problems,
 ];
+
+/** `--check`: the checkout at `root` → format problems in its ROADMAP.md, STATE.md and record files. */
+export async function check(root: string) {
+  const read = (f: string) => readFileSync(join(root, f), "utf8");
+  return [
+    ...problems(read("ROADMAP.md"), read("STATE.md")),
+    // Loaded only here: the hooks run --pin on every prompt, and need none of it.
+    ...(await import("./records")).records(root).problems,
+  ];
+}
 
 function where(c: Cycle) {
   const { slices } = parseRoadmap(c.roadmap);
@@ -207,12 +217,12 @@ if (import.meta.main) {
   const flag = process.argv[2] ?? "--check";
   const local = (f: string) => readFileSync(join(ROOT, f), "utf8");
   if (flag === "--check") {
-    const found = problems(local("ROADMAP.md"), local("STATE.md"));
+    const found = await check(ROOT);
     for (const p of found) console.error(p);
     console.log(
       found.length
-        ? `${found.length} format problem(s) in ROADMAP.md or STATE.md`
-        : "ROADMAP.md and STATE.md: no format problems",
+        ? `${found.length} format problem(s) in ROADMAP.md, STATE.md or the records`
+        : "ROADMAP.md, STATE.md and the records: no format problems",
     );
     process.exit(found.length ? 1 : 0);
   }

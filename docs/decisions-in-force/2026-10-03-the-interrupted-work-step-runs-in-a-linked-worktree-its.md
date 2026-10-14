@@ -1,0 +1,1 @@
+- 2026-10-03 · **The interrupted-work step runs in a linked worktree, its first session an hour in the past**: the gate never holds a session in the main checkout, and leaves a hold to a session still at work there (quiet for less than 15 minutes), so the step runs the first session's gate calls with a clock set an hour back (`bun --preload`) instead of waiting.

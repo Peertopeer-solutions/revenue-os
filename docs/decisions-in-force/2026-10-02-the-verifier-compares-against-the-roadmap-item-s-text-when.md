@@ -1,0 +1,1 @@
+- 2026-10-02 · **The verifier compares against the roadmap item's text when Devesh gave no words** (Devesh): the item's text, word for word, is then the request (AGENTS.md → The loop, step 4, and .claude/agents/verifier.md).

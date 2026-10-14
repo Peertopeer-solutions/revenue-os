@@ -1,0 +1,1 @@
+- 2026-10-03 · **A test is new or edited when the change adds a line inside it or deletes one from it**: from the line bun's report gives it to where the brackets that line opens close (scripts/done-gate/test-span.ts, test-edits.ts); a line added or deleted outside every test (an import, a shared helper) makes none of them edited

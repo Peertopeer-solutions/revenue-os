@@ -36,6 +36,7 @@ it("has the builder open the PR and write its records before the gate and verifi
   expect(order).toEqual([...order].sort((a, b) => a - b));
 });
 
+// behaviour already on main: the skill is not product code, so main's copy carries this change's wording; it only follows "decision line" becoming "decision file"
 it("names each of the six FAIL reasons the verifier's rulings gave", () => {
   for (const phrase of [
     "**The records match the code, and main after each merge, counts included.**",
@@ -44,7 +45,7 @@ it("names each of the six FAIL reasons the verifier's rulings gave", () => {
     "marks no good work failed",
     "**Each edge case the request names has a test**",
     "**Each new or edited test fails on main for its stated reason**",
-    "**A decision line covers this change only.**",
+    "**A decision file covers this change only.**",
     "**The PR is open, and the item's ROADMAP.md and STATE.md lines are written, before the `bun run gate` and verifier run whose results the merge uses**",
     "Claim no ruling or CI result you have not seen",
   ])

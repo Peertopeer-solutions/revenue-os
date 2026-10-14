@@ -6,7 +6,7 @@ ROADMAP.md @devesh911
 # Rule files: what "done" means and how agents work. The list is RULE_FILES in scripts/done-gate/rules.ts; the
 # lines below name the same files, and the done gate's test fails when the two differ in either direction. An
 # agent may change a rule file without asking first. Its pull request says in its body which rule changed, which
-# way and why, and adds a line to STATE.md → Rule changes. The agent shows Devesh that explanation before it merges
+# way and why, and records it in docs/rule-changes/. The agent shows Devesh that explanation before it merges
 # (AGENTS.md, hard rail 7). A name without a "/" matches at any depth; a leading "/" means the repository's root.
 .github/**                          @devesh911
 .codex/**                           @devesh911

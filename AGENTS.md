@@ -8,10 +8,10 @@ file, it is advice. Four files are law, each answering one question:
 | `AGENTS.md` (this file) | How do we work? |
 | `docs/NORTH-STAR.md` | What are we building, and why? |
 | `ROADMAP.md` | What do we build next, and what counts as done? |
-| `STATE.md` | What actually works today, what waits on Devesh, what have we decided? |
+| `STATE.md` | What actually works today, what waits on Devesh, what have we decided? (One file per decision in `docs/decisions-in-force/`, which STATE.md points to.) |
 
 Everything else in `docs/` is reference (useful, may describe unbuilt things) or `docs/archive/`
-(history — never cite it as current). Tracker page, rendered from ROADMAP.md and STATE.md:
+(history — never cite it as current). Tracker page, rendered from ROADMAP.md, STATE.md and the records in docs/decisions-in-force/ and docs/rule-changes/:
 https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
 
 ## Hard rails (never, no exceptions)
@@ -43,7 +43,7 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    `rules-from-main` pass on it on top of main and the PRs ahead of it); LIVE = only humans merge. A rule file is any path `RULE_FILES` in `scripts/done-gate/rules.ts` matches. A change to one
    needs nobody's approval to start and is explained before it merges: its PR body has one line per changed rule,
    `Rule change: <rule> · tighter | looser | neutral | mixed · <why>`, naming each changed file by its path, its
-   file name or the folder it sits in, and the same PR adds a line per changed rule to STATE.md → Rule changes; the agent shows Devesh that explanation in chat, then, in SETUP, merges
+   file name or the folder it sits in, and the same PR adds a record per changed rule to `docs/rule-changes/`, one file each, as that folder's README says; the agent shows Devesh that explanation in chat, then, in SETUP, merges
    it itself on observed-green checks like any other PR. `rules-from-main` judges every PR with main's copy of the
    rules (`bun run gate pr`) and refuses one whose rule changes are not explained and recorded; the local hooks
    judge with the checkout's own copy, a convenience, never the judge. docs/runbooks/rules-check-way-back.md says
@@ -192,7 +192,8 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    only the database, sign-in, data interface and gateway (`.github/test-stack.sh`): the quick checks, the whole
    suite as the Mac runs it, and that one test alone (`bun run gate tests --at-once-alone`); its required
    `checks` waits for all three and passes only when every one passed (a done rule, `scripts/done-gate/ci-jobs.ts`,
-   refuses a ci.yml where it could pass otherwise). Every merge waits for `checks` (step 5), and tests proven
+   refuses a ci.yml where it could pass otherwise; the one skip it allows is a job held back from pull requests by
+   `if: github.event_name != 'pull_request'`, which must still run and pass in the merge queue and on main). Every merge waits for `checks` (step 5), and tests proven
    still runs that test when a change adds or edits it. Never skip, silence or weaken a check to get past it. CI
    also runs gitleaks, `bun audit` and a Docker build; CI is the verdict.
 4. See it work (`bun run see <console path>` saves what a signed-in person sees), then run the
@@ -232,13 +233,14 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    gets past it).
 6. The same PR ticks its roadmap item with evidence (an off-roadmap or Side-track PR has no line
    to tick; its PR body's what / why / evidence is the record), updates `STATE.md → What works
-   today` if reality changed, and adds a line to `STATE.md → Decisions in force` for any decision.
+   today` if reality changed, and adds a file to `docs/decisions-in-force/` for any decision (one file per decision, as that folder's README
+   says, so two PRs never edit the same lines).
    Any area the PR touches that has an entry in `docs/fix-when-touched.md` gets that fix in the same PR,
    or its body says why it doesn't apply, in the format that file's "How to use it" gives.
-   A genuine surprise gets one factual line in `lessons.md`. After ROADMAP.md or STATE.md change
-   on main, republish the tracker page (Claude: Artifact publish of `docs/tracker/index.html`
-   with files `ROADMAP.md`, `STATE.md`, `parse.js` from `docs/tracker/parse.js` and `published.txt` from
-   `git log -1 --format='%h on %cs' origin/main` written to a scratch file, `url` = the tracker link above).
+   A genuine surprise gets one factual line in `lessons.md`. After ROADMAP.md, STATE.md or a record
+   changes on main, republish the tracker page (Claude: Artifact publish of `docs/tracker/index.html`
+   with files `ROADMAP.md`, `STATE.md`, `parse.js` from `docs/tracker/parse.js`, and, each written to a scratch file,
+   `records.md` from `bun run records` and `published.txt` from `git log -1 --format='%h on %cs' origin/main`, `url` = the tracker link above).
 
 ## When Devesh corrects you
 Fix it, then turn that kind of mistake into a check so it can't come back: the prevent-repeat skill
@@ -248,7 +250,7 @@ made again.
 ## Escalate to Devesh only for
 Credentials · money · external accounts · irreversible or outward-facing actions · genuine
 product-direction forks. Everything else: pick the boring option,
-record one line in `STATE.md → Decisions in force`, keep moving.
+record it as a file in `docs/decisions-in-force/`, keep moving.
 
 ## Docs
 - The four law files must agree with each other and with the code. When code and a law file
@@ -286,7 +288,7 @@ settings) · `bun run dev` · `bun run db:reset`
 - Money is numeric + currency; phone numbers are normalised to E.164 before insert.
 - Dependencies are exact-pinned, and so are the Bun engine, GitHub Actions (by commit SHA), the
   Supabase CLI and the Docker base image; upgrades are deliberate PRs. A new dependency needs a
-  one-line justification in the PR and a `STATE.md` decision line. Prefer the platform (`fetch`,
+  one-line justification in the PR and a decision file in `docs/decisions-in-force/`. Prefer the platform (`fetch`,
   `crypto`, `Intl`) over packages.
 - Write ownership: the worker writes runs, conversations, messages, memories, usage and
   scores; the console writes task status, dispositions, config and drafts.

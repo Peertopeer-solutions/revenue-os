@@ -1,0 +1,1 @@
+- 2026-10-14 · [#176](https://github.com/Peertopeer-solutions/revenue-os/pull/176) · scripts/done-gate-migrations.test.ts: its rule-file test expects the record in docs/rule-changes/ · neutral

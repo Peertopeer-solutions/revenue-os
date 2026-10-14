@@ -1,0 +1,1 @@
+- 2026-09-29 · **Accent words in large headings use clay-type** (clay mixed 85% with clay-deep, 3.2:1 on paper): plain clay is 2.96:1, under the 3:1 minimum for large text. Large type only; small text keeps clay-deep.

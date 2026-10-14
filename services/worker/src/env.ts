@@ -22,8 +22,9 @@ export const EnvSchema = z.object({
   // OPTIONAL: the worker boots WITHOUT it — a missing key just means no LLM turns until one
   // is set (makeProvider gates on it). Env-provisioned in prod, absent in tests/local. Never logged.
   ANTHROPIC_API_KEY: z.string().optional(),
-  // Bearer token for GET /ready and GET /release (docs/security.md S5.9, as STATE.md → Decisions in force amends
-  // it): the container's health check, the deploy gate and the uptime monitor send it. OPTIONAL:
+  // Bearer token for GET /ready and GET /release (docs/security.md S5.9, as the decisions on /ready's token and the
+  // release endpoint in docs/decisions-in-force/ amend it): the container's health check, the deploy gate and the
+  // uptime monitor send it. OPTIONAL:
   // unset means /ready answers 401 to everyone (fail closed). `openssl rand -hex 32`.
   READY_TOKEN: z
     .string()

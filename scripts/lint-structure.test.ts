@@ -1,5 +1,5 @@
-// The structure rule apps/console/biome.json holds, so no test file has to read source code to check it (STATE.md →
-// Decisions in force, "Behaviour is proved by behaviour tests"): in the console's src/, only lib/supabase.ts uses the
+// The structure rule apps/console/biome.json holds, so no test file has to read source code to check it
+// (docs/decisions-in-force/, "Behaviour is proved by behaviour tests"): in the console's src/, only lib/supabase.ts uses the
 // Supabase client package, types included, imported or required; everything else goes through its lazy
 // getSupabase(). It lints throwaway files with the repository's real lint settings, then the real console's code,
 // which must pass in a run where the rule fires. Text-shaped rules (the Anthropic SDK in packages, raw HTML in the

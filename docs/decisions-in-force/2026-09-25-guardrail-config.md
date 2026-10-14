@@ -1,0 +1,1 @@
+- **Guardrail config** is validated by one schema in packages/shared, used by both the worker and the console.

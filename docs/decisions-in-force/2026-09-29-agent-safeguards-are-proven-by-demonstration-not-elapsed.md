@@ -1,0 +1,1 @@
+- 2026-09-29 · **Agent safeguards are proven by demonstration, not elapsed time**: scripted tests of a restarted session, interrupted work, two worktrees checking at once and a refused merge (Slice 0) replace any plan to watch the agents for a set period.

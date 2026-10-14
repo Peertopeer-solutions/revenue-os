@@ -1,0 +1,1 @@
+- 2026-10-03 · **CI's `checks` runs the tests-proven check too** (`bun run gate proven --base origin/<base>`, right after the tests): it needs only the local stack CI already starts and costs seconds; on a push to main there is nothing to judge

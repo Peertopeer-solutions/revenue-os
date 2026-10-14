@@ -1,0 +1,1 @@
+- 2026-10-06 · **The worker's release endpoint is GET /release, behind /ready's token** (READY_TOKEN): the commit a worker runs is information, and the public surface stays information-free (docs/security.md S5.9); it shows only RELEASE, which the worker accepts only as a commit id (7 to 40 hex characters, else it refuses to boot), so a secret set there by mistake can't be shown.

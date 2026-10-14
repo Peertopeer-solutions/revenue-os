@@ -1,0 +1,1 @@
+- 2026-10-11 · **When the AI's tool names another company's record, the database's refusal fails the turn**: book_appointment given another company's lead raises 23503, so the agent-turn job fails and writes nothing; Slice 3's "The AI's tools act only on the lead of the conversation they run in…" item stops a tool call naming a lead at all.

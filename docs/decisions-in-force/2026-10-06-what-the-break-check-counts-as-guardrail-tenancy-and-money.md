@@ -1,0 +1,1 @@
+- 2026-10-06 · **What the break check counts as guardrail, tenancy and money code** is the one list `GUARDED` in scripts/done-gate/broken-lines.ts, wider than the roadmap line's examples: the agent loop (it runs guard() before each tool), the two send handlers (the doorways' only production callers) and every API route (each checks the user belongs to the company).

@@ -1,0 +1,1 @@
+- 2026-10-14 · [#176](https://github.com/Peertopeer-solutions/revenue-os/pull/176) · scripts/done-gate.test.ts: the rule-change tests record in docs/rule-changes/ and check a word-for-word move · neutral
