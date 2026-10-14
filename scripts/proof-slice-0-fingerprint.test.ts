@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { parseRoadmap } from "../docs/tracker/parse.js";
 
 // The fingerprint of Slice 0's Proof line as these steps were written to it.
-const PROOF_LINE = "a1c9e7201dda1157";
+const PROOF_LINE = "954a053d2ebf2fe1";
 
 describe("Slice 0's proof steps", () => {
   // behaviour already on main: it reads ROADMAP.md with docs/tracker/parse.js, and neither is product code, so main's copy holds this change's Proof line and parser too

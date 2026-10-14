@@ -804,7 +804,9 @@ describe("bun run proof 0 --on-my-mac", () => {
     });
     expect(r.text).toContain("Both AI steps passed.");
     expect(r.code).toBe(0);
-    const record = JSON.parse(readFileSync(join(copy, RECORD), "utf8"));
+    const record = JSON.parse(
+      readFileSync(join(copy, "docs/proof/slice-0-ai/record.json"), "utf8"),
+    );
     expect(record.commit).toBe(git(copy, "rev-parse", "HEAD"));
     expect(
       record.steps.map((s: { name: string; outcome: string }) => [
