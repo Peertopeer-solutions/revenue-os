@@ -16,7 +16,8 @@ function folder(root: string, dir: string) {
   if (!existsSync(join(root, dir)))
     return { lines, problems: [`${dir} is missing: it holds the records`] };
   const entries = readdirSync(join(root, dir), { withFileTypes: true })
-    .filter((e) => e.name !== "README.md")
+    // The README, and a hidden file a computer leaves behind (.DS_Store), which git never commits.
+    .filter((e) => e.name !== "README.md" && !e.name.startsWith("."))
     .sort((a, b) => (a.name < b.name ? 1 : -1));
   for (const e of entries) {
     if (!e.isFile()) {

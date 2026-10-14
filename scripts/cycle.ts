@@ -64,6 +64,16 @@ export const problems = (roadmap: string, state: string) => [
   ...parseState(state).problems,
 ];
 
+/** `--check`: the checkout at `root` → format problems in its ROADMAP.md, STATE.md and record files. */
+export async function check(root: string) {
+  const read = (f: string) => readFileSync(join(root, f), "utf8");
+  return [
+    ...problems(read("ROADMAP.md"), read("STATE.md")),
+    // Loaded only here: the hooks run --pin on every prompt, and need none of it.
+    ...(await import("./records")).records(root).problems,
+  ];
+}
+
 function where(c: Cycle) {
   const { slices } = parseRoadmap(c.roadmap);
   const cur = currentSlice(slices);
@@ -195,11 +205,7 @@ if (import.meta.main) {
   const flag = process.argv[2] ?? "--check";
   const local = (f: string) => readFileSync(join(ROOT, f), "utf8");
   if (flag === "--check") {
-    const found = [
-      ...problems(local("ROADMAP.md"), local("STATE.md")),
-      // Read only here: the hooks run --pin on every prompt, and need none of it.
-      ...(await import("./records")).records(ROOT).problems,
-    ];
+    const found = await check(ROOT);
     for (const p of found) console.error(p);
     console.log(
       found.length
