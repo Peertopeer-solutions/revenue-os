@@ -266,6 +266,76 @@ it("refuses a job that calls another workflow, whose steps the rule can't see", 
   ]);
 });
 
+it("passes GitHub's own default condition, success(), on a job or a step, and the fixed env in any order", () => {
+  expect(
+    ciJobProblems(
+      ciYml((ci) => {
+        queueOnly(ci);
+        ci.jobs.a.if = `\${{ success() }}`;
+        ci.jobs.a.steps[0].if = "success()";
+        ci.jobs.a.steps.push({ run: "x", if: "success() || failure()" });
+        const { RESULTS, HELD_BACK } = QUEUE_ONLY_SKIPPED.env;
+        ci.jobs.checks.steps[0].env = { HELD_BACK, RESULTS };
+      }),
+    ),
+  ).toEqual([]);
+});
+
+it("refuses a shell that carries on past a failing command, and a local action, whose steps it can't see", () => {
+  expect(
+    ciJobProblems(
+      ciYml((ci) => {
+        ci.jobs.a.defaults = { run: { shell: "python" } };
+        ci.jobs.a.steps[0].shell = "bash {0}";
+        ci.jobs.b.steps.push({ uses: "./.github/actions/suite" });
+      }),
+    ),
+  ).toEqual([
+    'the job a runs its steps in the shell "python", which may carry on past a failing command; only bash or sh may be named',
+    'a step of the job a (bun run lint) runs in the shell "bash {0}", which may carry on past a failing command; only bash or sh may be named',
+    "a step of the job b runs a local action (./.github/actions/suite), whose steps this rule can't see",
+  ]);
+  expect(
+    ciJobProblems(ciYml((ci) => (ci.jobs.a.steps[0].shell = "bash"))),
+  ).toEqual([]);
+});
+
+it("refuses a lone `checks` that a condition or continue-on-error could let pass without its work", () => {
+  const lone = (edit: (job: Job) => void) =>
+    ciYml((ci) => {
+      ci.jobs = {
+        checks: { "runs-on": "ubuntu-latest", steps: [{ run: "x" }] },
+      };
+      edit(ci.jobs.checks);
+    });
+  expect(
+    ciJobProblems(
+      lone((job) => {
+        job.if = "github.event_name == 'pull_request'";
+        job.steps[0]["continue-on-error"] = true;
+      }),
+    ),
+  ).toEqual([
+    "the job checks runs only when `github.event_name == 'pull_request'`, and a skipped check can pass",
+    "a step of the job checks (x) sets continue-on-error, which turns its failure into a pass",
+  ]);
+});
+
+it("refuses a ci.yml it reads differently from GitHub: no jobs it can find, or a key in YAML's `?` form", () => {
+  const unread =
+    ".github/workflows/ci.yml has no `jobs` this rule can read, or a key written in YAML's `?` form, so whether `checks` waits for every job can't be told";
+  expect(ciJobProblems("name: ci\n")).toEqual([unread]);
+  expect(
+    ciJobProblems(
+      "on:\n  ? pull_request\n  : null\njobs:\n  a:\n    runs-on: x\n    steps:\n      - run: y\n",
+    ),
+  ).toEqual([unread]);
+  // A byte-order mark is read past, as GitHub does, so the jobs behind it are still judged.
+  expect(
+    ciJobProblems(`\uFEFF${ciYml((ci) => (ci.jobs.checks.needs = ["a"]))}`),
+  ).toEqual(["`checks` does not wait for the job b (its `needs`)"]);
+});
+
 it("refuses a ci.yml that can't be read, rather than passing it", () => {
   expect(ciJobProblems("jobs: [unclosed")[0]).toStartWith(
     ".github/workflows/ci.yml can't be read as YAML",

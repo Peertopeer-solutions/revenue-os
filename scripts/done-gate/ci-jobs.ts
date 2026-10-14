@@ -1,13 +1,15 @@
 // For the done rules (rules.ts): CI's required check is the job `checks`. When ci.yml splits the work into other jobs,
 // `checks` must pass only when every one of them passed: it waits for every other job (`needs`), runs whatever
 // happened to them (`if: always()`), and holds one step, one of the two fixed ones below, unconditioned, in the default
-// shell and with no settings of its own beside it; no job or step may set continue-on-error, which turns a failure into
-// a pass; and nothing at the workflow's top (`env`, `defaults`) or another job named `checks` can stand in for it.
-// One skip is allowed: a job may be held back from pull requests (QUEUE_ONLY), to run only in the merge queue and on
-// main, when `checks` holds the step that accepts a skipped job on a pull request alone. So no other job condition is
-// allowed (one could skip a job in the merge queue), no job that runs on pull requests may wait for a held-back one
-// (it would be skipped there too), at least one job must run on pull requests, no step may be skipped while its job
-// passes (`if:` only `always()` or `!cancelled()`), and no job may call another workflow, whose steps can't be seen.
+// shell and with no settings of its own beside it; and nothing at the workflow's top (`env`, `defaults`) or another job
+// named `checks` can stand in for it. One skip is allowed: a job may be held back from pull requests (QUEUE_ONLY), to
+// run only in the merge queue and on main, when `checks` holds the step that accepts a skipped job on a pull request
+// alone. So no other job condition is allowed (one could skip a job in the merge queue), no job that runs on pull
+// requests may wait for a held-back one (it would be skipped there too), and at least one job must run on them.
+// Whether or not the work is split, no job's work may be hidden from a pass: no continue-on-error, which turns a
+// failure into a pass; no step condition that skips a step on the way to a passing job; no shell that carries on past
+// a failing command; and no call to another workflow or a local action, whose steps this rule can't see. A file the
+// rule reads differently from GitHub (a key YAML's `?` form hides, no `jobs` it can find) is refused, not passed.
 
 export const CI = ".github/workflows/ci.yml";
 
@@ -38,34 +40,112 @@ const CHECKS_KEYS = new Set([
   "timeout-minutes",
   "name",
 ]);
-// The step conditions that never skip a step on the way to a passing job.
-const STEP_IFS = new Set(["always()", "!cancelled()"]);
+// The step conditions that never skip a step on the way to a passing job; success() is GitHub's own default.
+const STEP_IFS = new Set([
+  "always()",
+  "!cancelled()",
+  "success()",
+  "success() || failure()",
+]);
+// The shells that stop at the first failing command (GitHub runs them with -e); a step without one runs in bash -e.
+const SHELLS = new Set(["bash", "sh"]);
 
 type Rec = Record<string, unknown>;
 const isRec = (v: unknown): v is Rec =>
   typeof v === "object" && v !== null && !Array.isArray(v);
-const same = (a: unknown, b: unknown) =>
-  JSON.stringify(a) === JSON.stringify(b);
-/** A condition as written, without the `${{ }}` GitHub also accepts around it. */
-const cond = (v: unknown) =>
-  String(v ?? "")
+/** Exactly the fixed env, in any order. */
+const sameEnv = (a: unknown, b: Record<string, string>) =>
+  isRec(a) &&
+  Object.keys(a).length === Object.keys(b).length &&
+  Object.entries(b).every(([k, v]) => a[k] === v);
+/** A condition as written, without the `${{ }}` GitHub also accepts around it; success() alone is no condition. */
+const cond = (v: unknown) => {
+  const c = String(v ?? "")
     .trim()
     .replace(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/, "$1");
+  return c === "success()" ? "" : c;
+};
+/** Does the parsed file hold a key Bun read from YAML's `?` form, which GitHub reads as the key it names? */
+const hiddenKey = (v: unknown): boolean =>
+  Array.isArray(v)
+    ? v.some(hiddenKey)
+    : isRec(v) &&
+      Object.entries(v).some(
+        ([k, x]) => k === "[object Object]" || hiddenKey(x),
+      );
 
-/** PURE: ci.yml's text → why its `checks` could pass while a job it waits for did not; nothing for a single job. */
+/** Why the job `id` could pass while its work did not run or failed. */
+function jobProblems(id: string, job: Rec): string[] {
+  const problems: string[] = [];
+  if (job.uses !== undefined)
+    problems.push(
+      `the job ${id} calls another workflow (${String(job.uses)}), whose steps this rule can't see`,
+    );
+  if (job["continue-on-error"] !== undefined)
+    problems.push(
+      `the job ${id} sets continue-on-error, which turns its failure into a pass`,
+    );
+  const shell =
+    isRec(job.defaults) && isRec(job.defaults.run)
+      ? job.defaults.run.shell
+      : undefined;
+  if (shell !== undefined && !SHELLS.has(String(shell)))
+    problems.push(
+      `the job ${id} runs its steps in the shell "${String(shell)}", which may carry on past a failing command; only bash or sh may be named`,
+    );
+  for (const step of Array.isArray(job.steps) ? job.steps : []) {
+    if (!isRec(step)) continue;
+    const label = String(step.name ?? step.run ?? step.uses ?? "unnamed").split(
+      "\n",
+    )[0];
+    if (step["continue-on-error"] !== undefined)
+      problems.push(
+        `a step of the job ${id} (${label}) sets continue-on-error, which turns its failure into a pass`,
+      );
+    if (cond(step.if) && !STEP_IFS.has(cond(step.if)))
+      problems.push(
+        `a step of the job ${id} (${label}) runs only when \`${cond(step.if)}\`, so the job could pass without it; a step may only set \`if: always()\` or \`if: !cancelled()\``,
+      );
+    if (step.shell !== undefined && !SHELLS.has(String(step.shell)))
+      problems.push(
+        `a step of the job ${id} (${label}) runs in the shell "${String(step.shell)}", which may carry on past a failing command; only bash or sh may be named`,
+      );
+    if (String(step.uses ?? "").startsWith("./"))
+      problems.push(
+        `a step of the job ${id} runs a local action (${String(step.uses)}), whose steps this rule can't see`,
+      );
+  }
+  return problems;
+}
+
+/** PURE: ci.yml's text → why its `checks` could pass while a job it waits for did not. */
 export function ciJobProblems(text: string): string[] {
   let ci: unknown;
   try {
-    ci = Bun.YAML.parse(text);
+    ci = Bun.YAML.parse(text.replace(/^﻿/, ""));
   } catch (e) {
     return [
       `${CI} can't be read as YAML (${(e as Error).message}), so whether \`checks\` waits for every job can't be told`,
     ];
   }
-  const jobs = isRec(ci) && isRec(ci.jobs) ? ci.jobs : {};
+  if (!isRec(ci) || !isRec(ci.jobs) || hiddenKey(ci))
+    return [
+      `${CI} has no \`jobs\` this rule can read, or a key written in YAML's \`?\` form, so whether \`checks\` waits for every job can't be told`,
+    ];
+  const jobs = ci.jobs;
   const others = Object.keys(jobs).filter((id) => id !== "checks");
-  if (!others.length) return [];
   const checks = jobs.checks;
+  if (!others.length)
+    return !isRec(checks)
+      ? []
+      : [
+          ...(cond(checks.if) && cond(checks.if) !== "always()"
+            ? [
+                `the job checks runs only when \`${cond(checks.if)}\`, and a skipped check can pass`,
+              ]
+            : []),
+          ...jobProblems("checks", checks),
+        ];
   if (!isRec(checks))
     return [
       `${CI} has jobs (${others.join(", ")}) but none named \`checks\`, the check main's ruleset requires`,
@@ -94,14 +174,14 @@ export function ciJobProblems(text: string): string[] {
       !more.length &&
       isRec(step) &&
       Object.keys(step).every((k) => ["name", "env", "run"].includes(k)) &&
-      same(step.env, f.env) &&
+      sameEnv(step.env, f.env) &&
       String(step.run ?? "").trim() === f.run,
   );
   if (!fixed)
     problems.push(
       `\`checks\` must hold exactly one step, ${JSON.stringify(ALL_PASSED)}, which fails unless every job it waits for passed, or ${JSON.stringify(QUEUE_ONLY_SKIPPED)}, which also lets a job held back from pull requests be skipped on one`,
     );
-  if (isRec(ci) && (ci.env !== undefined || ci.defaults !== undefined))
+  if (ci.env !== undefined || ci.defaults !== undefined)
     problems.push(
       "ci.yml sets `env` or `defaults` for every job, which could change how `checks` runs its step",
     );
@@ -119,7 +199,7 @@ export function ciJobProblems(text: string): string[] {
     if (String(job.name ?? "").trim() === "checks")
       problems.push(`the job ${id} is named checks, as the required check is`);
     if (!heldBack.has(id)) {
-      if (job.if !== undefined)
+      if (cond(job.if))
         problems.push(
           `the job ${id} runs only when \`${cond(job.if)}\`; a job \`checks\` waits for may be held back only from pull requests, by \`if: ${QUEUE_ONLY}\``,
         );
@@ -129,28 +209,7 @@ export function ciJobProblems(text: string): string[] {
             `the job ${id} runs on pull requests but waits for ${dep}, which is held back from them, so ${id} would be skipped there too and \`checks\` would pass without it`,
           );
     }
-    if (job.uses !== undefined)
-      problems.push(
-        `the job ${id} calls another workflow (${String(job.uses)}), whose steps this rule can't see`,
-      );
-    if (job["continue-on-error"] !== undefined)
-      problems.push(
-        `the job ${id} sets continue-on-error, which turns its failure into a pass`,
-      );
-    for (const step of Array.isArray(job.steps) ? job.steps : []) {
-      if (!isRec(step)) continue;
-      const label = String(
-        step.name ?? step.run ?? step.uses ?? "unnamed",
-      ).split("\n")[0];
-      if (step["continue-on-error"] !== undefined)
-        problems.push(
-          `a step of the job ${id} (${label}) sets continue-on-error, which turns its failure into a pass`,
-        );
-      if (step.if !== undefined && !STEP_IFS.has(cond(step.if)))
-        problems.push(
-          `a step of the job ${id} (${label}) runs only when \`${cond(step.if)}\`, so the job could pass without it; a step may only set \`if: always()\` or \`if: !cancelled()\``,
-        );
-    }
+    problems.push(...jobProblems(id, job));
   }
   return problems;
 }
