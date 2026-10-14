@@ -1,0 +1,1 @@
+- 2026-09-25 · **The public-address check excuses one file by path**: `apps/www/src/visuals/IntentEvidence.tsx`, whose SVG icon numbers look exactly like an address; a test holds the list to that one file.

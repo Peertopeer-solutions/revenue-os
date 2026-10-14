@@ -205,7 +205,7 @@ describe("Slice 0's proof steps", () => {
       "`bun run cycle --banner`",
       "scripted fresh agent session",
       "entry file missing",
-      "doesn't explain it or that adds no line to STATE.md → Rule changes",
+      "doesn't explain it or that adds no record to docs/rule-changes/",
       "loosens its own copy of the gate",
       "rewrites ci.yml",
       "without its roadmap first line",

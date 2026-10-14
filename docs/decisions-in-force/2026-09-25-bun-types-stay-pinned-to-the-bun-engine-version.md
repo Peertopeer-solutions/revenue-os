@@ -1,0 +1,1 @@
+- Bun types stay pinned to the Bun engine version.

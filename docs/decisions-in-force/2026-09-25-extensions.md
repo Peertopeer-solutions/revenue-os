@@ -1,0 +1,1 @@
+- **Extensions** live in the `extensions` schema; new migrations must schema-qualify them (e.g. `extensions.vector`).

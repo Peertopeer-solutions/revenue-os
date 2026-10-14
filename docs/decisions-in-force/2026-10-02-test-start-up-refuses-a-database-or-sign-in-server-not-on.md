@@ -1,0 +1,1 @@
+- 2026-10-02 · **Test start-up refuses a database or sign-in server not on this machine**: tests/setup.local.ts checks LOCAL_DB_URL, DATABASE_URL and SUPABASE_URL with scripts/local-url.ts, as db:reset, evals and the demo now do (the demo checks both of its database addresses before it loads anything).

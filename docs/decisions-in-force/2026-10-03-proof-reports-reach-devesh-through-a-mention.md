@@ -1,0 +1,1 @@
+- 2026-10-03 · **Proof reports reach Devesh through a mention**: the workflow makes the "Proof reports" issue when none exists (the oldest issue of that title is the standing one) with a body that mentions the repository's owner, which subscribes him to every comment; proof.yml sets no concurrency group, since GitHub would cancel waiting runs and lose their reports.

@@ -1,0 +1,1 @@
+- **webhook_events is a lifecycle table**: the payload never changes; status and processed_at do.

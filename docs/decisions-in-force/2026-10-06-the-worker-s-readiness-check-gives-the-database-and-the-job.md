@@ -1,0 +1,1 @@
+- 2026-10-06 · **The worker's readiness check gives the database and the job queue 2 seconds each**, asked at once, and answers 503 naming only what it could not reach (`database`, `job queue`); the error goes to the log. The container's health check sends the container's own READY_TOKEN, so a container started without one is never healthy.

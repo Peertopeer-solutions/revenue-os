@@ -1,0 +1,1 @@
+- 2026-10-03 · **Each guard is a file of its own under scripts/guards/**: scripts/guards.sh runs a written list of them in turn and fails when one fails or is missing; a guard may be TypeScript run with bun (scripts/guards/pattern-files.ts).

@@ -1,0 +1,1 @@
+- 2026-09-25 · **Done means seen working** (AGENTS.md → Definition of done). Its second half, a slice is done only when Devesh has watched its proof, was replaced on 2026-10-02 by "Slices close on an automatic proof run".

@@ -1,0 +1,1 @@
+- **Scheduler database-error policy**: a failed write undoes that lead's step and retries it; after 3 failed tries the lead's sequence is parked as failed for a person to look at; a broken sequence definition is parked at once; other leads keep running.

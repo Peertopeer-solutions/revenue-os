@@ -1,0 +1,1 @@
+- 2026-10-12 · **packages/db's console reads are split by screen** into tasks.ts, contacts.ts, conversations.ts and metrics.ts (docs/fix-when-touched.md entry 10); the worker's routes and the console's calls follow in their own items.

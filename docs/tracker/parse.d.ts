@@ -25,12 +25,14 @@ export function parseRoadmap(md: string): {
 };
 export function parseState(md: string): {
   phase: string;
-  updated: string;
   rows: string[][];
   waiting: { done: boolean; text: string }[];
-  decisions: string[];
   ruleChanges: string[];
   problems: string[];
+};
+export function parseRecords(md: string): {
+  decisions: string[];
+  ruleChanges: string[];
 };
 export function currentSlice(slices: Slice[]): Slice | undefined;
 export function nextItem(slice: Slice | undefined): Item | undefined;

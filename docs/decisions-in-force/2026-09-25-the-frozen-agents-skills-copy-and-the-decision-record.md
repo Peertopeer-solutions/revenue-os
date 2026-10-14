@@ -1,0 +1,1 @@
+- 2026-09-25 · The frozen `.agents/skills` copy and the decision-record ceremony (doc-change skill) are removed. Codex reads AGENTS.md directly.

@@ -2841,26 +2841,11 @@ describe("bun run gate rules (CI runs it on every pull request)", () => {
 
 describe("bun run gate pr: main's copy of the rules judges a pull request (rules-from-main runs it)", () => {
   const PR = "7";
-  const STATE = (...rows: string[]) =>
-    [
-      "# State",
-      "",
-      "## Decisions in force",
-      "",
-      "- 2026-10-01 · an old decision",
-      "",
-      "## Rule changes",
-      "",
-      "Newest first.",
-      "",
-      ...rows,
-      "",
-    ].join("\n");
-  /** The lines a change adds to STATE.md, numbered as in `state`. */
-  const addedTo = (state: string, ...rows: string[]) =>
-    rows.map((text) => ({
-      file: "STATE.md",
-      line: state.split("\n").indexOf(text) + 1,
+  /** The record files a change adds in docs/rule-changes/, one line each. */
+  const addedTo = (...rows: string[]) =>
+    rows.map((text, i) => ({
+      file: `docs/rule-changes/2026-10-02-record-${i}.md`,
+      line: 1,
       text,
     }));
   const record = (rule: string, pr = PR) =>
@@ -2872,37 +2857,28 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ).toEqual([]);
   });
 
-  it("refuses a rule change its body doesn't explain or STATE.md doesn't record", () => {
+  it("refuses a rule change its body doesn't explain or no file in docs/rule-changes/ records", () => {
     expect(
-      ruleChangeProblems(
-        [".github/workflows/ci.yml"],
-        [],
-        "Roadmap: x",
-        STATE(),
-        PR,
-      ),
+      ruleChangeProblems([".github/workflows/ci.yml"], [], "Roadmap: x", PR),
     ).toEqual([
       expect.stringContaining(
         "the PR body explains no change to .github/workflows/ci.yml: add one line per changed rule",
       ),
       expect.stringContaining(
-        "STATE.md → Rule changes gains no line for #7 naming .github/workflows/ci.yml",
+        "docs/rule-changes/ gains no record of #7 naming .github/workflows/ci.yml",
       ),
     ]);
   });
 
-  it("accepts a line per rule that names each file by its path, its file name or a folder holding it", () => {
-    const rows = [
-      record("scripts/done-gate/ and scripts/done-gate.ts"),
-      record("biome.json"),
-    ];
-    const state = STATE(...rows);
+  it("accepts a line per rule, and a record file per rule, that name each file by its path, its file name or a folder holding it", () => {
     expect(
       ruleChangeProblems(
         ["scripts/done-gate/rules.ts", "scripts/done-gate.ts", "biome.json"],
-        addedTo(state, ...rows),
+        addedTo(
+          record("scripts/done-gate/ and scripts/done-gate.ts"),
+          record("biome.json"),
+        ),
         "Roadmap: x\n\nRule change: scripts/done-gate/ and scripts/done-gate.ts · tighter · reads a commit as data\nRule change: biome.json · neutral · no change in what it fails",
-        state,
         PR,
       ),
     ).toEqual([]);
@@ -2927,34 +2903,32 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     expect(names(".github/workflows/", ".github/workflows/ci.yml")).toBe(true);
   });
 
-  it("refuses a badly written line, a record for another pull request, and one added outside Rule changes", () => {
+  it("refuses a badly written line or record, a record for another pull request, and one added outside docs/rule-changes/", () => {
     const other = record(".github/workflows/ci.yml", "6");
     const misplaced = record(".github/workflows/ci.yml");
-    const state = STATE(other).replace(
-      "- 2026-10-01 · an old decision",
-      `- 2026-10-01 · an old decision\n${misplaced}`,
-    );
     expect(
       ruleChangeProblems(
         [".github/workflows/ci.yml"],
-        addedTo(state, other, misplaced),
+        [
+          ...addedTo(other, "- ci.yml got stricter"),
+          { file: "STATE.md", line: 9, text: misplaced },
+          { file: "docs/rule-changes/README.md", line: 9, text: misplaced },
+        ],
         "Rule change: ci.yml · stricter · checks more",
-        state,
         PR,
       ),
     ).toEqual([
       'the PR body\'s line "Rule change: ci.yml · stricter · checks more" is not written as `Rule change: <rule> · tighter | looser | neutral | mixed · <why>`, where <rule> names the file by its path, its file name or the folder it sits in (such as scripts/done-gate/)',
-      `STATE.md → Rule changes: "${other}" names #6, not this pull request (#7)`,
+      `docs/rule-changes/: "${other}" names #6, not this pull request (#7)`,
+      'docs/rule-changes/: "- ci.yml got stricter" is not `- YYYY-MM-DD · [#N](link) · <rule> · tighter | looser | neutral | mixed`',
       expect.stringContaining(
         "the PR body explains no change to .github/workflows/ci.yml",
       ),
-      expect.stringContaining("STATE.md → Rule changes gains no line for #7"),
+      expect.stringContaining("docs/rule-changes/ gains no record of #7"),
     ]);
   });
 
   it("counts no line GitHub doesn't show: one in an HTML comment or a code block explains nothing", () => {
-    const row = record("ci.yml");
-    const state = STATE(row);
     for (const hidden of [
       "Tidy-up only.\n<!--\nRule change: ci.yml · neutral · tidy\n-->",
       "Tidy-up only.\n```\nRule change: ci.yml · neutral · tidy\n```",
@@ -2963,9 +2937,8 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       expect(
         ruleChangeProblems(
           [".github/workflows/ci.yml"],
-          addedTo(state, row),
+          addedTo(record("ci.yml")),
           hidden,
-          state,
           PR,
         ),
       ).toEqual([
@@ -2975,15 +2948,63 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       ]);
   });
 
-  it("refuses a change that removes or rewrites an earlier record, so Rule changes only grows", () => {
+  it("refuses a change that removes or rewrites an earlier record, in docs/rule-changes/ or STATE.md, so the records only grow", () => {
     const old = record("biome.json", "5");
+    const older = record("AGENTS.md", "4");
     expect(
-      ruleChangeProblems(["STATE.md"], [], "", STATE(), PR, [
+      ruleChangeProblems(["STATE.md"], [], "", PR, [
         { file: "STATE.md", line: 11, text: old },
+        {
+          file: "docs/rule-changes/2026-10-01-agents.md",
+          line: 1,
+          text: older,
+        },
         { file: "STATE.md", line: 5, text: "- 2026-10-01 · an old decision" },
       ]),
     ).toEqual([
-      `STATE.md → Rule changes only grows: this change removes or rewrites the record "${old}"`,
+      `docs/rule-changes/ only grows: this change removes or rewrites the record "${old}"`,
+      `docs/rule-changes/ only grows: this change removes or rewrites the record "${older}"`,
+    ]);
+  });
+
+  it("lets a record move word for word from STATE.md into a file of its own, without counting it as this pull request's", () => {
+    const old = record("biome.json", "5");
+    const moved = [{ file: "STATE.md", line: 11, text: old }];
+    expect(
+      ruleChangeProblems(["STATE.md"], addedTo(old), "", PR, moved),
+    ).toEqual([]);
+    expect(
+      ruleChangeProblems(
+        ["biome.json"],
+        addedTo(record("biome.json", PR), old),
+        "Rule change: biome.json · tighter · x",
+        PR,
+        moved,
+      ),
+    ).toEqual([]);
+    expect(
+      ruleChangeProblems(
+        ["biome.json"],
+        addedTo(old),
+        "Rule change: biome.json · tighter · x",
+        PR,
+        moved,
+      ),
+    ).toEqual([
+      expect.stringContaining(
+        "docs/rule-changes/ gains no record of #7 naming biome.json",
+      ),
+    ]);
+    expect(
+      ruleChangeProblems(
+        ["STATE.md"],
+        addedTo(record("biome.json", "6")),
+        "",
+        PR,
+        moved,
+      ),
+    ).toEqual([
+      `docs/rule-changes/ only grows: this change removes or rewrites the record "${old}"`,
     ]);
   });
 
@@ -3107,13 +3128,13 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ].join("\n");
 
   /**
-   * A scratch repo whose main holds the gate, a Rule changes section, MAIN_ROADMAP (Slice 0, the current slice, has
-   * the item "x" and a finished item), a fix-when-touched table asking only about docs/runbooks/, and `files`, and a
-   * branch `feat` cut from it.
+   * A scratch repo whose main holds the gate, STATE.md, MAIN_ROADMAP (Slice 0, the current slice, has the item "x"
+   * and a finished item), a fix-when-touched table asking only about docs/runbooks/, and `files`, and a branch
+   * `feat` cut from it.
    */
   const project = (files: Record<string, string> = {}) => {
     const dir = repo();
-    write(dir, "STATE.md", STATE());
+    write(dir, "STATE.md", "# State\n");
     write(dir, "ROADMAP.md", MAIN_ROADMAP);
     write(
       dir,
@@ -3154,6 +3175,9 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
   };
   const explained = (rule: string) =>
     `Roadmap: Slice 0 — x\n\nRule change: ${rule} · looser · a reason\n`;
+  /** The branch records this pull request's change to `rule` in a file of its own in docs/rule-changes/. */
+  const recorded = (dir: string, rule: string) =>
+    write(dir, "docs/rule-changes/2026-10-02-sample.md", `${record(rule)}\n`);
 
   it("judges a branch with main's copy of the gate, so a branch that loosens its own copy is still refused", () => {
     const dir = project();
@@ -3166,8 +3190,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       ),
     );
     write(dir, "services/worker/src/a.ts", "// @ts-ignore\nconst a = 1;\n");
-    const row = record("scripts/done-gate/");
-    write(dir, "STATE.md", STATE(row));
+    recorded(dir, "scripts/done-gate/");
     // The branch's own copy, run in the branch, passes it:
     expect(
       sh(dir, ["bun", "scripts/done-gate.ts", "rules", "--base", "main"])
@@ -3193,9 +3216,9 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     expect(r.out).toContain(
       "the PR body explains no change to .github/workflows/ci.yml",
     );
-    expect(r.out).toContain("STATE.md → Rule changes gains no line for #7");
+    expect(r.out).toContain("docs/rule-changes/ gains no record of #7");
     sh(dir, ["git", "checkout", "-q", "feat"]);
-    write(dir, "STATE.md", STATE(record(".github/workflows/ci.yml")));
+    recorded(dir, ".github/workflows/ci.yml");
     expect(judged(dir, explained("ci.yml"))).toEqual({
       status: 0,
       out: 'Pull request ✓ its first line names what it is, nothing in the change in feat since main breaks the done rules, every rule change is explained and recorded, and every fix-when-touched entry it touches is answered\n⚠ changed what "done" means: .github/workflows/ci.yml\n',
@@ -3225,7 +3248,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       ".github/workflows/ci.yml",
       "jobs:\n  rules-from-main:\n    runs-on: y\n",
     );
-    write(dir, "STATE.md", STATE(record(".github/workflows/ci.yml")));
+    recorded(dir, ".github/workflows/ci.yml");
     const r = judged(dir, explained(".github/workflows/ci.yml"));
     expect(r.status).toBe(1);
     expect(r.out).toContain(

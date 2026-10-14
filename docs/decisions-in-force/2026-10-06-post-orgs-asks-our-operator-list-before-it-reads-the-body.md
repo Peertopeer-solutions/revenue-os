@@ -1,0 +1,1 @@
+- 2026-10-06 · **POST /orgs asks our operator list before it reads the body**, so a stranger gets the same 403 not_an_operator for a good body, a bad one or a taken slug, and learns nothing; an operator who creates a company becomes its admin, as the test server's first company needs.

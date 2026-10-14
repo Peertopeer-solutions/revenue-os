@@ -27,7 +27,7 @@ export const TEST =
 const CODE = /\.[cm]?[jt]sx?$/;
 
 // Rule files: the files that decide what "done" means and how agents work, at any letter case. This is the one
-// list; AGENTS.md hard rail 7, .github/CODEOWNERS and STATE.md cite it rather than repeating it, and the CODEOWNERS
+// list; AGENTS.md hard rail 7, .github/CODEOWNERS and docs/rule-changes/README.md cite it rather than repeating it, and the CODEOWNERS
 // test keeps the two equal. Changing one is allowed: Devesh is told at every stop and in CI's log, and its pull
 // request explains it and records it (rule-changes.ts). ROADMAP.md and STATE.md stay out, because every pull
 // request changes them. scripts/staging-migrations.ts is in: it decides whether the cloud test database waits for

@@ -1,0 +1,1 @@
+- 2026-10-06 · **The break check covers TypeScript only** (Devesh): SQL migration lines are not broken; the database's per-company policies stay covered by the database-policy check (tests/rls_coverage.sql) and the cross-company tests.

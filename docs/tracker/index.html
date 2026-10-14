@@ -4,9 +4,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
-/* Renders ROADMAP.md and STATE.md with parse.js (docs/tracker/parse.js), all three published next
-   to this page. The two .md files are the source of truth; this page only reads them. Republish
-   after they change on main. */
+/* Renders ROADMAP.md, STATE.md and records.md (the decisions and rule changes `bun run records` prints from
+   their folders) with parse.js (docs/tracker/parse.js), all published next to this page. The repository's files
+   are the source of truth; this page only reads them. Republish after they change on main. */
 :root{
   --ground:#EEF1F5; --surface:#FFFFFF; --surface-2:#F6F8FB; --ink:#16202E; --muted:#5B6678; --line:#D6DCE5; --line-soft:#E6EAF0;
   --accent:#3B5BDB; --accent-soft:#E3E9FB; --accent-ink:#FFFFFF;
@@ -172,13 +172,13 @@ details.fold ul.plain{margin-top:10px}
     <details class="fold"><summary id="rcsum">Show rule changes</summary><ul class="plain" id="rulechanges"></ul></details>
   </section>
 
-  <p class="foot">To change anything on this page, edit <code>ROADMAP.md</code> or <code>STATE.md</code> in a pull request. After it merges, republish this page with the new files (<code>ROADMAP.md</code>, <code>STATE.md</code>, <code>parse.js</code> and <code>published.txt</code>, which names main's commit and its date, published next to it). This page never holds its own data.</p>
+  <p class="foot">To change anything on this page, edit <code>ROADMAP.md</code> or <code>STATE.md</code>, or add a file to <code>docs/decisions-in-force/</code> or <code>docs/rule-changes/</code>, in a pull request. After it merges, republish this page with the new files (<code>ROADMAP.md</code>, <code>STATE.md</code>, <code>parse.js</code>, <code>records.md</code> from <code>bun run records</code> and <code>published.txt</code>, which names main's commit and its date, published next to it). This page never holds its own data.</p>
 </div>
 
 <script type="module">
 // The parsing and the current-slice rule live in parse.js, shared with the agent hooks (scripts/cycle.ts).
 // It is imported inside the try at the end, so a missing parse.js shows an error, not "Loading…".
-let currentSlice, nextItem, parseRoadmap, parseState, passedOk;
+let currentSlice, nextItem, parseRecords, parseRoadmap, parseState, passedOk;
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const inline = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
@@ -200,12 +200,12 @@ const STATUS = [
 ];
 
 const sCls = st => ({ "done":"s-done", "proof ready":"s-proof", "in progress":"s-progress" }[st] || "s-not");
-let filter = "All", R, S, published = "";
+let filter = "All", R, S, K, published = "";
 
 function render(){
   const current = currentSlice(R.slices), next = nextItem(current);
   document.getElementById("meta").innerHTML =
-    `<span class="pill phase">Phase: ${esc(S.phase)}</span><span>Published from ${published ? `main at ${esc(published)}` : "an unknown commit (publish published.txt with the page)"}</span><span>State updated ${esc(S.updated)}</span>` +
+    `<span class="pill phase">Phase: ${esc(S.phase)}</span><span>Published from ${published ? `main at ${esc(published)}` : "an unknown commit (publish published.txt with the page)"}</span>` +
     `<span>${R.slices.filter(s => s.Status === "done").length} of ${R.slices.length} slices done</span>`;
 
   if (current) {
@@ -258,10 +258,10 @@ function render(){
   }).join("") || `<tr><td colspan="4" class="muted">Nothing with this status.</td></tr>`;
 
   document.getElementById("waiting").innerHTML = S.waiting.map(w => `<li><span class="box" style="${w.done ? "background:var(--works);border-color:var(--works);color:var(--surface)" : ""}">${w.done ? "✓" : ""}</span><span>${inline(w.text)}</span></li>`).join("") || `<li class="muted">Nothing is waiting.</li>`;
-  document.getElementById("decsum").textContent = `Show ${S.decisions.length} decisions`;
-  document.getElementById("decisions").innerHTML = S.decisions.map(d => `<li><span class="muted">·</span><span>${inline(d)}</span></li>`).join("");
-  document.getElementById("rcsum").textContent = `Show ${S.ruleChanges.length} rule changes`;
-  document.getElementById("rulechanges").innerHTML = S.ruleChanges.map(d => `<li><span class="muted">·</span><span>${inline(d)}</span></li>`).join("");
+  document.getElementById("decsum").textContent = `Show ${K.decisions.length} decisions`;
+  document.getElementById("decisions").innerHTML = K.decisions.map(d => `<li><span class="muted">·</span><span>${inline(d)}</span></li>`).join("");
+  document.getElementById("rcsum").textContent = `Show ${K.ruleChanges.length} rule changes`;
+  document.getElementById("rulechanges").innerHTML = K.ruleChanges.map(d => `<li><span class="muted">·</span><span>${inline(d)}</span></li>`).join("");
 
   const problems = [...R.problems, ...S.problems], err = document.getElementById("error");
   err.hidden = !problems.length;
@@ -272,13 +272,13 @@ document.getElementById("filters").addEventListener("click", e => { const b = e.
 
 (async () => {
   try {
-    ({ currentSlice, nextItem, parseRoadmap, parseState, passedOk } = await import("./parse.js").catch(() => {
+    ({ currentSlice, nextItem, parseRecords, parseRoadmap, parseState, passedOk } = await import("./parse.js").catch(() => {
       throw new Error("Could not load parse.js. Publish it next to this page.");
     }));
-    const [roadmap, state, from] = await Promise.all([load("ROADMAP.md"), load("STATE.md"), load("published.txt").catch(() => "")]);
+    const [roadmap, state, records, from] = await Promise.all([load("ROADMAP.md"), load("STATE.md"), load("records.md"), load("published.txt").catch(() => "")]);
     // "<commit> <date>", written at publish time: `git log -1 --format='%h on %cs' origin/main`.
     published = from.trim().split("\n")[0];
-    R = parseRoadmap(roadmap); S = parseState(state); render();
+    R = parseRoadmap(roadmap); S = parseState(state); K = parseRecords(records); render();
   } catch (e) {
     document.getElementById("meta").textContent = "";
     const err = document.getElementById("error"); err.hidden = false; err.textContent = e.message;

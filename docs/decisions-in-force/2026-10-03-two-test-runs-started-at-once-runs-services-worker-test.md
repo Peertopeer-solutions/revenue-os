@@ -1,0 +1,1 @@
+- 2026-10-03 · **"Two test runs started at once" runs services/worker/test/test-runs-at-once.test.ts** (four whole-suite runs and a demo, started together) under the shared-stack lock, rather than a second copy of that test; the proof job's timeout is 120 minutes.

@@ -1,0 +1,1 @@
+- 2026-10-02 · **The dev-login tests take turns, and seed only workspaces of their own**: scripts/dev-login.test.ts and scripts/dev-login-reset.test.ts hold a Postgres advisory lock (tests/dev-login-lock.ts) while they run; `bun run db:seed <pack> [slug]` seeds the named workspace, and the dev-login test passes its own, never the dev login's.

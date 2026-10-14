@@ -1,7 +1,7 @@
 // `bun run cycle` — where we are in ROADMAP.md, printed so no agent has to remember it. The agent
 // hooks (.claude/settings.json and .codex/hooks.json, through scripts/cycle-hook.sh) show it to
 // every session, so the plan survives /clear, compaction and off-topic prompts.
-//   --check   (default) format problems in this checkout's ROADMAP.md and STATE.md; exit 1 if any
+//   --check   (default) format problems in this checkout's ROADMAP.md, STATE.md and record files; exit 1 if any
 //   --banner  session start, resume, /clear, compaction: fetch main, then the whole picture
 //   --pin     every prompt: one line
 // --banner and --pin read the plan from origin/main (a build branch ticks its own item before it
@@ -195,12 +195,16 @@ if (import.meta.main) {
   const flag = process.argv[2] ?? "--check";
   const local = (f: string) => readFileSync(join(ROOT, f), "utf8");
   if (flag === "--check") {
-    const found = problems(local("ROADMAP.md"), local("STATE.md"));
+    const found = [
+      ...problems(local("ROADMAP.md"), local("STATE.md")),
+      // Read only here: the hooks run --pin on every prompt, and need none of it.
+      ...(await import("./records")).records(ROOT).problems,
+    ];
     for (const p of found) console.error(p);
     console.log(
       found.length
-        ? `${found.length} format problem(s) in ROADMAP.md or STATE.md`
-        : "ROADMAP.md and STATE.md: no format problems",
+        ? `${found.length} format problem(s) in ROADMAP.md, STATE.md or the records`
+        : "ROADMAP.md, STATE.md and the records: no format problems",
     );
     process.exit(found.length ? 1 : 0);
   }

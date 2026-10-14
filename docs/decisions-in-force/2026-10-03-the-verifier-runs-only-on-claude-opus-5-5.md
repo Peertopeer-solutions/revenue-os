@@ -1,0 +1,1 @@
+- 2026-10-03 · **The verifier runs only on claude-opus-5-5**: the one model every real verifier transcript shows (15 runs, 2026-09-29 to 2026-10-02); .claude/agents/verifier.md names it by its full ID, so each reply in its transcript records exactly that; moving to a newer model is a deliberate change to ALLOWED_MODELS in scripts/done-gate/verifier.ts and to that frontmatter.

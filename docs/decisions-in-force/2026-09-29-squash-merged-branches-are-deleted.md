@@ -1,0 +1,1 @@
+- 2026-09-29 · **Squash-merged branches are deleted** (Devesh): a local branch whose PR merged on GitHub, and whose tip is exactly the head that PR merged, may be deleted with `git branch -D`; every other branch is deleted only with `git branch -d`. 32 branches were removed this way on 2026-09-29.

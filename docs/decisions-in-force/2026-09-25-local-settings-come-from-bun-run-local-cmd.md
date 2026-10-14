@@ -1,0 +1,1 @@
+- 2026-09-25 · **Local settings come from `bun run local <cmd>`** (read from the running local Supabase stack, never printed, never `.env` files); `bun run db:seed` creates the local dev login `dev@local.test`; fixed dev ports: console 5173, console preview 4173, marketing site 5174.

@@ -1,13 +1,15 @@
-// A pull request that changes a rule file says in its body which rule changed, which way and why, and adds the
-// same to STATE.md → Rule changes, which only grows (AGENTS.md hard rail 7).
+// A pull request that changes a rule file says in its body which rule changed, which way and why, and records the
+// same in a file of its own in docs/rule-changes/, so two pull requests never edit the same lines. The records only
+// grow (AGENTS.md hard rail 7); STATE.md → Rule changes keeps those written before the folder existed.
 
 import type { Added } from "./diff";
 import { RULE_FILES } from "./rules";
 
 const WAY = "tighter|looser|neutral|mixed";
 const SAID = new RegExp(`^Rule change: (.+?) · (?:${WAY}) · \\S`);
-// `- YYYY-MM-DD · [#N](link) · which rule · direction`, as the section's own first paragraph gives it.
-const RECORDED = new RegExp(
+export const RECORDS = "docs/rule-changes/";
+// `- YYYY-MM-DD · [#N](link) · which rule · direction`, as docs/rule-changes/README.md gives it.
+export const RECORDED = new RegExp(
   `^- \\d{4}-\\d{2}-\\d{2} · \\[#(\\d+)\\]\\(https://github\\.com/[\\w.-]+/[\\w.-]+/pull/\\1\\) · (.+) · (?:${WAY})\\b`,
 );
 const HOW = `\`Rule change: <rule> · tighter | looser | neutral | mixed · <why>\`, where <rule> names the file by its path, its file name or the folder it sits in (such as scripts/done-gate/)`;
@@ -35,25 +37,34 @@ export const shown = (body: string) =>
     .replace(/<!--[\s\S]*?(?:-->|$)/g, "")
     .replace(/^ {0,3}(```|~~~)[\s\S]*?(?:^ {0,3}\1|(?![\s\S]))/gm, "");
 
+/** A record file: any file in docs/rule-changes/ but its README. */
+const isRecord = (a: Added) =>
+  a.file.startsWith(RECORDS) && a.file !== `${RECORDS}README.md`;
+
 /**
- * PURE: the change's files, added and removed lines, the PR body, STATE.md as the change leaves it, and the PR's
- * number when known → what is missing for each changed rule file (a line in the body, as GitHub shows it, saying
- * how it changed and why, and a line the change adds to STATE.md → Rule changes for this PR), and any record of an
- * earlier rule change the change removes or rewrites.
+ * PURE: the change's files, added and removed lines, the PR body and the PR's number when known → what is missing
+ * for each changed rule file (a line in the body, as GitHub shows it, saying how it changed and why, and a record
+ * file the change adds in docs/rule-changes/ for this PR), and any earlier record (there or in STATE.md → Rule
+ * changes) the change removes or rewrites; a record moved word for word into docs/rule-changes/ is kept.
  */
 export function ruleChangeProblems(
   files: string[],
   added: Added[],
   body: string,
-  state: string,
   pr?: string,
   removed: Added[] = [],
 ): string[] {
+  const kept = new Set(added.filter(isRecord).map((a) => a.text));
   const problems = removed
-    .filter((r) => r.file === "STATE.md" && RECORDED.test(r.text))
+    .filter(
+      (r) =>
+        (r.file === "STATE.md" || isRecord(r)) &&
+        RECORDED.test(r.text) &&
+        !kept.has(r.text),
+    )
     .map(
       (r) =>
-        `STATE.md → Rule changes only grows: this change removes or rewrites the record "${r.text}"`,
+        `${RECORDS} only grows: this change removes or rewrites the record "${r.text}"`,
     );
   const changed = files.filter((f) => RULE_FILES.test(f));
   if (!changed.length) return problems;
@@ -64,27 +75,22 @@ export function ruleChangeProblems(
     if (!SAID.test(l))
       problems.push(`the PR body's line "${l}" is not written as ${HOW}`);
   const rules = said.map((l) => l.match(SAID)?.[1] ?? "");
-  const lines = state.split("\n");
-  const from = lines.indexOf("## Rule changes") + 1; // its line number; 0 when the heading is missing
-  const to = lines.findIndex((l, i) => i >= from && /^## /.test(l));
+  const moved = new Set(
+    removed
+      .filter((r) => r.file === "STATE.md" || isRecord(r))
+      .map((r) => r.text),
+  );
   const records = added
-    .filter(
-      (a) =>
-        from &&
-        a.file === "STATE.md" &&
-        a.line > from &&
-        (to < 0 || a.line <= to) &&
-        a.text.startsWith("- "),
-    )
+    .filter((a) => isRecord(a) && a.text.trim() && !moved.has(a.text))
     .map((a) => ({ text: a.text, m: a.text.match(RECORDED) }));
   for (const { text, m } of records)
     if (!m)
       problems.push(
-        `STATE.md → Rule changes: "${text}" is not \`- YYYY-MM-DD · [#N](link) · <rule> · tighter | looser | neutral | mixed\``,
+        `${RECORDS}: "${text}" is not \`- YYYY-MM-DD · [#N](link) · <rule> · tighter | looser | neutral | mixed\``,
       );
     else if (pr && m[1] !== pr)
       problems.push(
-        `STATE.md → Rule changes: "${text}" names #${m[1]}, not this pull request (#${pr})`,
+        `${RECORDS}: "${text}" names #${m[1]}, not this pull request (#${pr})`,
       );
   const mine = records.flatMap(({ m }) =>
     m && (!pr || m[1] === pr) ? [m[2] ?? ""] : [],
@@ -97,7 +103,7 @@ export function ruleChangeProblems(
   const unrecorded = changed.filter((f) => !mine.some((r) => names(r, f)));
   if (unrecorded.length)
     problems.push(
-      `STATE.md → Rule changes gains no line${pr ? ` for #${pr}` : ""} naming ${unrecorded.join(", ")}: add one per changed rule, \`- YYYY-MM-DD · [#N](link) · <rule> · <direction>\`, naming each file as the PR body does`,
+      `${RECORDS} gains no record${pr ? ` of #${pr}` : ""} naming ${unrecorded.join(", ")}: add a file per changed rule, ${RECORDS}YYYY-MM-DD-<what>.md, holding the one line \`- YYYY-MM-DD · [#N](link) · <rule> · <direction>\` and naming each file as the PR body does`,
     );
   return problems;
 }

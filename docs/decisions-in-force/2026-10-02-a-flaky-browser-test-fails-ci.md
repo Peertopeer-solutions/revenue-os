@@ -1,0 +1,1 @@
+- 2026-10-02 · **A flaky browser test fails CI**: apps/console/playwright.config.ts keeps two retries in CI (so a flake's trace is captured) and sets `failOnFlakyTests` when CI is set, so a test that passes only on a retry fails the run, in CI and in the gate's browser checks.

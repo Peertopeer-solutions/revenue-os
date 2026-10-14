@@ -1,0 +1,1 @@
+- 2026-09-29 · **The window's brand plate shows the mark's voice arcs in the band above the window**, not centred low on the plate as first drawn: there the window covered them at every screen width. The window's camera reads each element's place from its layout, not its box on screen, so a card still sliding in is framed where it will land.

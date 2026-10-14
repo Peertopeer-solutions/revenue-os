@@ -1,0 +1,1 @@
+- 2026-09-25 · **Server addresses never go in the repo**: scripts read `VPS_HOST`; the address lives in the password manager.
