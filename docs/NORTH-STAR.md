@@ -90,17 +90,12 @@ here, rather than leaving it in a chat, when Devesh and an agent agree an idea c
 - **The worker's last error before it exits reaches its log.** When the job runner fails to start, the worker logs
   why and exits at once, and the log line is lost (pino writes it after the process has gone): on 2026-10-13 CI
   showed only "exit code 1" until a test printed "password authentication failed".
-- **PRs stop editing the same lines of STATE.md.** Most merge conflicts between PRs are in STATE.md's "Updated"
-  line and its lists; a file per record, joined when the tracker is built, would let PRs that change different
-  things land without a conflict for the merge queue to throw out.
 - **The four-runs-at-once test's inner runs leave out the gate's, the proof's and the cycle's own tests**, which
   touch no company data and are most of each run (about 7.5 of CI's minutes), while Slice 0's proof keeps the full
   version; only if it still catches every collision it catches today.
 - **One shared-database lock for every copy of the repo on the Mac.** A second copy (~/firstmate/projects/revenue-os)
   uses the same local database without the gate's lock; one fixed lock path deadlocks the gate's own tests, which
   take locks on scratch repos, so it needs a design first.
-- **Bun 1.4.3 or later**, whose spawn fix (oven-sh/bun#44581) ends the empty answers the gate now asks again for;
-  the gate keeps asking again after the upgrade.
 - **The limit of three open task PRs, looked at again** now that the merge queue lands PRs with no agent work:
   Devesh's call.
 
