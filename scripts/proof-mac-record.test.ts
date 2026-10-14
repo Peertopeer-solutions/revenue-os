@@ -1,6 +1,7 @@
 // The record of Slice 0's two AI steps run on Devesh's Mac (scripts/done-gate/mac-record.ts): which files it
-// fingerprints, how it is judged against a commit's files, and what `bun run cycle --banner` says when it does not
-// hold. GitHub's proof steps that read it, and the Mac command that writes it: scripts/proof-slice-0.test.ts.
+// fingerprints, how it is judged against a commit's files, and the line `bun run cycle --banner` shows when it does not
+// hold (its reading of main: scripts/cycle-ai-steps.test.ts). GitHub's proof steps that read it:
+// scripts/proof-slice-0-record.test.ts; the Mac command that writes it: scripts/proof-on-mac.test.ts.
 import { afterAll, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

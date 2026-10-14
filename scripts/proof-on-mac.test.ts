@@ -2,7 +2,7 @@
 // login. It refuses without one, and with one runs both steps and writes their record, transcripts and report into
 // docs/proof/slice-0-ai/, which GitHub's steps then pass on once committed. A stand-in `claude` answers, never a model.
 import { afterAll, describe, expect, it, setDefaultTimeout } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { currentSlice, nextItem, parseRoadmap } from "../docs/tracker/parse.js";
 import {
@@ -114,5 +114,59 @@ describe("bun run proof 0 --on-my-mac", () => {
     expect(
       failures(await prove([agentSessionRecord, crossCompanyRecord], copy)),
     ).toEqual([]);
+  });
+
+  it("run again, keeps only the new run: its record's outcomes and its files, nothing left from the run before", async () => {
+    const cur = currentSlice(
+      parseRoadmap(git(HERE(), "show", "HEAD:ROADMAP.md")).slices,
+    );
+    /** The Mac command in `copy`, the verifier ruling `ruling`. */
+    const run = (copy: string, ruling: string) =>
+      proveOnMac({
+        root: copy,
+        env: {
+          PATH: process.env.PATH,
+          HOME: process.env.HOME,
+          ...standIn([
+            { when: "word for word", say: `I ran its test.\n${ruling}` },
+            {
+              when: "/ready",
+              say: "It checks the READY_TOKEN bearer token, then that the worker reaches its database and its job queue (pg-boss), each within 2 seconds.",
+            },
+            { when: "dark mode", say: "off-roadmap PR, or replan?" },
+            {
+              say: `We are on Slice ${cur?.n}, item: ${nextItem(cur)?.text.split(/:\s/)[0] ?? ""}.`,
+            },
+          ]).env,
+          CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
+        },
+        state: STATE,
+        dir: scratch("proof-0-mac-"),
+      });
+    const outcomes = (copy: string) =>
+      JSON.parse(
+        readFileSync(join(copy, "docs/proof/slice-0-ai/record.json"), "utf8"),
+      ).steps.map((s: { outcome: string }) => s.outcome);
+    const copy = copyOf(() => {});
+    const first = await run(copy, "Ruling: PASS — the count is right");
+    expect(first.code).toBe(1);
+    expect(first.text).toContain("Not every AI step passed");
+    expect(outcomes(copy)).toEqual(["passed", "failed"]);
+    writeFileSync(join(copy, RECORD_DIR, "left-over.txt"), "from before\n");
+    const second = await run(
+      copy,
+      "Ruling: FAIL — no test asks for another company's open tasks",
+    );
+    expect(second.code).toBe(0);
+    expect(outcomes(copy)).toEqual(["passed", "passed"]);
+    expect(readdirSync(join(copy, RECORD_DIR)).sort()).toEqual([
+      "agent-session.txt",
+      "record.json",
+      "report.md",
+      "verifier.txt",
+    ]);
+    expect(
+      readFileSync(join(copy, RECORD_DIR, "verifier.txt"), "utf8"),
+    ).not.toContain("Ruling: PASS");
   });
 });
