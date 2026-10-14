@@ -2,7 +2,8 @@
 // run by Devesh in his own terminal with his own Claude login: the token `claude setup-token` makes, which he puts in
 // that terminal as CLAUDE_CODE_OAUTH_TOKEN, so no agent ever sees it. The steps run as GitHub ran them before, on
 // the checkout's commit, with the local stack up (the verifier runs the gate). It writes docs/proof/slice-0-ai/: the
-// record (scripts/done-gate/mac-record.ts), each step's transcript and the report, for a pull request to commit.
+// record and its list of tested files (scripts/done-gate/mac-record.ts), each step's transcript and the report, for a
+// pull request to commit.
 
 import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -12,18 +13,20 @@ import {
   AI_STEPS,
   fingerprints,
   type MacRecord,
-  RECORD,
   RECORD_DIR,
+  recordFiles,
 } from "../done-gate/mac-record";
 import { reportText } from "./report";
 import { overall, runSteps } from "./run";
 import { onMac } from "./slice-0-agents";
 
-export const NO_TOKEN = `The AI steps run with your own Claude login, and this terminal has none. In this terminal:
-  1. claude setup-token   (sign in; it prints a token)
-  2. export CLAUDE_CODE_OAUTH_TOKEN=<that token>
-  3. bun run proof 0 --on-my-mac
-Keep the token to yourself: never paste it into a chat with an agent.`;
+export const NO_TOKEN = `The AI steps run with your own Claude login, and this shell has none. Run them in the macOS Terminal
+app (Command-Space, "Terminal"), never in a Claude chat or its terminal panel, where an agent could read the token:
+  1. cd to this checkout
+  2. claude setup-token   (sign in; it prints a token)
+  3. export CLAUDE_CODE_OAUTH_TOKEN=<that token>
+  4. bun run proof 0 --on-my-mac
+Keep the token to yourself: never paste it into a chat with an agent, and never run these with "!" in one.`;
 
 /** Runs the two steps, writes the record, transcripts and report into `root`'s docs/proof/slice-0-ai/. */
 export async function proveOnMac(o: {
@@ -61,7 +64,8 @@ export async function proveOnMac(o: {
     })),
     files,
   };
-  writeFileSync(join(o.root, RECORD), `${JSON.stringify(record, null, 2)}\n`);
+  for (const [path, text] of Object.entries(recordFiles(record)))
+    writeFileSync(join(o.root, path), text);
   const report = reportText(0, results, { commit, date });
   writeFileSync(join(out, "report.md"), report);
   const passed = overall(results) === "passed";

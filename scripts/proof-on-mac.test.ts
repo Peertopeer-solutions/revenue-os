@@ -22,7 +22,12 @@ import {
   scratch,
   standIn,
 } from "../tests/proof-stand-ins";
-import { AI_STEPS, fingerprints, RECORD_DIR } from "./done-gate/mac-record";
+import {
+  AI_STEPS,
+  fingerprints,
+  fromList,
+  RECORD_DIR,
+} from "./done-gate/mac-record";
 import { NO_TOKEN, proveOnMac } from "./proof/on-mac";
 import { agentSessionRecord, crossCompanyRecord } from "./proof/slice-0-agents";
 
@@ -91,8 +96,13 @@ describe("bun run proof 0 --on-my-mac", () => {
         s.outcome,
       ]),
     ).toEqual(AI_STEPS.map((name) => [name, "passed"]));
-    expect(record.files).toEqual(fingerprints(copy, "HEAD"));
-    expect(Object.keys(record.files)).toEqual(
+    const files = fromList(
+      readFileSync(join(copy, "docs/proof/slice-0-ai/files.txt"), "utf8"),
+    );
+    expect(files).toEqual(fingerprints(copy, "HEAD"));
+    // no fingerprint sits in the JSON, where the secret scan would read a file name and its id as a key
+    expect(record.files).toBeUndefined();
+    expect(Object.keys(files)).toEqual(
       expect.arrayContaining([
         "AGENTS.md",
         "CLAUDE.md",
@@ -170,6 +180,7 @@ describe("bun run proof 0 --on-my-mac", () => {
     expect(outcomes(copy)).toEqual(["passed", "passed"]);
     expect(readdirSync(join(copy, RECORD_DIR)).sort()).toEqual([
       "agent-session.txt",
+      "files.txt",
       "record.json",
       "report.md",
       "verifier.txt",

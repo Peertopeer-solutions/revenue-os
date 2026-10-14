@@ -11,11 +11,14 @@ import {
   AGAIN,
   AI_STEPS,
   bannerLine,
+  FILES as FILES_LIST,
   fingerprints,
+  fromList,
   judged,
   MAC_COMMAND,
   RECORD,
   RECORD_PR,
+  recordFiles,
 } from "./done-gate/mac-record";
 
 const ROOT = join(import.meta.dir, "..");
@@ -192,5 +195,32 @@ describe("what `bun run cycle --banner` says about main's record", () => {
     expect(bannerLine({ outcome: "failed", seen: "x" })).toContain(
       "FAILED on Devesh's Mac",
     );
+  });
+});
+
+describe("the record's two files, as a run writes them", () => {
+  // behaviour already on main: it tests scripts/done-gate/mac-record.ts, the gate's own code, which main's copy carries over (it is not product code), so it passes there
+  it("keep each fingerprint out of the JSON, on a line of its own after its id, and read back the same", () => {
+    const files = {
+      "scripts/done-gate/secrets.ts":
+        "4f9c2a7d1e0b3c5a6f8e9d2b1a0c3e5f7a9b8c6d",
+      "AGENTS.md": "0123456789abcdef0123456789abcdef01234567",
+    };
+    const written = recordFiles({
+      commit: "c".repeat(40),
+      date: "2026-10-14",
+      claude: "2.1.299",
+      steps: [],
+      files,
+    });
+    expect(Object.keys(written)).toEqual([RECORD, FILES_LIST]);
+    const json = written[RECORD] ?? "";
+    for (const id of Object.values(files)) expect(json).not.toContain(id);
+    expect(JSON.parse(json).files).toBeUndefined();
+    expect(written[FILES_LIST]).toBe(
+      "0123456789abcdef0123456789abcdef01234567  AGENTS.md\n4f9c2a7d1e0b3c5a6f8e9d2b1a0c3e5f7a9b8c6d  scripts/done-gate/secrets.ts\n",
+    );
+    expect(fromList(written[FILES_LIST] ?? "")).toEqual(files);
+    expect(fromList("not a line\n\nzz  x\n")).toEqual({});
   });
 });

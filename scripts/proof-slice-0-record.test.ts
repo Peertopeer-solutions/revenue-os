@@ -19,6 +19,7 @@ import {
   MAC_COMMAND,
   RECORD,
   RECORD_DIR,
+  recordFiles,
 } from "./done-gate/mac-record";
 import { agentSessionRecord, crossCompanyRecord } from "./proof/slice-0-agents";
 
@@ -34,21 +35,20 @@ describe("Slice 0's AI steps on GitHub: the record Devesh's Mac run committed", 
     copyOf((dir) => {
       rmSync(join(dir, RECORD_DIR), { recursive: true, force: true });
       mkdirSync(join(dir, RECORD_DIR), { recursive: true });
-      writeFileSync(
-        join(dir, RECORD),
-        JSON.stringify({
-          commit: git(dir, "rev-parse", "HEAD"),
-          date: "2026-10-14",
-          claude: "2.1.299",
-          steps: AI_STEPS.map((name) => ({
-            name,
-            outcome: outcomes[name] ?? "passed",
-            seen: `${name} seen on the Mac`,
-          })),
-          files: fingerprints(dir, "HEAD"),
-        }),
-      );
-      git(dir, "add", RECORD);
+      const written = recordFiles({
+        commit: git(dir, "rev-parse", "HEAD"),
+        date: "2026-10-14",
+        claude: "2.1.299",
+        steps: AI_STEPS.map((name) => ({
+          name,
+          outcome: (outcomes[name] ?? "passed") as "passed" | "failed",
+          seen: `${name} seen on the Mac`,
+        })),
+        files: fingerprints(dir, "HEAD"),
+      });
+      for (const [path, text] of Object.entries(written))
+        writeFileSync(join(dir, path), text);
+      git(dir, "add", RECORD_DIR);
       edit(dir);
     }, "a record of a Mac run");
   const both = [agentSessionRecord, crossCompanyRecord];

@@ -6,20 +6,29 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { aiStepsOnMain, banner } from "./cycle";
-import { AI_STEPS, fingerprints, RECORD } from "./done-gate/mac-record";
+import {
+  AI_STEPS,
+  fingerprints,
+  type MacRecord,
+  RECORD,
+  recordFiles,
+} from "./done-gate/mac-record";
 
 const dirs: string[] = [];
 afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true });
 });
-const record = (files: { [path: string]: string }) =>
-  JSON.stringify({
-    commit: "c".repeat(40),
-    date: "2026-10-14",
-    claude: "2.1.299",
-    steps: AI_STEPS.map((name) => ({ name, outcome: "passed", seen: "ok" })),
-    files,
-  });
+const record = (files: { [path: string]: string }): MacRecord => ({
+  commit: "c".repeat(40),
+  date: "2026-10-14",
+  claude: "2.1.299",
+  steps: AI_STEPS.map((name) => ({
+    name,
+    outcome: "passed" as const,
+    seen: "ok",
+  })),
+  files,
+});
 
 describe("what `bun run cycle --banner` says about main's record", () => {
   it("reads main's record and files from git, and the banner shows the line", () => {
@@ -49,7 +58,10 @@ describe("what `bun run cycle --banner` says about main's record", () => {
       }),
     ).toContain(line as string);
     mkdirSync(join(dir, "docs/proof/slice-0-ai"), { recursive: true });
-    writeFileSync(join(dir, RECORD), record(fingerprints(dir, "HEAD")));
+    for (const [path, text] of Object.entries(
+      recordFiles(record(fingerprints(dir, "HEAD"))),
+    ))
+      writeFileSync(join(dir, path), text);
     git("add", "-A");
     git("commit", "-qm", "the record");
     expect(aiStepsOnMain(dir, "HEAD")).toBeUndefined();

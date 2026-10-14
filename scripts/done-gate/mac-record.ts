@@ -12,6 +12,7 @@ import type { Outcome } from "./proof-run";
 export const AI_SLICE = 0;
 export const RECORD_DIR = "docs/proof/slice-0-ai";
 export const RECORD = `${RECORD_DIR}/record.json`;
+export const FILES = `${RECORD_DIR}/files.txt`;
 /** The two steps, by the names the record and their transcripts use. */
 export const AI_STEPS = ["agent-session", "verifier"] as const;
 export type AiStep = (typeof AI_STEPS)[number];
@@ -162,14 +163,46 @@ export function judged(
   };
 }
 
+/**
+ * The record's two files, as a run writes them: record.json (the commit, the date, Claude Code's version, each
+ * step's result) and files.txt, each tested file's id and path on a line of its own (as `sha256sum` writes them).
+ * The fingerprints stay out of the JSON: there a file name holding "secret" or "token" beside a 40-letter id reads to
+ * the secret scan as a key, which a plain line of id then path never does.
+ */
+export function recordFiles({ files, ...rest }: MacRecord) {
+  const lines = Object.entries(files)
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([path, id]) => `${id}  ${path}\n`);
+  return {
+    [RECORD]: `${JSON.stringify(rest, null, 2)}\n`,
+    [FILES]: lines.join(""),
+  };
+}
+
+/** PURE: files.txt's lines → each path and its id. */
+export const fromList = (text: string) =>
+  Object.fromEntries(
+    text.split("\n").flatMap((l) => {
+      const m = l.match(/^([0-9a-f]{40,64}) {2}(.+)$/);
+      return m?.[1] && m[2] ? [[m[2], m[1]]] : [];
+    }),
+  );
+
 /** What `rev`'s committed record says about its own files (for `step`, or both steps). */
 export function judgedAt(root: string, rev: string, step?: AiStep) {
-  const shown = gitAnswer(root, ["show", `${rev}:${RECORD}`]);
-  return judged(
-    shown.status === 0 ? shown.stdout : undefined,
-    fingerprints(root, rev),
-    step,
-  );
+  const show = (path: string) => {
+    const r = gitAnswer(root, ["show", `${rev}:${path}`]);
+    return r.status === 0 ? r.stdout : undefined;
+  };
+  let record = show(RECORD);
+  try {
+    if (record !== undefined)
+      record = JSON.stringify({
+        ...JSON.parse(record),
+        files: fromList(show(FILES) ?? ""),
+      });
+  } catch {} // not JSON: judged says so
+  return judged(record, fingerprints(root, rev), step);
 }
 
 /** The first line of the pull request that commits a run's record: off-roadmap work, as it builds nothing. */

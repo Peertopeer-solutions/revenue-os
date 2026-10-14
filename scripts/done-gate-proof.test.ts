@@ -22,6 +22,7 @@ import {
   fingerprints,
   RECORD,
   RECORD_DIR,
+  recordFiles,
 } from "./done-gate/mac-record";
 import { proofLinkProblems } from "./done-gate/proof-link";
 import { reportHeading, sliceOutcome } from "./done-gate/proof-run";
@@ -314,20 +315,19 @@ describe("bun run gate pr: main's copy judges a pull request that sets a slice t
     if (record) {
       // Devesh's Mac run of Slice 0's AI steps, passed on main's files as they are
       mkdirSync(join(dir, RECORD_DIR), { recursive: true });
-      writeFileSync(
-        join(dir, RECORD),
-        JSON.stringify({
-          commit: sh(dir, ["git", "rev-parse", "HEAD"]).stdout.trim(),
-          date: "2026-10-14",
-          claude: "2.1.299",
-          steps: AI_STEPS.map((name) => ({
-            name,
-            outcome: "passed",
-            seen: "ok",
-          })),
-          files: fingerprints(dir, "HEAD"),
-        }),
-      );
+      const written = recordFiles({
+        commit: sh(dir, ["git", "rev-parse", "HEAD"]).stdout.trim(),
+        date: "2026-10-14",
+        claude: "2.1.299",
+        steps: AI_STEPS.map((name) => ({
+          name,
+          outcome: "passed",
+          seen: "ok",
+        })),
+        files: fingerprints(dir, "HEAD"),
+      });
+      for (const [path, text] of Object.entries(written))
+        writeFileSync(join(dir, path), text);
       commit(dir);
     }
     const main = sh(dir, ["git", "rev-parse", "HEAD"]).stdout.trim();
