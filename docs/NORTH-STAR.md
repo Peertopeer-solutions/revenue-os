@@ -77,6 +77,28 @@ Autonomous lead discovery and list building, an A/B testing engine, an analytics
 knowledge-base search (needs an AI text-search service we have not chosen yet), a lead-scoring
 model, CRM sync, SSO, billing automation. Each can come back only as a roadmap slice with a proof.
 
+## Later
+
+Engineering ideas worth doing once the product ships, kept here so they are not lost in a chat. Each line says
+what it would fix. None is planned: each comes back only as a roadmap item with a proof, and an agent adds a line
+here, rather than leaving it in a chat, when Devesh and an agent agree an idea can wait.
+
+- **Each test run gets its own database, or its own local stack.** Today every run shares one database and a
+  test that touches another run's data is only caught afterwards, by the four-runs-at-once test; with its own
+  database a run cannot touch another's at all, and that test could shrink or go. Sign-in and the data interface
+  serve only the stack's one database, so the tests that use them need their own stack, on its own ports.
+- **The worker's last error before it exits reaches its log.** When the job runner fails to start, the worker logs
+  why and exits at once, and the log line is lost (pino writes it after the process has gone): on 2026-10-13 CI
+  showed only "exit code 1" until a test printed "password authentication failed".
+- **The four-runs-at-once test's inner runs leave out the gate's, the proof's and the cycle's own tests**, which
+  touch no company data and are most of each run (about 7.5 of CI's minutes), while Slice 0's proof keeps the full
+  version; only if it still catches every collision it catches today.
+- **One shared-database lock for every copy of the repo on the Mac.** A second copy (~/firstmate/projects/revenue-os)
+  uses the same local database without the gate's lock; one fixed lock path deadlocks the gate's own tests, which
+  take locks on scratch repos, so it needs a design first.
+- **The limit of three open task PRs, looked at again** now that the merge queue lands PRs with no agent work:
+  Devesh's call.
+
 ## Where things live
 
 | Question | File |
