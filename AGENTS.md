@@ -276,7 +276,7 @@ settings) · `bun run dev` · `bun run db:reset`
 - Money is numeric + currency; phone numbers are normalised to E.164 before insert.
 - Dependencies are exact-pinned, and so are the Bun engine, GitHub Actions (by commit SHA), the
   Supabase CLI and the Docker base image; upgrades are deliberate PRs. A new dependency needs a
-  one-line justification in the PR and a `STATE.md` decision line. Prefer the platform (`fetch`,
+  one-line justification in the PR and a decision file in `docs/decisions-in-force/`. Prefer the platform (`fetch`,
   `crypto`, `Intl`) over packages.
 - Write ownership: the worker writes runs, conversations, messages, memories, usage and
   scores; the console writes task status, dispositions, config and drafts.

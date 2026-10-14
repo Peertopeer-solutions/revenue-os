@@ -47,8 +47,9 @@ const SHAPE =
  * PURE: the change's files, added and removed lines, the PR body, STATE.md as the change leaves it, and the PR's
  * number when known → what is missing for each changed rule file (a line in the body, as GitHub shows it, saying how
  * it changed and why, and a record file the change adds in docs/rule-changes/ for this PR); any earlier record
- * (there or in STATE.md → Rule changes) the change removes or rewrites, a record moved word for word into
- * docs/rule-changes/ aside; and any record it adds, in either place, that is badly written or names another PR.
+ * (there or in STATE.md → Rule changes) the change removes or rewrites, unless a record file holds it word for word
+ * (one the change adds, or `filed`: the record lines docs/rule-changes/ holds as the change leaves it); and any
+ * record it adds, in either place, that is badly written or names another PR.
  */
 export function ruleChangeProblems(
   files: string[],
@@ -57,8 +58,12 @@ export function ruleChangeProblems(
   state: string,
   pr?: string,
   removed: Added[] = [],
+  filed: string[] = [],
 ): string[] {
-  const kept = new Set(added.filter(isRecord).map((a) => a.text));
+  const kept = new Set([
+    ...added.filter(isRecord).map((a) => a.text),
+    ...filed,
+  ]);
   const problems = removed
     .filter(
       (r) =>

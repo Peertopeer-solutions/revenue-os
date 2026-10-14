@@ -3314,6 +3314,42 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       expect(r.status).toBe(1);
     });
 
+    // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts removing any STATE.md record is refused and it fails
+    it("lets a STATE.md record go once a record file on main already holds it word for word", () => {
+      const dir = project({
+        "STATE.md": STATE_ON_MAIN,
+        [OLD]: `${old}\n`,
+        "docs/rule-changes/2026-10-01-agents.md": `${older}\n`,
+      });
+      write(dir, "STATE.md", "# State\n\n## Rule changes\n\n");
+      expect(judged(dir, PLAIN)).toEqual({
+        status: 0,
+        out: expect.stringContaining("Pull request ✓"),
+      });
+    });
+
+    // behaviour already on main: main's copy carries scripts/done-gate/record-files.ts over (gate code is not product code), so it passes there; main's own copy has no such check and lets the line through, so it fails
+    it("refuses a decision line added to STATE.md → Decisions in force: a decision is a file of its own", () => {
+      const pointer =
+        "# State\n\n## Decisions in force\n\nOne file per decision, in docs/decisions-in-force/.\n\n## Rule changes\n\n";
+      const dir = project({ "STATE.md": pointer });
+      const line =
+        "- 2026-10-14 · **A new decision** (Devesh): written the old way.";
+      write(
+        dir,
+        "STATE.md",
+        pointer.replace(
+          "docs/decisions-in-force/.\n",
+          `docs/decisions-in-force/.\n${line}\n`,
+        ),
+      );
+      const r = judged(dir, PLAIN);
+      expect(r.out).toContain(
+        `STATE.md → Decisions in force: "${line}" is a decision line; write it as a file of its own in docs/decisions-in-force/`,
+      );
+      expect(r.status).toBe(1);
+    });
+
     // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
     it("refuses a record file badly named, or a decision file holding two lines, so `bun run records` can't break on main", () => {
       const dir = onMain();

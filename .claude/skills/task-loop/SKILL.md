@@ -73,7 +73,7 @@ verifier's checks and replaces none; your answers are for you, never evidence yo
    empty or missing input, a value too long (PRs 154, 157, 159).
 4. **Each new or edited test fails on main for its stated reason**, not for another one: run it on main's
    code and read why it fails (PRs 148, 160).
-5. **A decision line covers this change only.** Its headline claims no more than the code does, and it
+5. **A decision file covers this change only.** Its headline claims no more than the code does, and it
    loosens no rule from outside the rule files (PRs 147, 157).
 6. **The PR is open, and the item's ROADMAP.md and STATE.md lines are written, before the `bun run gate` and
    verifier run whose results the merge uses** (step 7), so both rule on the final code. Claim no ruling or

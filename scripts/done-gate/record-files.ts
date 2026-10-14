@@ -48,3 +48,30 @@ export const recordFileProblems = (
     const r = readRecord(f, text);
     return "problem" in r ? [r.problem] : [];
   });
+
+/**
+ * PURE: the lines a change adds and STATE.md as it leaves it → a decision line added to STATE.md → Decisions in
+ * force, which now only points at docs/decisions-in-force/: a decision written there is shared lines again, and
+ * neither `bun run records` nor the tracker page would show it.
+ */
+export function stateDecisionProblems(
+  added: { file: string; line: number; text: string }[],
+  state: string,
+) {
+  const lines = state.split("\n");
+  const from = lines.indexOf("## Decisions in force") + 1; // its line number; 0 when the heading is missing
+  const to = lines.findIndex((l, i) => i >= from && /^## /.test(l));
+  return added
+    .filter(
+      (a) =>
+        from > 0 &&
+        a.file === "STATE.md" &&
+        a.line > from &&
+        (to < 0 || a.line <= to) &&
+        a.text.startsWith("- "),
+    )
+    .map(
+      (a) =>
+        `STATE.md → Decisions in force: "${a.text}" is a decision line; write it as a file of its own in ${DECISIONS} (its README says how)`,
+    );
+}

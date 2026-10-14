@@ -16,9 +16,9 @@ import { unquotedMarks } from "./pr-coverage-marks";
 import { firstLineProblems } from "./pr-first-line";
 import { quoteProblems } from "./pr-quotes";
 import { proofLinks } from "./proof-link";
-import { recordFileProblems } from "./record-files";
+import { recordFileProblems, stateDecisionProblems } from "./record-files";
 import { entriesOf } from "./removed-tests";
-import { ruleChangeProblems, shown } from "./rule-changes";
+import { RECORDS, ruleChangeProblems, shown } from "./rule-changes";
 import { rulesOn } from "./rules";
 import type { Snap } from "./snapshot";
 
@@ -112,6 +112,20 @@ export async function judgePr(
       {},
       true,
     ).trim() === file;
+  // The record lines docs/rule-changes/ holds as the change leaves it, read only when it removes a STATE.md line: a
+  // STATE.md record a file already holds word for word may go.
+  const filed = () =>
+    snap.removed.some((r) => r.file === "STATE.md")
+      ? git(
+          snap.repo,
+          ["ls-tree", "-z", "--name-only", snap.tree, "--", RECORDS],
+          {},
+          true,
+        )
+          .split("\0")
+          .filter(Boolean)
+          .map((f) => at(snap, f).trim())
+      : [];
   const workflows = Object.fromEntries(
     git(
       snap.repo,
@@ -139,10 +153,12 @@ export async function judgePr(
         at(snap, "STATE.md"),
         pr,
         snap.removed,
+        filed(),
       ),
       ...recordFileProblems(snap.files, (f) =>
         left(f) ? at(snap, f) : undefined,
       ),
+      ...stateDecisionProblems(snap.added, at(snap, "STATE.md")),
       ...fixWhenTouchedProblems(snap.files, body, table),
       ...quoteProblems(exceptions, entriesOf(snap.added), body),
       ...secondCheck(workflows),
