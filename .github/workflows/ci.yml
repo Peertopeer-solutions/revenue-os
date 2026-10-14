@@ -1,6 +1,9 @@
 name: ci
 on:
+  # Pull requests into main only: theirs never has main's own commit as its head, so a pull request's `checks`, which
+  # skips the jobs held back from it (below), never lands on a commit of main that staging-migrations.yml trusts.
   pull_request:
+    branches: [main]
   push:
     branches: [main]
   # The merge queue's build of a pull request on top of main and the pull requests ahead of it: main's ruleset
@@ -13,8 +16,11 @@ concurrency:
   cancel-in-progress: true # superseded pushes stop burning the stack spin-ups
 
 # Three jobs run at once, each on a fresh runner and local stack: the quick checks, the whole suite, and the
-# four-runs-at-once test alone. The required check is the `checks` job, which waits for all three and passes only
-# when every one passed (a done rule, scripts/done-gate/ci-jobs.ts, refuses a ci.yml where it doesn't).
+# four-runs-at-once test alone. A pull request runs only the quick checks: the Mac's gate already ran the whole suite
+# on its head, and the merge queue's build, on top of main and the pull requests ahead of it, runs all three before
+# it lands (a push to main runs all three again). The required check is the `checks` job, which waits for all three
+# and passes only when every one passed, or, on a pull request only, was held back from it (a done rule,
+# scripts/done-gate/ci-jobs.ts, refuses a ci.yml where it could pass otherwise).
 jobs:
   # Everything but the whole suite, so a failing check shows in minutes.
   quick:
@@ -126,8 +132,9 @@ jobs:
           fi
 
   # The whole suite, alone on its own fresh database, as the Mac's gate runs it: every test but the four-runs-at-once
-  # test, left out by its path, with the skipped-test and coverage checks.
+  # test, left out by its path, with the skipped-test and coverage checks. Held back from pull requests.
   suite:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -154,8 +161,9 @@ jobs:
 
   # The four-runs-at-once test alone on its own fresh stack: four whole-suite runs and a demo started together, which
   # must all pass and leave others' data alone. It fails unless that one test ran and passed; it runs no product line
-  # in its own process, so it has no coverage check.
+  # in its own process, so it has no coverage check. Held back from pull requests.
   at-once:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -179,14 +187,16 @@ jobs:
 
       - run: bun run gate tests --at-once-alone
 
-  # The required check: it waits for all three jobs, even when one fails, and passes only when every one passed.
+  # The required check: it waits for all three jobs, even when one fails, and passes only when every one passed, or,
+  # on a pull request only, was skipped as held back from it.
   checks:
     needs: [quick, suite, at-once]
     if: always()
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Every job it waits for passed
+      - name: Every job it waits for passed, or on a pull request was held back from it
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: for r in $RESULTS; do test "$r" = success || { echo "a job checks waits for ended $r ($RESULTS)"; exit 1; }; done
+          HELD_BACK: ${{ github.event_name == 'pull_request' && 'skipped' || 'none' }}
+        run: for r in $RESULTS; do test "$r" = success || test "$r" = "$HELD_BACK" || { echo "a job checks waits for ended $r ($RESULTS)"; exit 1; }; done

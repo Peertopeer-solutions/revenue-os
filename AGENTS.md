@@ -190,10 +190,14 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    out of its whole-suite run by its path (`bun run gate tests --leave-at-once-to-ci`), never skipped; its
    summary says so and never counts it passed. CI runs three jobs at once, each on its own fresh local stack of
    only the database, sign-in, data interface and gateway (`.github/test-stack.sh`): the quick checks, the whole
-   suite as the Mac runs it, and that one test alone (`bun run gate tests --at-once-alone`); its required
-   `checks` waits for all three and passes only when every one passed (a done rule, `scripts/done-gate/ci-jobs.ts`,
-   refuses a ci.yml where it could pass otherwise; the one skip it allows is a job held back from pull requests by
-   `if: github.event_name != 'pull_request'`, which must still run and pass in the merge queue and on main). Every merge waits for `checks` (step 5), and tests proven
+   suite as the Mac runs it, and that one test alone (`bun run gate tests --at-once-alone`). A pull request runs
+   only the quick checks, since the Mac's gate already ran the whole suite on its head; the merge queue's build,
+   on top of main and the pull requests ahead of it, and every push to main run all three. A pull request that
+   breaks the whole suite or that test is so caught in the queue, which takes it out: fix it and queue it again.
+   CI's required `checks` waits for all three and passes only when every one passed, or, on a pull request only,
+   was held back from it (a done rule, `scripts/done-gate/ci-jobs.ts`, refuses a ci.yml where it could pass
+   otherwise; the one skip it allows is a job held back from pull requests by
+   `if: github.event_name != 'pull_request'`). Every merge waits for `checks` (step 5), and tests proven
    still runs that test when a change adds or edits it. Never skip, silence or weaken a check to get past it. CI
    also runs gitleaks, `bun audit` and a Docker build; CI is the verdict.
 4. See it work (`bun run see <console path>` saves what a signed-in person sees), then run the
@@ -218,7 +222,8 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    done gate refuses it unless that commit passed `bun run gate` on this machine (a run without Docker,
    which skips the database tests, counts too), GitHub reports `checks` passed on that commit, and, while
    main's ruleset has no merge queue, the commit holds main's tip as `git ls-remote` reads it at that moment (an
-   empty or unreadable answer refuses), so CI tested exactly the code the merge lands; the gate asks GitHub whether
+   empty or unreadable answer refuses), so CI tested exactly the code the merge lands, though with the quick checks
+   alone (the whole suite ran on the Mac; the four-runs-at-once test first runs on main); the gate asks GitHub whether
    main's ruleset has a merge queue at that moment and refuses on an unreadable answer. With a merge queue the same
    command adds the PR to the queue and the head need not hold main's tip: GitHub runs `checks` and `rules-from-main`
    on it on top of main and the PRs ahead of it and lands it only when they pass. A PR the queue takes out (a

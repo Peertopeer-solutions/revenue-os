@@ -74,6 +74,27 @@ it("passes the repo's own ci.yml", () => {
   expect(ciJobProblems(text)).toEqual([]);
 });
 
+it("holds the repo's whole suite and four-runs-at-once test back from pull requests into main, and nothing else", () => {
+  const text = readFileSync(
+    join(import.meta.dir, "..", ".github", "workflows", "ci.yml"),
+    "utf8",
+  );
+  const ci = Bun.YAML.parse(text) as Ci & { on: Record<string, unknown> };
+  expect(
+    Object.entries(ci.jobs).flatMap(([id, job]) =>
+      job.if === QUEUE_ONLY ? [id] : [],
+    ),
+  ).toEqual(["suite", "at-once"]);
+  expect(ciJobProblems(text)).toEqual([]);
+  expect(Object.keys(ci.jobs)).toEqual(["quick", "suite", "at-once", "checks"]);
+  expect(ci.jobs.checks.steps).toEqual([QUEUE_ONLY_SKIPPED]);
+  expect(ci.on).toEqual({
+    pull_request: { branches: ["main"] },
+    push: { branches: ["main"] },
+    merge_group: { types: ["checks_requested"] },
+  });
+});
+
 it("says nothing of a ci.yml with no job besides `checks`", () => {
   const one = (ci: Ci) => {
     ci.jobs = { checks: { "runs-on": "ubuntu-latest", steps: [{ run: "x" }] } };

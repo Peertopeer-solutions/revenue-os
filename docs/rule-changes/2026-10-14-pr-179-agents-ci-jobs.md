@@ -1,0 +1,1 @@
+- 2026-10-14 · [#179](https://github.com/Peertopeer-solutions/revenue-os/pull/179) · AGENTS.md: The loop, step 3 says a pull request runs only CI's quick checks and the merge queue's build and pushes to main run all three; step 5 says a merge without the queue lands on the quick checks alone · looser
