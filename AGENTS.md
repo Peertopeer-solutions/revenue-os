@@ -181,7 +181,8 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    only the database, sign-in, data interface and gateway (`.github/test-stack.sh`): the quick checks, the whole
    suite as the Mac runs it, and that one test alone (`bun run gate tests --at-once-alone`); its required
    `checks` waits for all three and passes only when every one passed (a done rule, `scripts/done-gate/ci-jobs.ts`,
-   refuses a ci.yml where it could pass otherwise). Every merge waits for `checks` (step 5), and tests proven
+   refuses a ci.yml where it could pass otherwise; the one skip it allows is a job held back from pull requests by
+   `if: github.event_name != 'pull_request'`, which must still run and pass in the merge queue and on main). Every merge waits for `checks` (step 5), and tests proven
    still runs that test when a change adds or edits it. Never skip, silence or weaken a check to get past it. CI
    also runs gitleaks, `bun audit` and a Docker build; CI is the verdict.
 4. See it work (`bun run see <console path>` saves what a signed-in person sees), then run the
