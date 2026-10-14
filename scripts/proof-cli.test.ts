@@ -152,8 +152,9 @@ describe("bun run proof <slice>", () => {
       env,
     });
     expect(r.status).toBe(2);
-    expect(r.stdout).toContain("claude setup-token");
-    expect(r.stdout).toContain("export CLAUDE_CODE_OAUTH_TOKEN=");
+    expect(r.stderr).toContain("claude setup-token");
+    expect(r.stderr).toContain("export CLAUDE_CODE_OAUTH_TOKEN=");
+    expect(r.stdout).not.toContain("The report and its files");
   });
 });
 

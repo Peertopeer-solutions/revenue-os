@@ -19,7 +19,7 @@ import { join, resolve } from "node:path";
 import { parseRoadmap } from "../../docs/tracker/parse.js";
 import { AI_SLICE } from "../done-gate/mac-record";
 import type { Outcome } from "../done-gate/proof-run";
-import { proveOnMac } from "./on-mac";
+import { NO_TOKEN, proveOnMac } from "./on-mac";
 import { reportText } from "./report";
 import { overall, type Result, runSteps } from "./run";
 import { SLICES } from "./slices";
@@ -108,6 +108,10 @@ if (import.meta.main) {
     process.exit(2);
   }
   const { n, steps, out, onMac } = asked;
+  if (onMac && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    console.error(NO_TOKEN);
+    process.exit(2);
+  }
   const dir = out
     ? resolve(out)
     : mkdtempSync(join(tmpdir(), `proof-slice-${n}-`));
