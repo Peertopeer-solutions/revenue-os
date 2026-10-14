@@ -40,17 +40,21 @@ export const shown = (body: string) =>
 /** A record file: any file in docs/rule-changes/ but its README. */
 const isRecord = (a: Added) =>
   a.file.startsWith(RECORDS) && a.file !== `${RECORDS}README.md`;
+const SHAPE =
+  "`- YYYY-MM-DD · [#N](link) · <rule> · tighter | looser | neutral | mixed`";
 
 /**
- * PURE: the change's files, added and removed lines, the PR body and the PR's number when known → what is missing
- * for each changed rule file (a line in the body, as GitHub shows it, saying how it changed and why, and a record
- * file the change adds in docs/rule-changes/ for this PR), and any earlier record (there or in STATE.md → Rule
- * changes) the change removes or rewrites; a record moved word for word into docs/rule-changes/ is kept.
+ * PURE: the change's files, added and removed lines, the PR body, STATE.md as the change leaves it, and the PR's
+ * number when known → what is missing for each changed rule file (a line in the body, as GitHub shows it, saying how
+ * it changed and why, and a record file the change adds in docs/rule-changes/ for this PR); any earlier record
+ * (there or in STATE.md → Rule changes) the change removes or rewrites, a record moved word for word into
+ * docs/rule-changes/ aside; and any record it adds, in either place, that is badly written or names another PR.
  */
 export function ruleChangeProblems(
   files: string[],
   added: Added[],
   body: string,
+  state: string,
   pr?: string,
   removed: Added[] = [],
 ): string[] {
@@ -64,8 +68,40 @@ export function ruleChangeProblems(
     )
     .map(
       (r) =>
-        `${RECORDS} only grows: this change removes or rewrites the record "${r.text}"`,
+        `${r.file === "STATE.md" ? "STATE.md → Rule changes" : RECORDS} only grows: this change removes or rewrites the record "${r.text}"`,
     );
+  const moved = new Set(
+    removed
+      .filter((r) => r.file === "STATE.md" || isRecord(r))
+      .map((r) => r.text),
+  );
+  // STATE.md → Rule changes still holds the records from before the folder: a line added there is judged as before.
+  const lines = state.split("\n");
+  const from = lines.indexOf("## Rule changes") + 1; // its line number; 0 when the heading is missing
+  const to = lines.findIndex((l, i) => i >= from && /^## /.test(l));
+  const inState = (a: Added) =>
+    from > 0 &&
+    a.file === "STATE.md" &&
+    a.line > from &&
+    (to < 0 || a.line <= to) &&
+    a.text.startsWith("- ");
+  const judged = added
+    .filter(
+      (a) =>
+        ((isRecord(a) && a.text.trim()) || inState(a)) && !moved.has(a.text),
+    )
+    .map((a) => ({
+      where: a.file === "STATE.md" ? "STATE.md → Rule changes" : RECORDS,
+      text: a.text,
+      m: a.text.match(RECORDED),
+      file: a.file,
+    }));
+  for (const { where, text, m } of judged)
+    if (!m) problems.push(`${where}: "${text}" is not ${SHAPE}`);
+    else if (pr && m[1] !== pr)
+      problems.push(
+        `${where}: "${text}" names #${m[1]}, not this pull request (#${pr})`,
+      );
   const changed = files.filter((f) => RULE_FILES.test(f));
   if (!changed.length) return problems;
   const said = shown(body)
@@ -75,25 +111,8 @@ export function ruleChangeProblems(
     if (!SAID.test(l))
       problems.push(`the PR body's line "${l}" is not written as ${HOW}`);
   const rules = said.map((l) => l.match(SAID)?.[1] ?? "");
-  const moved = new Set(
-    removed
-      .filter((r) => r.file === "STATE.md" || isRecord(r))
-      .map((r) => r.text),
-  );
-  const records = added
-    .filter((a) => isRecord(a) && a.text.trim() && !moved.has(a.text))
-    .map((a) => ({ text: a.text, m: a.text.match(RECORDED) }));
-  for (const { text, m } of records)
-    if (!m)
-      problems.push(
-        `${RECORDS}: "${text}" is not \`- YYYY-MM-DD · [#N](link) · <rule> · tighter | looser | neutral | mixed\``,
-      );
-    else if (pr && m[1] !== pr)
-      problems.push(
-        `${RECORDS}: "${text}" names #${m[1]}, not this pull request (#${pr})`,
-      );
-  const mine = records.flatMap(({ m }) =>
-    m && (!pr || m[1] === pr) ? [m[2] ?? ""] : [],
+  const mine = judged.flatMap(({ m, file }) =>
+    m && file !== "STATE.md" && (!pr || m[1] === pr) ? [m[2] ?? ""] : [],
   );
   const unsaid = changed.filter((f) => !rules.some((r) => names(r, f)));
   if (unsaid.length)

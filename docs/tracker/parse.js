@@ -138,9 +138,16 @@ const list = (sec, h) =>
 // The records.md `bun run records` prints from docs/decisions-in-force/ and docs/rule-changes/, newest first.
 export function parseRecords(md) {
   const sec = sections(lf(md));
+  const heads = ["Decisions in force", "Rule changes"];
   return {
-    decisions: list(sec, "Decisions in force"),
-    ruleChanges: list(sec, "Rule changes"),
+    decisions: list(sec, heads[0]),
+    ruleChanges: list(sec, heads[1]),
+    problems: heads
+      .filter((h) => !(h in sec))
+      .map(
+        (h) =>
+          `records.md: missing the "## ${h}" heading (publish the output of \`bun run records\`)`,
+      ),
   };
 }
 

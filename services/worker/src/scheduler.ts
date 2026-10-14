@@ -47,7 +47,7 @@ const MAX_STEPS = 64;
 // Apply-phase retry ceiling. A rolled-back apply leaves the run 'waiting' with the SAME wake_at,
 // so the next tick re-selects it: without a bound a deterministically poisoned run burns a tick
 // slot every minute forever and never surfaces to an operator. Failures below the ceiling are
-// still RETRIED (STATE.md → Decisions in force, "Scheduler database-error policy"); at it the run
+// still RETRIED (docs/decisions-in-force/2026-09-25-scheduler-database-error-policy.md); at it the run
 // is dead-lettered.
 const MAX_APPLY_FAILURES = 3;
 /** attempts key for the apply-failure log. Not a channel — guardrails read 'voice' / 'whatsapp'. */

@@ -16,6 +16,7 @@ import { unquotedMarks } from "./pr-coverage-marks";
 import { firstLineProblems } from "./pr-first-line";
 import { quoteProblems } from "./pr-quotes";
 import { proofLinks } from "./proof-link";
+import { recordFileProblems } from "./record-files";
 import { entriesOf } from "./removed-tests";
 import { ruleChangeProblems, shown } from "./rule-changes";
 import { rulesOn } from "./rules";
@@ -103,6 +104,14 @@ export async function judgePr(
   const onBase = (file: string) =>
     git(snap.repo, ["cat-file", "blob", `${base}:${file}`], {}, true);
   const table = onBase(TABLE);
+  // Does the change leave `file` in place (a file it deletes is not read as an empty one)?
+  const left = (file: string) =>
+    git(
+      snap.repo,
+      ["ls-tree", "--name-only", snap.tree, "--", file],
+      {},
+      true,
+    ).trim() === file;
   const workflows = Object.fromEntries(
     git(
       snap.repo,
@@ -123,7 +132,17 @@ export async function judgePr(
         snap.files.includes("ROADMAP.md"),
       ),
       ...problems,
-      ...ruleChangeProblems(snap.files, snap.added, body, pr, snap.removed),
+      ...ruleChangeProblems(
+        snap.files,
+        snap.added,
+        body,
+        at(snap, "STATE.md"),
+        pr,
+        snap.removed,
+      ),
+      ...recordFileProblems(snap.files, (f) =>
+        left(f) ? at(snap, f) : undefined,
+      ),
       ...fixWhenTouchedProblems(snap.files, body, table),
       ...quoteProblems(exceptions, entriesOf(snap.added), body),
       ...secondCheck(workflows),

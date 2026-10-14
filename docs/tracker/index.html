@@ -127,7 +127,7 @@ details.fold ul.plain{margin-top:10px}
 
 <div class="wrap">
   <header>
-    <div class="eyebrow">Rendered from ROADMAP.md and STATE.md</div>
+    <div class="eyebrow">Rendered from ROADMAP.md, STATE.md and the records</div>
     <h1>Revenue OS tracker</h1>
     <div class="meta" id="meta">Loading…</div>
   </header>
@@ -263,7 +263,7 @@ function render(){
   document.getElementById("rcsum").textContent = `Show ${K.ruleChanges.length} rule changes`;
   document.getElementById("rulechanges").innerHTML = K.ruleChanges.map(d => `<li><span class="muted">·</span><span>${inline(d)}</span></li>`).join("");
 
-  const problems = [...R.problems, ...S.problems], err = document.getElementById("error");
+  const problems = [...R.problems, ...S.problems, ...K.problems], err = document.getElementById("error");
   err.hidden = !problems.length;
   if (problems.length) err.innerHTML = `<b>These files don't match the expected format, so parts of this page may be wrong:</b><ul>${problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul>`;
 }

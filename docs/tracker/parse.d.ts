@@ -33,6 +33,7 @@ export function parseState(md: string): {
 export function parseRecords(md: string): {
   decisions: string[];
   ruleChanges: string[];
+  problems: string[];
 };
 export function currentSlice(slices: Slice[]): Slice | undefined;
 export function nextItem(slice: Slice | undefined): Item | undefined;

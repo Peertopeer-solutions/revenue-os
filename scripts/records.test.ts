@@ -94,7 +94,8 @@ describe("one file per record", () => {
       problems: [],
     });
 
-    // The same two records written the old way, each at the top of STATE.md's list, conflict.
+    // The same two records written the old way, the decision and the rule change each at the top of its list in
+    // STATE.md, conflict.
     for (const [branch, pr] of [
       ["c", 301],
       ["d", 302],
@@ -103,7 +104,13 @@ describe("one file per record", () => {
       write(
         dir,
         "STATE.md",
-        STATE(rule(pr, "biome.json"), rule(100, "AGENTS.md", "2026-10-01")),
+        STATE(
+          rule(pr, "biome.json"),
+          rule(100, "AGENTS.md", "2026-10-01"),
+        ).replace(
+          "One file per decision, in docs/decisions-in-force/.\n",
+          `- 2026-10-14 · **Decision ${branch}** (Devesh): made in #${pr}.\n`,
+        ),
       );
       git(dir, "commit", "-qam", branch);
     }
@@ -137,8 +144,16 @@ describe("one file per record", () => {
       problems: [],
     });
     // The tracker page reads what `bun run records` prints as the same two lists.
-    const { problems: _, ...lists } = r;
-    expect(parseRecords(markdown(r))).toEqual(lists);
+    expect(parseRecords(markdown(r))).toEqual({
+      decisions: r.decisions,
+      ruleChanges: r.ruleChanges,
+      problems: [],
+    });
+    // An empty records.md (the printer refused a bad file) is named, never shown as no records.
+    expect(parseRecords("").problems).toEqual([
+      'records.md: missing the "## Decisions in force" heading (publish the output of `bun run records`)',
+      'records.md: missing the "## Rule changes" heading (publish the output of `bun run records`)',
+    ]);
   });
 
   it("names a records folder that is missing, and a folder where a record file should be, instead of failing", () => {
