@@ -70,6 +70,7 @@ it("takes the report `bun run proof` writes on GitHub as that run's report, and 
       ask: async (path) =>
         path.includes("/jobs") ? { total_count: 1, jobs: [job] } : run,
       onMain: (sha) => sha === SHA,
+      aiRecord: () => ({ outcome: "passed", seen: "a record that holds" }),
     });
   const first = "Roadmap: Slice 0 — replan: Slice 0's proof passed";
   expect(await judge(`${first}\n\n${text}`)).toEqual([]);

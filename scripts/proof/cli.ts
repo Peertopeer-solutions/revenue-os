@@ -3,7 +3,8 @@
 // --out), and prints it. Exit 1 when a step failed or the slice has no steps yet; exit 0 when every step passed, or
 // when the only steps not passed wait on Devesh: waiting is no failure, but only a run whose every step passed can
 // set a slice to done, so the report and `result=passed|waiting|failed` (in GITHUB_OUTPUT, for the proof workflow)
-// say which. A slice ROADMAP.md does not have, or other arguments: exit 2.
+// say which. A slice ROADMAP.md does not have, or other arguments: exit 2. `bun run proof 0 --on-my-mac` runs Slice
+// 0's two AI steps instead, with Devesh's own Claude login (scripts/proof/on-mac.ts).
 
 import { spawnSync } from "node:child_process";
 import {
@@ -16,7 +17,9 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseRoadmap } from "../../docs/tracker/parse.js";
+import { AI_SLICE } from "../done-gate/mac-record";
 import type { Outcome } from "../done-gate/proof-run";
+import { proveOnMac } from "./on-mac";
 import { reportText } from "./report";
 import { overall, type Result, runSteps } from "./run";
 import { SLICES } from "./slices";
@@ -63,28 +66,38 @@ export async function prove(
   return { text, result, code: result === "failed" ? 1 : 0 };
 }
 
+export const USAGE =
+  "usage: bun run proof <slice number> [--out <folder>] | bun run proof 0 --on-my-mac [--out <folder>]";
+
 /**
- * What `bun run proof` was asked (its arguments), checked against `root`'s ROADMAP.md: the slice, its steps and the
- * --out folder, or why the command refuses them (exit 2).
+ * What `bun run proof` was asked (its arguments), checked against `root`'s ROADMAP.md: the slice, its steps, the
+ * --out folder and whether it is Devesh's Mac run of Slice 0's AI steps (--on-my-mac), or why the command refuses
+ * them (exit 2).
  */
 export function toProve(
   args: string[],
   root: string,
 ):
-  | { n: number; steps: Step[] | undefined; out?: string }
+  | { n: number; steps: Step[] | undefined; out?: string; onMac?: true }
   | { refused: string } {
-  const [slice = "", flag, out, ...rest] = args;
-  if (
-    !/^\d+$/.test(slice) ||
-    (flag !== undefined && (flag !== "--out" || !out)) ||
-    rest.length
-  )
-    return { refused: "usage: bun run proof <slice number> [--out <folder>]" };
+  const [slice = "", ...flags] = args;
+  let out: string | undefined;
+  let onMac = false;
+  for (let i = 0; i < flags.length; i++)
+    if (flags[i] === "--out" && flags[i + 1] && out === undefined)
+      out = flags[++i];
+    else if (flags[i] === "--on-my-mac" && !onMac) onMac = true;
+    else return { refused: USAGE };
+  if (!/^\d+$/.test(slice)) return { refused: USAGE };
   const n = Number(slice);
+  if (onMac && n !== AI_SLICE)
+    return {
+      refused: `--on-my-mac runs Slice ${AI_SLICE}'s two AI steps only: bun run proof ${AI_SLICE} --on-my-mac`,
+    };
   const roadmap = readFileSync(join(root, "ROADMAP.md"), "utf8");
   if (!parseRoadmap(roadmap).slices.some((s) => s.n === n))
     return { refused: `ROADMAP.md has no Slice ${n}` };
-  return { n, steps: SLICES[n], out };
+  return { n, steps: SLICES[n], out, ...(onMac ? { onMac: true } : {}) };
 }
 
 if (import.meta.main) {
@@ -94,16 +107,17 @@ if (import.meta.main) {
     console.error(asked.refused);
     process.exit(2);
   }
-  const { n, steps, out } = asked;
+  const { n, steps, out, onMac } = asked;
   const dir = out
     ? resolve(out)
     : mkdtempSync(join(tmpdir(), `proof-slice-${n}-`));
-  const { text, code } = await prove(n, steps, {
+  const o = {
     root,
     env: process.env,
     state: readFileSync(join(root, "STATE.md"), "utf8"),
     dir,
-  });
+  };
+  const { text, code } = onMac ? await proveOnMac(o) : await prove(n, steps, o);
   console.log(`${text}\nThe report and its files: ${dir}`);
   process.exit(code); // a step still running past its time must not hold the run open
 }

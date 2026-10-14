@@ -5,11 +5,19 @@
 // on: while its "Proof passed:" stays, its title, goal, Proof line, blocker and items stay too. GitHub is asked with
 // plain GETs and no login: the repository is public and rules-from-main holds no token. Were it made private,
 // GitHub would answer 404 and every such pull request would be refused, saying so, until rules-from-main's job is
-// given `actions: read` and its token.
+// given `actions: read` and its token. Setting Slice 0 to done also needs main's record of its two AI steps, which run
+// on Devesh's Mac, to have passed them on main's files as they are (scripts/done-gate/mac-record.ts).
 
 import { spawnSync } from "node:child_process";
 import { parseRoadmap, type Slice } from "../../docs/tracker/parse.js";
 import { git } from "./git";
+import {
+  AGAIN,
+  AI_SLICE,
+  type Judged,
+  judgedAt,
+  MAC_COMMAND,
+} from "./mac-record";
 import {
   ALL_PASSED,
   type Job,
@@ -128,6 +136,7 @@ export async function proofLinkProblems(o: {
   repo: string | undefined;
   ask: Ask;
   onMain: (sha: string) => boolean;
+  aiRecord: () => Judged; // what main's record of Slice 0's AI steps says about main's files
 }): Promise<string[]> {
   const before = new Map(parseRoadmap(o.main).slices.map((s) => [s.n, s]));
   const problems: string[] = [];
@@ -148,6 +157,11 @@ export async function proofLinkProblems(o: {
       );
     const why = await unproven(s.n, passed, o.body, o.repo, o.ask, o.onMain);
     if (why) problems.push(`ROADMAP.md sets Slice ${s.n} to done, but ${why}`);
+    const ai = s.n === AI_SLICE ? o.aiRecord() : undefined;
+    if (ai && ai.outcome !== "passed")
+      problems.push(
+        `ROADMAP.md sets Slice ${s.n} to done, but its two AI steps, which run on Devesh's Mac, have no record on main that passed them and matches main's files (${ai.seen}): ${AGAIN} (\`${MAC_COMMAND}\`) and commit its record first`,
+      );
   }
   return problems;
 }
@@ -189,4 +203,5 @@ export const proofLinks = (
       spawnSync("git", ["merge-base", "--is-ancestor", sha, base], {
         cwd: dir,
       }).status === 0,
+    aiRecord: () => judgedAt(dir, base),
   });

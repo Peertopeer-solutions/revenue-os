@@ -8,6 +8,7 @@
 import { afterAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
+  appendFileSync,
   copyFileSync,
   existsSync,
   lstatSync,
@@ -23,9 +24,18 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { currentSlice, nextItem, parseRoadmap } from "../docs/tracker/parse.js";
+import {
+  AGAIN,
+  AI_STEPS,
+  fingerprints,
+  MAC_COMMAND,
+  RECORD,
+  RECORD_DIR,
+} from "./done-gate/mac-record";
 import { stateDir } from "./done-gate/store";
+import { NO_TOKEN, proveOnMac } from "./proof/on-mac";
 import { runSteps } from "./proof/run";
-import { agentSession, crossCompany } from "./proof/slice-0-agents";
+import { agentSession, crossCompany, onMac } from "./proof/slice-0-agents";
 import {
   adminMerge,
   disallowedModel,
@@ -500,7 +510,7 @@ const standIn = (answers: Answer[]) => {
     join(bin, "claude"),
     [
       "#!/bin/sh",
-      `{ echo "args: $*"; echo "key: $ANTHROPIC_API_KEY"; echo "gh: \${GH_TOKEN:-none}"; echo "home: $HOME"; echo "cwd: $(pwd)"; } >> "${log}"`,
+      `{ echo "args: $*"; echo "token: $CLAUDE_CODE_OAUTH_TOKEN"; echo "api key: \${ANTHROPIC_API_KEY:-none}"; echo "scrub: \${CLAUDE_CODE_SUBPROCESS_ENV_SCRUB:-off}"; echo "gh: \${GH_TOKEN:-none}"; echo "home: $HOME"; echo "cwd: $(pwd)"; } >> "${log}"`,
       "for last; do :; done",
       'case "$last" in',
       ...cases,
@@ -515,7 +525,9 @@ const standIn = (answers: Answer[]) => {
   };
 };
 
-describe("the scripted fresh agent session", () => {
+const TOKEN = "login-token-for-tests";
+
+describe("the scripted fresh agent session, on Devesh's Mac", () => {
   /** Answers each scripted question as the repo's rules ask; on "dark mode" it first runs `onDarkMode`. */
   const session = (onDarkMode = ":") => {
     const roadmap = parseRoadmap(git(HERE(), "show", "HEAD:ROADMAP.md"));
@@ -534,20 +546,13 @@ describe("the scripted fresh agent session", () => {
       { say: `We are on Slice ${cur?.n}, item: ${item}.` },
     ]);
   };
+  const live = onMac["agent-session"];
 
-  it("waits on Devesh's evals key, naming the Waiting item, and starts no session without it", async () => {
+  it("holds four exchanges in one session in a fresh clone of main, with only Devesh's Claude login (kept from the commands it runs) and a home of its own, and saves the transcript", async () => {
     const claude = session();
-    const [r] = await prove([agentSession], HERE(), claude.env);
-    expect(r?.outcome).toBe("waiting");
-    expect(r?.seen).toContain(KEY);
-    expect(claude.calls()).toBe("");
-  });
-
-  it("with the key, holds four exchanges in one session in a fresh clone of main, with only that key and a home of its own, and saves the transcript", async () => {
-    const claude = session();
-    const [r] = await prove([agentSession], HERE(), {
+    const [r] = await prove([live], HERE(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
       GH_TOKEN: "never-handed-on",
       ANTHROPIC_API_KEY: "another-key",
     });
@@ -556,7 +561,9 @@ describe("the scripted fresh agent session", () => {
     expect(r?.files).toEqual(["1-agent-session.txt", "1-agent-session.jsonl"]);
     const calls = claude.calls();
     expect(calls.match(/^args: /gm)?.length).toBe(4);
-    expect(calls.match(/^key: evals-key-for-tests$/gm)?.length).toBe(4);
+    expect(calls.match(new RegExp(`^token: ${TOKEN}$`, "gm"))?.length).toBe(4);
+    expect(calls.match(/^scrub: 1$/gm)?.length).toBe(4);
+    expect(calls.match(/^api key: none$/gm)?.length).toBe(4);
     expect(calls).not.toContain("another-key");
     expect(calls).toContain("gh: none");
     expect(calls).not.toContain(`home: ${process.env.HOME}\n`);
@@ -567,9 +574,9 @@ describe("the scripted fresh agent session", () => {
 
   it("fails, naming the branch, when the session makes one on 'add a dark mode to the console'", async () => {
     const claude = session("git checkout -qb feat/dark-mode");
-    const [r] = await prove([agentSession], HERE(), {
+    const [r] = await prove([live], HERE(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     expect(r?.outcome).toBe("failed");
     expect(r?.seen).toContain("feat/dark-mode");
@@ -577,9 +584,9 @@ describe("the scripted fresh agent session", () => {
 
   it("may run git to look around and make a branch, never to push", async () => {
     const claude = session();
-    await prove([agentSession], HERE(), {
+    await prove([live], HERE(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     const args = claude.calls().split("\n")[0] ?? "";
     expect(args).toContain("Bash(git checkout:*)");
@@ -587,38 +594,32 @@ describe("the scripted fresh agent session", () => {
     expect(args).not.toContain("push");
   });
 
-  it("waits on Devesh, naming the key's Waiting item, when Anthropic refuses the key for its spending limit", async () => {
+  it("waits on Devesh, naming his Claude login, when Anthropic refuses it for its usage limit", async () => {
     const claude = standIn([
       {
-        say: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+        say: "Claude AI usage limit reached. Your limit will reset at 5pm.",
         error: true,
       },
     ]);
-    const [r] = await prove([agentSession], HERE(), {
+    const [r] = await prove([live], HERE(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     expect(r?.outcome).toBe("waiting");
-    expect(r?.seen).toContain(KEY);
-    expect(r?.seen).toContain("credit balance is too low");
+    expect(r?.seen).toContain("Devesh's Claude login");
+    expect(r?.seen).toContain("usage limit reached");
   });
 });
 
-describe("the verifier's run on a change missing a cross-company test", () => {
+describe("the verifier's run on a change missing a cross-company test, on Devesh's Mac", () => {
   const verifier = (ruling: string, first?: string) =>
     standIn([{ say: `I ran its test.\n${ruling}`, first }]);
   // A copy of this checkout's commit: the step takes the proved checkout's turn on the shared local stack, which a
   // gate run of this checkout may be holding while it runs these tests.
   const root = () => copyOf(() => {});
+  const live = onMac.verifier;
 
-  it("waits on Devesh's evals key without it", async () => {
-    const claude = verifier("Ruling: PASS — x");
-    const [r] = await prove([crossCompany], root(), claude.env);
-    expect(r?.outcome).toBe("waiting");
-    expect(claude.calls()).toBe("");
-  });
-
-  it("passes when the verifier, started as the verifier agent with only the evals key, rules FAIL for the other company, while it holds the shared local stack", async () => {
+  it("passes when the verifier, started as the verifier agent with only Devesh's Claude login, rules FAIL for the other company, while it holds the shared local stack", async () => {
     const copy = root();
     const lock = join(stateDir(copy), "local-stack.lock");
     const lockDir = scratch("proof-0-lock-");
@@ -627,15 +628,16 @@ describe("the verifier's run on a change missing a cross-company test", () => {
       "Ruling: FAIL — no test asks for another company's open tasks; add a cross-company test",
       `{ { test -f "${lock}" && echo held || echo free; } > "${seen}"; }`,
     );
-    const [r] = await prove([crossCompany], copy, {
+    const [r] = await prove([live], copy, {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     expect(r?.outcome).toBe("passed");
     expect(r?.files).toEqual(["1-verifier.txt", "1-verifier.jsonl"]);
     const calls = claude.calls();
     expect(calls).toContain("--agent verifier");
-    expect(calls).toContain("key: evals-key-for-tests");
+    expect(calls).toContain(`token: ${TOKEN}`);
+    expect(calls).toContain("scrub: 1");
     expect(readFileSync(join(lockDir, "seen.txt"), "utf8").trim()).toBe("held");
   });
 
@@ -645,9 +647,9 @@ describe("the verifier's run on a change missing a cross-company test", () => {
       "Another company's tasks are never counted, I checked.\nRuling: FAIL — nothing outside tests calls openTaskCount",
     ]) {
       const claude = verifier(ruling);
-      const [r] = await prove([crossCompany], root(), {
+      const [r] = await prove([live], root(), {
         ...claude.env,
-        ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+        CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
       });
       expect(r?.outcome).toBe("failed");
       expect(r?.seen).toContain(ruling.includes("PASS") ? "PASS" : "FAIL");
@@ -661,12 +663,186 @@ describe("the verifier's run on a change missing a cross-company test", () => {
       "Ruling: FAIL — add a cross-company test",
       `{ git diff --name-only main > "${out}"; }`,
     );
-    await prove([crossCompany], root(), {
+    await prove([live], root(), {
       ...claude.env,
-      ANTHROPIC_EVALS_KEY: "evals-key-for-tests",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     const changed = readFileSync(join(diffDir, "changed.txt"), "utf8");
     expect(changed).toContain("services/worker/src/routes/screens.ts");
     expect(changed).toMatch(/services\/worker\/test\/[\w-]+\.test\.ts/);
+  });
+});
+
+describe("Slice 0's AI steps on GitHub: the record Devesh's Mac run committed", () => {
+  /** A copy of the proved commit with a record of a Mac run committed (each step's outcome as `outcomes` says), then `edit`. */
+  const recorded = (
+    outcomes: Partial<Record<(typeof AI_STEPS)[number], string>> = {},
+    edit: (dir: string) => void = () => {},
+  ) =>
+    copyOf((dir) => {
+      rmSync(join(dir, RECORD_DIR), { recursive: true, force: true });
+      mkdirSync(join(dir, RECORD_DIR), { recursive: true });
+      writeFileSync(
+        join(dir, RECORD),
+        JSON.stringify({
+          commit: git(dir, "rev-parse", "HEAD"),
+          date: "2026-10-14",
+          claude: "2.1.299",
+          steps: AI_STEPS.map((name) => ({
+            name,
+            outcome: outcomes[name] ?? "passed",
+            seen: `${name} seen on the Mac`,
+          })),
+          files: fingerprints(dir, "HEAD"),
+        }),
+      );
+      git(dir, "add", RECORD);
+      edit(dir);
+    }, "a record of a Mac run");
+  const both = [agentSession, crossCompany];
+
+  it("pass, naming the Mac run, when the committed record passed them and every file they test is as that run had it; no model runs", async () => {
+    const claude = standIn([{ say: "never asked" }]);
+    const results = await prove(both, recorded(), claude.env);
+    expect(failures(results)).toEqual([]);
+    for (const [i, r] of results.entries()) {
+      expect(r.seen).toContain("passed on Devesh's Mac on 2026-10-14");
+      expect(r.seen).toContain(`${AI_STEPS[i]} seen on the Mac`);
+    }
+    expect(claude.calls()).toBe("");
+  });
+
+  it("wait on Devesh's Mac, naming the command, with no record committed", async () => {
+    const results = await prove(
+      both,
+      copyOf((dir) =>
+        rmSync(join(dir, RECORD_DIR), { recursive: true, force: true }),
+      ),
+    );
+    for (const r of results) {
+      expect(r.outcome).toBe("waiting");
+      expect(r.seen).toContain(AGAIN);
+      expect(r.seen).toContain(MAC_COMMAND);
+      expect(r.seen).toContain(`${RECORD} is not committed`);
+    }
+  });
+
+  it("wait once a file they test changed since the Mac run, naming it", async () => {
+    const results = await prove(
+      both,
+      recorded({}, (dir) => {
+        appendFileSync(join(dir, "AGENTS.md"), "\nA new rule.\n");
+        appendFileSync(join(dir, ".claude", "agents", "verifier.md"), "\n");
+      }),
+    );
+    for (const r of results) {
+      expect(r.outcome).toBe("waiting");
+      expect(r.seen).toContain("2 file(s) those steps test changed");
+      expect(r.seen).toContain(".claude/agents/verifier.md, AGENTS.md");
+    }
+  });
+
+  it("fail the step the Mac run failed, saying what it saw there; the other still passes", async () => {
+    const [session, verifierRun] = await prove(
+      both,
+      recorded({ verifier: "failed" }),
+    );
+    expect(session?.outcome).toBe("passed");
+    expect(verifierRun?.outcome).toBe("failed");
+    expect(verifierRun?.seen).toContain(
+      "the verifier step failed on Devesh's Mac on 2026-10-14",
+    );
+    expect(verifierRun?.seen).toContain("verifier seen on the Mac");
+  });
+});
+
+describe("bun run proof 0 --on-my-mac", () => {
+  it("refuses without Devesh's Claude login, saying how to make one, and starts no session", async () => {
+    const claude = standIn([{ say: "never asked" }]);
+    const copy = copyOf(() => {});
+    const r = await proveOnMac({
+      root: copy,
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, ...claude.env },
+      state: STATE,
+      dir: scratch("proof-0-mac-"),
+    });
+    expect(r.code).toBe(2);
+    expect(r.text).toBe(NO_TOKEN);
+    expect(r.text).toContain("claude setup-token");
+    expect(claude.calls()).toBe("");
+    expect(existsSync(join(copy, RECORD_DIR))).toBe(false);
+  });
+
+  it("runs both steps with his login and writes their record, transcripts and report, which GitHub's steps then pass on once committed", async () => {
+    const roadmap = parseRoadmap(git(HERE(), "show", "HEAD:ROADMAP.md"));
+    const cur = currentSlice(roadmap.slices);
+    const claude = standIn([
+      {
+        when: "word for word",
+        say: "I ran its test.\nRuling: FAIL — no test asks for another company's open tasks",
+      },
+      {
+        when: "/ready",
+        say: "It checks the READY_TOKEN bearer token, then that the worker reaches its database and its job queue (pg-boss), each within 2 seconds.",
+      },
+      { when: "dark mode", say: "off-roadmap PR, or replan?" },
+      {
+        say: `We are on Slice ${cur?.n}, item: ${nextItem(cur)?.text.split(/:\s/)[0] ?? ""}.`,
+      },
+    ]);
+    const copy = copyOf(() => {});
+    const r = await proveOnMac({
+      root: copy,
+      env: {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        ...claude.env,
+        CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
+      },
+      state: STATE,
+      dir: scratch("proof-0-mac-"),
+    });
+    expect(r.text).toContain("Both AI steps passed.");
+    expect(r.code).toBe(0);
+    const record = JSON.parse(readFileSync(join(copy, RECORD), "utf8"));
+    expect(record.commit).toBe(git(copy, "rev-parse", "HEAD"));
+    expect(
+      record.steps.map((s: { name: string; outcome: string }) => [
+        s.name,
+        s.outcome,
+      ]),
+    ).toEqual(AI_STEPS.map((name) => [name, "passed"]));
+    expect(record.files).toEqual(fingerprints(copy, "HEAD"));
+    expect(Object.keys(record.files)).toEqual(
+      expect.arrayContaining([
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".claude/settings.json",
+        ".claude/agents/verifier.md",
+        "scripts/done-gate.ts",
+        "scripts/cycle.ts",
+      ]),
+    );
+    for (const f of ["agent-session.txt", "verifier.txt", "report.md"])
+      expect(existsSync(join(copy, RECORD_DIR, f))).toBe(true);
+    expect(
+      readFileSync(join(copy, RECORD_DIR, "agent-session.txt"), "utf8"),
+    ).toContain("Devesh: which item are you on?");
+    git(copy, "add", RECORD_DIR);
+    git(
+      copy,
+      "-c",
+      "user.email=p@p",
+      "-c",
+      "user.name=p",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "-qm",
+      "the record",
+    );
+    expect(failures(await prove([agentSession, crossCompany], copy))).toEqual(
+      [],
+    );
   });
 });
