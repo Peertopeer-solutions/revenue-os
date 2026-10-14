@@ -2857,6 +2857,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ).toEqual([]);
   });
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
   it("refuses a rule change its body doesn't explain or no file in docs/rule-changes/ records", () => {
     expect(
       ruleChangeProblems([".github/workflows/ci.yml"], [], "Roadmap: x", PR),
@@ -2870,6 +2871,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ]);
   });
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
   it("accepts a line per rule, and a record file per rule, that name each file by its path, its file name or a folder holding it", () => {
     expect(
       ruleChangeProblems(
@@ -2903,6 +2905,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     expect(names(".github/workflows/", ".github/workflows/ci.yml")).toBe(true);
   });
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
   it("refuses a badly written line or record, a record for another pull request, and one added outside docs/rule-changes/", () => {
     const other = record(".github/workflows/ci.yml", "6");
     const misplaced = record(".github/workflows/ci.yml");
@@ -2928,6 +2931,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ]);
   });
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
   it("counts no line GitHub doesn't show: one in an HTML comment or a code block explains nothing", () => {
     for (const hidden of [
       "Tidy-up only.\n<!--\nRule change: ci.yml · neutral · tidy\n-->",
@@ -2948,6 +2952,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       ]);
   });
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
   it("refuses a change that removes or rewrites an earlier record, in docs/rule-changes/ or STATE.md, so the records only grow", () => {
     const old = record("biome.json", "5");
     const older = record("AGENTS.md", "4");
@@ -2967,6 +2972,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ]);
   });
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
   it("lets a record move word for word from STATE.md into a file of its own, without counting it as this pull request's", () => {
     const old = record("biome.json", "5");
     const moved = [{ file: "STATE.md", line: 11, text: old }];
@@ -3179,6 +3185,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
   const recorded = (dir: string, rule: string) =>
     write(dir, "docs/rule-changes/2026-10-02-sample.md", `${record(rule)}\n`);
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
   it("judges a branch with main's copy of the gate, so a branch that loosens its own copy is still refused", () => {
     const dir = project();
     const rules = join(dir, "scripts", "done-gate", "rules.ts");
@@ -3204,6 +3211,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     expect(sh(dir, ["git", "status", "--porcelain"]).stdout).toBe(""); // read as data: nothing checked out
   });
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
   it("refuses an unexplained rule change, and passes it once explained and recorded", () => {
     const dir = project();
     write(
@@ -3241,6 +3249,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     );
   });
 
+  // behaviour already on main: what it checks is unchanged; it only records its sample rule change in docs/rule-changes/ instead of STATE.md
   it("refuses a branch that adds its own check named rules-from-main", () => {
     const dir = project();
     write(
