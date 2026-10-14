@@ -104,14 +104,17 @@ export async function judgePr(
   const onBase = (file: string) =>
     git(snap.repo, ["cat-file", "blob", `${base}:${file}`], {}, true);
   const table = onBase(TABLE);
-  // Does the change leave `file` in place (a file it deletes is not read as an empty one)?
+  // Does the change leave `file` in place (a file it deletes is not read as an empty one)? Names are read with -z, as
+  // git writes them, so one with a non-ASCII letter is not quoted and missed.
   const left = (file: string) =>
     git(
       snap.repo,
-      ["ls-tree", "--name-only", snap.tree, "--", file],
+      ["ls-tree", "-z", "--name-only", snap.tree, "--", file],
       {},
       true,
-    ).trim() === file;
+    )
+      .split("\0")
+      .includes(file);
   // The record lines docs/rule-changes/ holds as the change leaves it, read only when it removes a STATE.md line: a
   // STATE.md record a file already holds word for word may go.
   const filed = () =>

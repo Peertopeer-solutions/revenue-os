@@ -104,7 +104,7 @@ This list is the clean-up that gets no roadmap slice: stale comments, unused cod
 **Known spots on main:**
 - `docs/runbooks/go-live.md:5, 12, 22-25, 61-62, 68, 70` cite orchestrator files and a merge-rule backup that no longer exist, so the go-live step that restores human-only merges can't be followed.
 - `docs/runbooks/incident.md:6-14`: its "stop everything" step stops the orchestrator, not today's agent sessions.
-- `docs/runbooks/vps-cloudflare-setup.md:4` and the phased security posture decision (`docs/decisions/D36-phased-security-posture.md:64`) cite orchestrator files.
+- `docs/runbooks/vps-cloudflare-setup.md:4` cites orchestrator files. (The phased security posture decision, `docs/decisions/D36-phased-security-posture.md`, stopped citing them in [#176](https://github.com/Peertopeer-solutions/revenue-os/pull/176).)
 - `docs/security.md:118-137` (section S13, the orchestrator's controls): its orchestrator-only controls (the bot's token, the disposable machine, the watchdog kill switch) move to docs/archive; the controls for the platform stay.
 
 **Not here:** removing the orchestrator's watchdog from Devesh's Mac is his "Finish clearing the retired orchestrator from your Mac" item in STATE.md → Waiting on Devesh.

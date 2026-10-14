@@ -3360,9 +3360,18 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
         "- 2026-10-02 · **One** (Devesh): one.\n- 2026-10-02 · **Two** (Devesh): two.\n",
       );
       write(dir, "docs/decisions-in-force/README.md", "# How\n\n- free text\n");
+      // A name with a letter outside ASCII, which git quotes unless asked for names as they are.
+      write(
+        dir,
+        "docs/decisions-in-force/2026-10-15-café.md",
+        "- 2026-10-15 · **Coffee** (Devesh): one line.\n",
+      );
       const r = judged(dir, PLAIN);
       expect(r.out).toContain(
         "docs/rule-changes/PR-7.md: name it YYYY-MM-DD-<what>.md, in lower case",
+      );
+      expect(r.out).toContain(
+        "docs/decisions-in-force/2026-10-15-café.md: name it YYYY-MM-DD-<what>.md, in lower case",
       );
       expect(r.out).toContain(
         "docs/decisions-in-force/2026-10-02-two.md: hold one line, `- <the decision>`",

@@ -42,9 +42,10 @@ export const recordFileProblems = (
   read: (path: string) => string | undefined,
 ) =>
   files.flatMap((f) => {
+    if (!SHAPES.some(([d]) => f.startsWith(d) && f !== `${d}README.md`))
+      return [];
     const text = read(f);
-    if (text === undefined || !SHAPES.some(([d]) => f.startsWith(d))) return [];
-    if (SHAPES.some(([d]) => f === `${d}README.md`)) return [];
+    if (text === undefined) return [];
     const r = readRecord(f, text);
     return "problem" in r ? [r.problem] : [];
   });
