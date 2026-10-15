@@ -1,0 +1,1 @@
+- 2026-10-02 · [#124](https://github.com/devesh911/revenue-os/pull/124) · scripts/done-gate/rules.ts, scripts/done-gate.test.ts and .github/CODEOWNERS: the done rules refuse a test line that deletes companies or queued jobs other than through tests/test-companies.ts, and RULE_FILES and CODEOWNERS gain scripts/local-url.ts and scripts/app-service-login.ts · tighter

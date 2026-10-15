@@ -1,0 +1,1 @@
+- 2026-10-04 · [#139](https://github.com/devesh911/revenue-os/pull/139) · tests/setup.local.ts: before each synchronous spawn in a test run, a full memory clean-up, so Bun's lost-exit bug can't freeze the run; what the tests check is unchanged · neutral

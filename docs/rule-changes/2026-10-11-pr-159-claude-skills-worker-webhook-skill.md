@@ -1,0 +1,1 @@
+- 2026-10-11 · [#159](https://github.com/devesh911/revenue-os/pull/159) · .claude/skills/worker-webhook/SKILL.md: its reading list points at AGENTS.md's gotchas and supabase/migrations/ instead of restating the call-id key of migration 012, which migration 019 replaced, and says a webhook_events row can't be stored without its company · neutral

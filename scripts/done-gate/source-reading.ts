@@ -4,7 +4,7 @@
 // imports a code file with options (`with { type: "text" }`, `type: "file"`, which hands over the path to read, or
 // any other: code imported to run needs none). A data file (a fixture, .json, .sql, .csv, .toml, .yml, .txt) may be
 // read, unless the same words name a code file. Comments count for nothing. What still gets past it is listed in
-// STATE.md → What works today, in the done gate's row.
+// docs/done-gate.md → The done gate (the detail of STATE.md's done-gate row).
 
 import { uncommented } from "./code-text";
 import type { Added } from "./diff";

@@ -1,0 +1,1 @@
+- 2026-10-13 · [#165](https://github.com/devesh911/revenue-os/pull/165) · .github/workflows/staging-migrations.yml: its decide and apply steps run the Supabase CLI with `SUPABASE_TELEMETRY_DISABLED=1` · neutral

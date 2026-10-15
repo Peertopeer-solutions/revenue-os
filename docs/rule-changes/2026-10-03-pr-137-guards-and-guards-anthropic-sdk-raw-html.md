@@ -1,0 +1,1 @@
+- 2026-10-03 · [#137](https://github.com/devesh911/revenue-os/pull/137) · scripts/guards.sh and scripts/guards/ (anthropic-sdk.sh, raw-html.sh): `bun run guards` fails an @anthropic-ai module in packages and raw HTML in the console's src/ · tighter

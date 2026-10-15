@@ -1,0 +1,1 @@
+- 2026-10-03 · [#134](https://github.com/devesh911/revenue-os/pull/134) · AGENTS.md → Definition of done (the coverage rule and its marks) and The loop, step 4 (a `Coverage mark:` line per mark in the PR body) · tighter

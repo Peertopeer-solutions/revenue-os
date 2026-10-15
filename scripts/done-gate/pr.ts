@@ -5,8 +5,10 @@
 // workflow able to report a check named rules-from-main or checks (the two main's ruleset requires), no migration
 // on main changed or its number reused (migrations.ts), and each slice it sets to done proved by a passing proof run
 // on main, whose report its body carries (proof-link.ts). Each test the change marks as checking behaviour main
-// already has is copied into the body (already-on-main.ts).
+// already has is copied into the body (already-on-main.ts). A change to STATE.md adds no format problem the
+// tracker's reader names (a Where / why cell over its length, a record or decision line in STATE.md).
 
+import { parseState } from "../../docs/tracker/parse.js";
 import { changeMarks, markBodyProblems } from "./already-on-main";
 import { fixWhenTouchedProblems, TABLE, unreadTable } from "./fix-when-touched";
 import { git } from "./git";
@@ -16,9 +18,9 @@ import { unquotedMarks } from "./pr-coverage-marks";
 import { firstLineProblems } from "./pr-first-line";
 import { quoteProblems } from "./pr-quotes";
 import { proofLinks } from "./proof-link";
-import { recordFileProblems, stateDecisionProblems } from "./record-files";
+import { recordFileProblems } from "./record-files";
 import { entriesOf } from "./removed-tests";
-import { RECORDS, ruleChangeProblems, shown } from "./rule-changes";
+import { ruleChangeProblems, shown } from "./rule-changes";
 import { rulesOn } from "./rules";
 import type { Snap } from "./snapshot";
 
@@ -115,20 +117,11 @@ export async function judgePr(
     )
       .split("\0")
       .includes(file);
-  // The record lines docs/rule-changes/ holds as the change leaves it, read only when it removes a STATE.md line: a
-  // STATE.md record a file already holds word for word may go.
-  const filed = () =>
-    snap.removed.some((r) => r.file === "STATE.md")
-      ? git(
-          snap.repo,
-          ["ls-tree", "-z", "--name-only", snap.tree, "--", RECORDS],
-          {},
-          true,
-        )
-          .split("\0")
-          .filter(Boolean)
-          .map((f) => at(snap, f).trim())
-      : [];
+  // The format problems a change to STATE.md adds: one main already has is not this change's to fix.
+  const stateProblems = () => {
+    const had = new Set(parseState(onBase("STATE.md")).problems);
+    return parseState(at(snap, "STATE.md")).problems.filter((p) => !had.has(p));
+  };
   const workflows = Object.fromEntries(
     git(
       snap.repo,
@@ -149,19 +142,11 @@ export async function judgePr(
         snap.files.includes("ROADMAP.md"),
       ),
       ...problems,
-      ...ruleChangeProblems(
-        snap.files,
-        snap.added,
-        body,
-        at(snap, "STATE.md"),
-        pr,
-        snap.removed,
-        filed(),
-      ),
+      ...ruleChangeProblems(snap.files, snap.added, body, pr, snap.removed),
       ...recordFileProblems(snap.files, (f) =>
         left(f) ? at(snap, f) : undefined,
       ),
-      ...stateDecisionProblems(snap.added, at(snap, "STATE.md")),
+      ...(snap.files.includes("STATE.md") ? stateProblems() : []),
       ...fixWhenTouchedProblems(snap.files, body, table),
       ...quoteProblems(exceptions, entriesOf(snap.added), body),
       ...secondCheck(workflows),

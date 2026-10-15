@@ -1,0 +1,1 @@
+- 2026-10-15 · [#181](https://github.com/Peertopeer-solutions/revenue-os/pull/181) · scripts/done-gate/rule-changes.ts: STATE.md holds no rule-change records, so a line added to STATE.md → Rule changes is no longer judged as a record (the tracker's reader refuses it) and a line removed from STATE.md is no record; the records in docs/rule-changes/ are judged as before · mixed

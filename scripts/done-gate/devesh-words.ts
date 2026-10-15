@@ -2,7 +2,7 @@
 // ROADMAP.md on origin/main words it (found by the branch's description, which the building agent writes, so the
 // description itself is never handed over as the item), and Devesh's own typed words from Claude Code's transcript
 // of the session (a script's prompts, marked as script output, when a script started it). That transcript is a file
-// the building agent could append to: STATE.md lists it among the gate's open holes. A branch's checkpoint
+// the building agent could append to: docs/done-gate.md lists it among the gate's open holes. A branch's checkpoint
 // (checkpoint.ts) reads Devesh's words and the roadmap item the same way.
 
 import { readFileSync } from "node:fs";

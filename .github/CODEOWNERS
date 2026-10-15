@@ -10,6 +10,7 @@ ROADMAP.md @devesh911
 # (AGENTS.md, hard rail 7). A name without a "/" matches at any depth; a leading "/" means the repository's root.
 .github/**                          @devesh911
 .codex/**                           @devesh911
+docs/tracker/parse.js               @devesh911
 **/.claude/settings*.json           @devesh911
 **/.claude/agents/**                @devesh911
 **/.claude/skills/**                @devesh911

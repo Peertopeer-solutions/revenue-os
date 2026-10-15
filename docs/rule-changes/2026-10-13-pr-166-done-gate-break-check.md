@@ -1,0 +1,1 @@
+- 2026-10-13 · [#166](https://github.com/Peertopeer-solutions/revenue-os/pull/166) · scripts/done-gate/break-check.ts: a test file that runs a guarded line and fails, or doesn't finish, when run alone on the change fails the break check, instead of leaving that line unbroken · tighter

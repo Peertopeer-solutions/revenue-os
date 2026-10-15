@@ -1,0 +1,1 @@
+- 2026-10-03 · [#135](https://github.com/devesh911/revenue-os/pull/135) · .claude/skills/task-loop/SKILL.md (step 8): the PR body owes every line AGENTS.md → The loop, step 4, names, which the skill no longer lists · neutral

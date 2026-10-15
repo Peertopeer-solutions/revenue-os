@@ -1,0 +1,1 @@
+- 2026-10-15 · [#181](https://github.com/Peertopeer-solutions/revenue-os/pull/181) · scripts/done-gate-coverage.test.ts: checks that docs/done-gate.md, not STATE.md, names each coverage shape the rule cannot catch · neutral

@@ -3,6 +3,13 @@
 // imports so the browser can load it as is; types are in parse.d.ts.
 
 export const STATUSES = ["Works", "Tests only", "Partial", "Stub", "Missing"];
+// The longest a "What works today" Where / why cell may be; a row's longer text lives in a detail doc.
+const CELL = 600;
+// The STATE.md sections that only point at the folder holding one file per record.
+const POINTERS = {
+  "Decisions in force": ["decision", "docs/decisions-in-force/"],
+  "Rule changes": ["record", "docs/rule-changes/"],
+};
 export const passedOk = (v) => /^\d{4}-\d{2}-\d{2}/.test(v || "");
 // A file saved with Windows line endings, or with an invisible byte-order mark first, reads the same.
 const lf = (md) => md.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
@@ -181,19 +188,27 @@ export function parseState(md) {
   for (const h of ["What works today", "Waiting on Devesh"])
     if (!(h in sec))
       problems.push(`STATE.md: missing the "## ${h}" heading (exact wording)`);
-  for (const r of rows)
+  for (const r of rows) {
     if (!STATUSES.includes(r[2]))
       problems.push(`STATE.md: unknown status "${r[2]}" for "${r[1]}"`);
+    if (r[3].length > CELL)
+      problems.push(
+        `STATE.md: the Where / why cell of "${r[1]}" is ${r[3].length} characters, over ${CELL}: keep where it runs, why it has its status and a pointer, and move the rest to docs/done-gate.md or docs/what-works-today.md`,
+      );
+  }
+  for (const [h, [what, dir]] of Object.entries(POINTERS))
+    for (const l of (sec[h] || []).filter((l) => /^- /.test(l)))
+      problems.push(
+        `STATE.md → ${h}: "${l}" is a ${what} line; write it as a file of its own in ${dir} (its README says how)`,
+      );
   const checks = (l) => {
     const m = l.match(/^- \[([ x])\] (.+)$/);
     return m ? { done: m[1] === "x", text: m[2] } : null;
   };
   const waiting = (sec["Waiting on Devesh"] || []).map(checks).filter(Boolean);
-  // The rule changes recorded before docs/rule-changes/ held one file per record (scripts/records.ts).
-  const ruleChanges = list(sec, "Rule changes");
   if (!rows.length)
     problems.push('STATE.md: the "What works today" table is empty or missing');
-  return { phase, rows, waiting, ruleChanges, problems };
+  return { phase, rows, waiting, problems };
 }
 
 // The rule at the top of ROADMAP.md: the lowest-numbered slice that is not done, not proof ready,

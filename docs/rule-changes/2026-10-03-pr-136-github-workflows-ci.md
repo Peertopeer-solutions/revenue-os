@@ -1,0 +1,1 @@
+- 2026-10-03 · [#136](https://github.com/devesh911/revenue-os/pull/136) · .github/workflows/ci.yml: CI's checks job runs `bun run gate proven --base` right after the tests, with the files the job itself made (gitleaks' results.sarif, say) ignored first, since the check judges the checkout as it stands · tighter

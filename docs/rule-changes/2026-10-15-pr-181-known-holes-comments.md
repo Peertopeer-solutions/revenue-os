@@ -1,0 +1,1 @@
+- 2026-10-15 · [#181](https://github.com/Peertopeer-solutions/revenue-os/pull/181) · scripts/done-gate/source-reading.ts, scripts/done-gate/devesh-words.ts, scripts/done-gate-source-reading.test.ts and scripts/done-gate-stop.test.ts: their comments point at docs/done-gate.md for the gate's known holes · neutral

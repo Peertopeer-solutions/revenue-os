@@ -1,0 +1,1 @@
+- 2026-10-03 · [#129](https://github.com/devesh911/revenue-os/pull/129) · AGENTS.md → Docs: each docs/patterns example is an excerpt of a named real file or marked "do not copy", and `bun run guards` fails any other code block, an excerpt that no longer matches its file, and a name of a file the repository doesn't hold · tighter

@@ -1,0 +1,1 @@
+- 2026-10-04 · [#139](https://github.com/devesh911/revenue-os/pull/139) · scripts/done-gate-tests-proven.test.ts: its two tests that call main's pull-request check wait for it, since that check now asks GitHub about proof runs; what they check is unchanged · neutral

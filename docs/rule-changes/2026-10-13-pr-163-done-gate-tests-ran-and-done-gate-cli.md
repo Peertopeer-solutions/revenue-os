@@ -1,0 +1,1 @@
+- 2026-10-13 · [#163](https://github.com/devesh911/revenue-os/pull/163) · scripts/done-gate/tests-ran.ts and scripts/done-gate/cli.ts: `bun run gate tests` takes one switch, `--leave-at-once-to-ci`, which leaves that one file out of bun's run by its path (never by skipping it); off unless given, and no other path can be left out from the command line · neutral

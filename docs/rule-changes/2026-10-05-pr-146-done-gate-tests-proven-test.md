@@ -1,0 +1,1 @@
+- 2026-10-05 · [#146](https://github.com/devesh911/revenue-os/pull/146) · scripts/done-gate-tests-proven.test.ts: a test shows a "behaviour already on main" mark still shown at the stop when git's answer reading its test file comes back empty once · tighter

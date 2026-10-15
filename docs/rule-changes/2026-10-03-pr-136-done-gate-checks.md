@@ -1,0 +1,1 @@
+- 2026-10-03 · [#136](https://github.com/devesh911/revenue-os/pull/136) · scripts/done-gate/ (checks.ts): "tests proven" is one of the gate's database checks, a stop without Docker leaves it to CI with the other database checks, and a stop's count for this check is the tests it proved · tighter

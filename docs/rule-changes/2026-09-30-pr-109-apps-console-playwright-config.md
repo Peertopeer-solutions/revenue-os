@@ -1,0 +1,1 @@
+- 2026-09-30 · [#109](https://github.com/devesh911/revenue-os/pull/109) · apps/console/playwright.config.ts: the marketing site's browser checks run in `bun run e2e` · tighter

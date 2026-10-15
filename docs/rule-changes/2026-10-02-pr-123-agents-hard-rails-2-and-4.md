@@ -1,0 +1,1 @@
+- 2026-10-02 · [#123](https://github.com/devesh911/revenue-os/pull/123) · AGENTS.md hard rails 2 and 4: name the new staging-migrations workflow and the migration check · neutral

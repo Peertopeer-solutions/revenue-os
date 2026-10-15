@@ -8,7 +8,7 @@ file, it is advice. Four files are law, each answering one question:
 | `AGENTS.md` (this file) | How do we work? |
 | `docs/NORTH-STAR.md` | What are we building, and why? |
 | `ROADMAP.md` | What do we build next, and what counts as done? |
-| `STATE.md` | What actually works today, what waits on Devesh, what have we decided? (One file per decision in `docs/decisions-in-force/`, which STATE.md points to.) |
+| `STATE.md` | What actually works today, what waits on Devesh, what have we decided? (One file per decision in `docs/decisions-in-force/`, which STATE.md points to; a row's text beyond its 600-character cell is in `docs/done-gate.md` or `docs/what-works-today.md`, as binding as the row.) |
 
 Everything else in `docs/` is reference (useful, may describe unbuilt things) or `docs/archive/`
 (history — never cite it as current). Tracker page, rendered from ROADMAP.md, STATE.md and the records in docs/decisions-in-force/ and docs/rule-changes/:
@@ -108,8 +108,8 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
   independently verified: ask Claude to run the verifier, or check it yourself. Humans run `bun run gate`.
   The gate stops careless or premature "done", not an agent that sets out to forge it: Devesh's
   own attention and GitHub's required checks (`checks`, and `rules-from-main`, which runs main's copy of the
-  rules) are the backstops, and `STATE.md → What works
-  today` lists the gate's known holes.
+  rules) are the backstops, and `docs/done-gate.md → The done gate` (the detail of STATE.md's done-gate row)
+  lists the gate's known holes.
 - **Interrupted work holds the next session.** A session that starts in a worktree on a branch
   holding a change that never passed the gate, or that writes that branch's checkpoint, is held to
   it once the session that made it has stopped (quiet for 15 minutes): each of its stops judges
@@ -236,8 +236,8 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    check before each command also refuses the other ways of merging it can read (`--admin`, `gh api`, a
    merge handed to a shell or eval, an MCP tool that merges, a script in a line that names gh and
    merge), and any command or edit that touches the gate's record (`.git/done-gate`) or runs its hook by
-   hand. It reads command text, so it stops a careless try, not a determined one (STATE.md lists what
-   gets past it).
+   hand. It reads command text, so it stops a careless try, not a determined one (`docs/done-gate.md`
+   lists what gets past it).
 6. The same PR ticks its roadmap item with evidence (an off-roadmap or Side-track PR has no line
    to tick; its PR body's what / why / evidence is the record), updates `STATE.md → What works
    today` if reality changed, and adds a file to `docs/decisions-in-force/` for any decision (one file per decision, as that folder's README

@@ -1,0 +1,1 @@
+- 2026-10-03 · [#132](https://github.com/devesh911/revenue-os/pull/132) · AGENTS.md (Definition of done): says that without Docker, or while background work runs, a stop leaves the tests, database policies and browser checks to CI or a later stop and shows `NOT fully checked`, never a ✓ · neutral

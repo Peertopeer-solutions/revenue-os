@@ -1,0 +1,1 @@
+- 2026-10-03 · [#136](https://github.com/devesh911/revenue-os/pull/136) · scripts/done-gate/ (tests-ran.ts): MAY_SKIP is exported, unchanged, so the tests-proven check can leave a test it lists unjudged when it skips, with a note · neutral

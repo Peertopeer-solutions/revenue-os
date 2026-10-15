@@ -27,7 +27,6 @@ export function parseState(md: string): {
   phase: string;
   rows: string[][];
   waiting: { done: boolean; text: string }[];
-  ruleChanges: string[];
   problems: string[];
 };
 export function parseRecords(md: string): {

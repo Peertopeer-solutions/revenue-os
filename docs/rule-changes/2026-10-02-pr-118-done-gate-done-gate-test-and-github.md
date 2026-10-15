@@ -1,0 +1,1 @@
+- 2026-10-02 · [#118](https://github.com/devesh911/revenue-os/pull/118) · scripts/done-gate/, scripts/done-gate.test.ts and .github/workflows/rules-from-main.yml: main's copy of the rules judges every pull request and refuses a rule change its body doesn't explain or this list doesn't record · tighter

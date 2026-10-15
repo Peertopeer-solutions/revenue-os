@@ -1,0 +1,1 @@
+- 2026-10-05 · [#146](https://github.com/devesh911/revenue-os/pull/146) · scripts/done-gate/store.ts: the shared folder is asked for once, since git.ts now asks again on an empty answer, where #143 asked up to three times; any answer but an absolute folder still stops the run · neutral

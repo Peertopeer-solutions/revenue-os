@@ -1,0 +1,1 @@
+- 2026-10-03 · [#133](https://github.com/devesh911/revenue-os/pull/133) · scripts/done-gate-at-once.test.ts: two real gate runs started at once in two worktrees against the local database must both pass, their database checks never overlapping · tighter

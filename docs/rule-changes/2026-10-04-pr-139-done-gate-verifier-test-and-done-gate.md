@@ -1,0 +1,1 @@
+- 2026-10-04 · [#139](https://github.com/devesh911/revenue-os/pull/139) · scripts/done-gate-verifier.test.ts and scripts/done-gate-restart.test.ts: their sample roadmaps name the field "Proof passed:" · neutral

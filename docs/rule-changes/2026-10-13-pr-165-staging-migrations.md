@@ -1,0 +1,1 @@
+- 2026-10-13 · [#165](https://github.com/devesh911/revenue-os/pull/165) · scripts/staging-migrations.ts: a failed command's message quotes its stdout as well as its stderr · neutral

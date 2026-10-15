@@ -1,0 +1,1 @@
+- 2026-09-29 · [#106](https://github.com/devesh911/revenue-os/pull/106) · the done gate: stop and merge checks, the verifier agent, CI's done-rules step, one listed test allowed to skip; AGENTS.md: the loop runs `bun run gate` and the verifier before a PR, an agent merges only with `gh pr merge <number>`, and every correction from Devesh becomes a check · tighter

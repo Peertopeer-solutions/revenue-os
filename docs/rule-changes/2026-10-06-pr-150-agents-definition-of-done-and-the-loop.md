@@ -1,0 +1,1 @@
+- 2026-10-06 · [#150](https://github.com/devesh911/revenue-os/pull/150) · AGENTS.md → Definition of done and The loop: the break check, its mark and the PR body's `Break-check mark:` line · tighter

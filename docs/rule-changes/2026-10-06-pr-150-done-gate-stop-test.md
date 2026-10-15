@@ -1,0 +1,1 @@
+- 2026-10-06 · [#150](https://github.com/devesh911/revenue-os/pull/150) · scripts/done-gate-stop.test.ts: a stop's summary names the break check and five checks run on the database · neutral

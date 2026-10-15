@@ -1,0 +1,1 @@
+- 2026-10-15 · [#181](https://github.com/Peertopeer-solutions/revenue-os/pull/181) · scripts/done-gate/record-files.ts: its refusal of a decision line in STATE.md → Decisions in force moves into docs/tracker/parse.js, which refuses the same lines · neutral

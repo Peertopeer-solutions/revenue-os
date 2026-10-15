@@ -2,8 +2,8 @@
 // (`bun run gate tests`) writes an lcov report, and each line the change adds to a .ts or .tsx file under apps,
 // services or packages must be one it ran, read with the line rule in scripts/done-gate/lcov.ts. The shapes below
 // are reproduced on real Bun coverage, so a Bun upgrade that changes what Bun reports shows up here: the first test
-// fails until someone re-runs them on the new version, updates which the rule catches and STATE.md's known holes,
-// and then WRITTEN_FOR.
+// fails until someone re-runs them on the new version, updates which the rule catches and the known holes in
+// docs/done-gate.md (STATE.md's coverage row points there), and then WRITTEN_FOR.
 import {
   afterAll,
   beforeAll,
@@ -56,13 +56,14 @@ const sh = (dir: string, cmd: string[], env: Record<string, string> = {}) =>
     encoding: "utf8",
   });
 
+// behaviour already on main: only its message now names docs/done-gate.md, where STATE.md's known holes moved
 it(`the shapes below were reproduced on Bun ${WRITTEN_FOR}, the version the repo pins`, () => {
   const pinned = JSON.parse(
     readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"),
   ).engines.bun;
   if (pinned !== WRITTEN_FOR || Bun.version !== WRITTEN_FOR)
     throw new Error(
-      `Bun is ${Bun.version} and the repo pins ${pinned}, but the coverage shapes in this file were reproduced on ${WRITTEN_FOR}. Re-run each shape on the new version, update which the rule catches here and the known holes in STATE.md, then set WRITTEN_FOR.`,
+      `Bun is ${Bun.version} and the repo pins ${pinned}, but the coverage shapes in this file were reproduced on ${WRITTEN_FOR}. Re-run each shape on the new version, update which the rule catches here and the known holes in docs/done-gate.md, then set WRITTEN_FOR.`,
     );
 });
 
@@ -202,7 +203,8 @@ test("the paths a test takes", () => {
 const lineOf = (tag: string, text = SHAPES) =>
   text.split("\n").findIndex((l) => l.endsWith(`// ${tag}`)) + 1;
 
-// How STATE.md → What works today names each shape the rule cannot catch, and each it wrongly reports as not run.
+// How docs/done-gate.md → Every added line is run by a test (the detail of STATE.md's coverage row) names each shape
+// the rule cannot catch, and each it wrongly reports as not run.
 const NOT_CAUGHT = {
   default: "an unused switch `default:`",
   arm: "a never-taken ternary arm on its own line",
@@ -254,24 +256,29 @@ describe(`what Bun ${WRITTEN_FOR} reports for each shape, and which the line rul
       false,
     );
   });
-  it(`${NOT_CAUGHT.default}: NOT caught (STATE.md known hole): Bun lists no line for \`default:\`, and the case before it ran`, () => {
+  // behaviour already on main: only its title now names docs/done-gate.md, where STATE.md's known holes moved
+  it(`${NOT_CAUGHT.default}: NOT caught (known hole, docs/done-gate.md): Bun lists no line for \`default:\`, and the case before it ran`, () => {
     expect(lineRan(hits, "shapes.ts", lineOf("UNUSED-DEFAULT"))).toBe(true);
   });
-  it(`${NOT_CAUGHT.arm}: NOT caught (STATE.md known hole): Bun marks the arm run, the first arm or the last, and the line before it ran`, () => {
+  // behaviour already on main: only its title now names docs/done-gate.md, where STATE.md's known holes moved
+  it(`${NOT_CAUGHT.arm}: NOT caught (known hole, docs/done-gate.md): Bun marks the arm run, the first arm or the last, and the line before it ran`, () => {
     for (const arm of ["FIRST-ARM", "LAST-ARM"]) {
       expect(bunSays(arm)).toBeGreaterThan(0);
       expect(lineRan(hits, "shapes.ts", lineOf(arm))).toBe(true);
     }
   });
-  it(`${NOT_CAUGHT.oneLine}: NOT caught (STATE.md known hole): the line ran when the file loaded`, () => {
+  // behaviour already on main: only its title now names docs/done-gate.md, where STATE.md's known holes moved
+  it(`${NOT_CAUGHT.oneLine}: NOT caught (known hole, docs/done-gate.md): the line ran when the file loaded`, () => {
     expect(lineRan(hits, "shapes.ts", lineOf("ONE-LINE-FUNCTION"))).toBe(true);
   });
-  it(`${NOT_CAUGHT.shortCircuit}: NOT caught (STATE.md known hole): Bun marks it run though an earlier operand decided the answer, and the line before it ran`, () => {
+  // behaviour already on main: only its title now names docs/done-gate.md, where STATE.md's known holes moved
+  it(`${NOT_CAUGHT.shortCircuit}: NOT caught (known hole, docs/done-gate.md): Bun marks it run though an earlier operand decided the answer, and the line before it ran`, () => {
     expect(bunSays("SHORT-CIRCUIT")).toBeGreaterThan(0);
     expect(lineRan(hits, "shapes.ts", lineOf("SHORT-CIRCUIT"))).toBe(true);
     expect(lineRan(hits, "shapes.ts", lineOf("SHORT-CIRCUIT") + 1)).toBe(true);
   });
-  it(`${NOT_CAUGHT.folded}: NOT caught alone (STATE.md known hole): Bun lists no line there, so it reads as holding no code; the earlier lines are caught, and so is the last line of a body Bun doesn't fold`, () => {
+  // behaviour already on main: only its title now names docs/done-gate.md, where STATE.md's known holes moved
+  it(`${NOT_CAUGHT.folded}: NOT caught alone (known hole, docs/done-gate.md): Bun lists no line there, so it reads as holding no code; the earlier lines are caught, and so is the last line of a body Bun doesn't fold`, () => {
     expect(bunSays("UNLISTED")).toBeUndefined();
     expect(lineRan(hits, "shapes.ts", lineOf("UNLISTED") - 1)).toBe(false);
     expect(bunSays("NOT-FOLDED")).toBeGreaterThan(0);
@@ -290,12 +297,14 @@ describe(`what Bun ${WRITTEN_FOR} reports for each shape, and which the line rul
     expect(hits.get("cli.ts")?.get(line)).toBe(0);
     expect(lineRan(hits, "cli.ts", line)).toBe(false);
   });
-  it("STATE.md lists each shape the rule cannot catch as a known hole, and each it wrongly reports", () => {
-    const row = readFileSync(join(import.meta.dir, "..", "STATE.md"), "utf8")
-      .split("\n")
-      .find((l) =>
-        l.startsWith("| Quality | Every product line a change adds"),
-      );
+  // behaviour already on main: docs/done-gate.md is not product code, so tests proven's copy of main holds it; main itself has no such file and fails it
+  it("docs/done-gate.md, where STATE.md's coverage row points, lists each shape the rule cannot catch as a known hole, and each it wrongly reports", () => {
+    const row = readFileSync(
+      join(import.meta.dir, "..", "docs", "done-gate.md"),
+      "utf8",
+    )
+      .split("\n## ")
+      .find((l) => l.startsWith("Every added line is run by a test\n"));
     for (const shape of [
       ...Object.values(NOT_CAUGHT),
       ...Object.values(WRONGLY_REPORTED),
@@ -732,6 +741,7 @@ describe("bun run gate tests: the gate's own test run reads its coverage and ref
     return { status: r.status, out: r.stdout + r.stderr };
   };
 
+  // behaviour already on main: only a comment in it now names docs/done-gate.md, where STATE.md's known holes moved
   it("fails naming a line a test never runs and a file no test loads, then passes once a test runs them", () => {
     const dir = project();
     write(
@@ -745,7 +755,7 @@ describe("bun run gate tests: the gate's own test run reads its coverage and ref
     expect(failed.out).toContain(
       "✗ Some lines this change adds are run by no test:",
     );
-    // Bun lists no line for `return n;`: it folds the never-called body to a constant (STATE.md known hole).
+    // Bun lists no line for `return n;`: it folds the never-called body to a constant (a known hole, docs/done-gate.md).
     expect(failed.out).toContain("- packages/p/src/a.ts: lines 2-3 never ran");
     expect(failed.out).toContain(
       "- packages/p/src/b.ts: line 1 never ran (no test loads this file, so all of it counts as not run)",

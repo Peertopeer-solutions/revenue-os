@@ -1,0 +1,1 @@
+- 2026-10-06 · [#154](https://github.com/devesh911/revenue-os/pull/154) · scripts/done-gate/tests-ran.ts: MAY_SKIP, the list of tests allowed not to run, is empty; the dev login's sign-up test it listed is gone, and its replacement must run everywhere · tighter

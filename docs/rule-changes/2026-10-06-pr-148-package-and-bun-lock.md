@@ -1,0 +1,1 @@
+- 2026-10-06 · [#148](https://github.com/devesh911/revenue-os/pull/148) · package.json and bun.lock: source-map-js is pinned to 1.2.2 through overrides, so the high advisory GHSA-68fv-2mgg-jv7q no longer fails `bun audit` · tighter

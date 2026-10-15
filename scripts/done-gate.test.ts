@@ -580,6 +580,7 @@ describe("checkRules", () => {
     ]);
   });
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rules.ts and .github/CODEOWNERS over (neither is product code), so it passes there; on main's own rules.ts docs/tracker/parse.js is no rule file and it fails
   it("treats as rule files exactly the files under CODEOWNERS' rule-file heading, both ways", () => {
     const root = join(import.meta.dir, "..");
     const owned = join(mkdtempSync(join(tmpdir(), "done-gate-owners-")), "p");
@@ -651,6 +652,7 @@ describe("checkRules", () => {
         "packages/db/biome.jsonc",
         "scripts/local-url.ts",
         "scripts/app-service-login.ts",
+        "docs/tracker/parse.js",
       ]),
     );
     // Every line under the heading names Devesh as the owner: a line with no owner leaves the file unowned.
@@ -2841,8 +2843,6 @@ describe("bun run gate rules (CI runs it on every pull request)", () => {
 
 describe("bun run gate pr: main's copy of the rules judges a pull request (rules-from-main runs it)", () => {
   const PR = "7";
-  /** STATE.md as a change leaves it: Rule changes on line 3, its older records from line 5. */
-  const STATE = "# State\n\n## Rule changes\n\n";
   /** The record files a change adds in docs/rule-changes/, one line each. */
   const addedTo = (...rows: string[]) =>
     rows.map((text, i) => ({
@@ -2859,16 +2859,10 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ).toEqual([]);
   });
 
-  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
+  // behaviour already on main: main judges these records the same way; only the call changes, as ruleChangeProblems no longer takes STATE.md
   it("refuses a rule change its body doesn't explain or no file in docs/rule-changes/ records", () => {
     expect(
-      ruleChangeProblems(
-        [".github/workflows/ci.yml"],
-        [],
-        "Roadmap: x",
-        STATE,
-        PR,
-      ),
+      ruleChangeProblems([".github/workflows/ci.yml"], [], "Roadmap: x", PR),
     ).toEqual([
       expect.stringContaining(
         "the PR body explains no change to .github/workflows/ci.yml: add one line per changed rule",
@@ -2879,7 +2873,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ]);
   });
 
-  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
+  // behaviour already on main: main judges these records the same way; only the call changes, as ruleChangeProblems no longer takes STATE.md
   it("accepts a line per rule, and a record file per rule, that name each file by its path, its file name or a folder holding it", () => {
     expect(
       ruleChangeProblems(
@@ -2889,7 +2883,6 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
           record("biome.json"),
         ),
         "Roadmap: x\n\nRule change: scripts/done-gate/ and scripts/done-gate.ts · tighter · reads a commit as data\nRule change: biome.json · neutral · no change in what it fails",
-        STATE,
         PR,
       ),
     ).toEqual([]);
@@ -2914,8 +2907,8 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     expect(names(".github/workflows/", ".github/workflows/ci.yml")).toBe(true);
   });
 
-  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
-  it("refuses a badly written line or record, a record for another pull request in either place, and one added outside docs/rule-changes/", () => {
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; main's own rule-changes.ts judged the STATE.md lines as records, and the call no longer passes STATE.md
+  it("refuses a badly written line or record, a record for another pull request, and counts none added outside docs/rule-changes/", () => {
     const other = record(".github/workflows/ci.yml", "6");
     const misplaced = record(".github/workflows/ci.yml");
     const forged = record("AGENTS.md", "5");
@@ -2930,14 +2923,11 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
           { file: "docs/rule-changes/README.md", line: 9, text: misplaced },
         ],
         "Rule change: ci.yml · stricter · checks more",
-        STATE,
         PR,
       ),
     ).toEqual([
       `docs/rule-changes/: "${other}" names #6, not this pull request (#7)`,
       'docs/rule-changes/: "- ci.yml got stricter" is not `- YYYY-MM-DD · [#N](link) · <rule> · tighter | looser | neutral | mixed`',
-      `STATE.md → Rule changes: "${forged}" names #5, not this pull request (#7)`,
-      'STATE.md → Rule changes: "- a rule got looser" is not `- YYYY-MM-DD · [#N](link) · <rule> · tighter | looser | neutral | mixed`',
       'the PR body\'s line "Rule change: ci.yml · stricter · checks more" is not written as `Rule change: <rule> · tighter | looser | neutral | mixed · <why>`, where <rule> names the file by its path, its file name or the folder it sits in (such as scripts/done-gate/)',
       expect.stringContaining(
         "the PR body explains no change to .github/workflows/ci.yml",
@@ -2946,7 +2936,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ]);
   });
 
-  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
+  // behaviour already on main: main judges these lines the same way; only the call changes, as ruleChangeProblems no longer takes STATE.md
   it("counts no line GitHub doesn't show: one in an HTML comment or a code block explains nothing", () => {
     for (const hidden of [
       "Tidy-up only.\n<!--\nRule change: ci.yml · neutral · tidy\n-->",
@@ -2958,7 +2948,6 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
           [".github/workflows/ci.yml"],
           addedTo(record("ci.yml")),
           hidden,
-          STATE,
           PR,
         ),
       ).toEqual([
@@ -2968,12 +2957,12 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       ]);
   });
 
-  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
-  it("refuses a change that removes or rewrites an earlier record, in docs/rule-changes/ or STATE.md, so the records only grow", () => {
+  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; main's own rule-changes.ts also refused the record leaving STATE.md, and the call no longer passes STATE.md
+  it("refuses a change that removes or rewrites an earlier record in docs/rule-changes/, so the records only grow; a line leaving STATE.md is no record", () => {
     const old = record("biome.json", "5");
     const older = record("AGENTS.md", "4");
     expect(
-      ruleChangeProblems(["STATE.md"], [], "", STATE, PR, [
+      ruleChangeProblems(["STATE.md"], [], "", PR, [
         { file: "STATE.md", line: 11, text: old },
         {
           file: "docs/rule-changes/2026-10-01-agents.md",
@@ -2983,24 +2972,24 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
         { file: "STATE.md", line: 5, text: "- 2026-10-01 · an old decision" },
       ]),
     ).toEqual([
-      `STATE.md → Rule changes only grows: this change removes or rewrites the record "${old}"`,
       `docs/rule-changes/ only grows: this change removes or rewrites the record "${older}"`,
     ]);
   });
 
-  // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
-  it("lets a record move word for word from STATE.md into a file of its own, without counting it as this pull request's", () => {
+  // behaviour already on main: main also lets a record move between record files; the case moves there from STATE.md, which holds no records now, and the call no longer passes STATE.md
+  it("lets a record move word for word into another file of docs/rule-changes/, without counting it as this pull request's", () => {
     const old = record("biome.json", "5");
-    const moved = [{ file: "STATE.md", line: 11, text: old }];
+    const moved = [
+      { file: "docs/rule-changes/2026-10-01-old.md", line: 1, text: old },
+    ];
     expect(
-      ruleChangeProblems(["STATE.md"], addedTo(old), "", STATE, PR, moved),
+      ruleChangeProblems(["STATE.md"], addedTo(old), "", PR, moved),
     ).toEqual([]);
     expect(
       ruleChangeProblems(
         ["biome.json"],
         addedTo(record("biome.json", PR), old),
         "Rule change: biome.json · tighter · x",
-        STATE,
         PR,
         moved,
       ),
@@ -3010,7 +2999,6 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
         ["biome.json"],
         addedTo(old),
         "Rule change: biome.json · tighter · x",
-        STATE,
         PR,
         moved,
       ),
@@ -3021,9 +3009,9 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     ]);
     const forged = record("biome.json", "6");
     expect(
-      ruleChangeProblems(["STATE.md"], addedTo(forged), "", STATE, PR, moved),
+      ruleChangeProblems(["STATE.md"], addedTo(forged), "", PR, moved),
     ).toEqual([
-      `STATE.md → Rule changes only grows: this change removes or rewrites the record "${old}"`,
+      `docs/rule-changes/ only grows: this change removes or rewrites the record "${old}"`,
       `docs/rule-changes/: "${forged}" names #6, not this pull request (#7)`,
     ]);
   });
@@ -3247,7 +3235,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     });
   });
 
-  describe("the records in docs/rule-changes/ and STATE.md → Rule changes, judged as rules-from-main judges them", () => {
+  describe("the records in docs/rule-changes/, and STATE.md's sections that only point at the folders, judged as rules-from-main judges them", () => {
     const OLD = "docs/rule-changes/2026-10-01-old.md";
     const older = record("AGENTS.md", "5");
     const old = record("biome.json", "4");
@@ -3277,11 +3265,11 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       }
     });
 
-    // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts a record in docs/rule-changes/ counts for nothing and it fails
-    it("accepts a STATE.md record moved word for word into a file of its own, and counts it as no record of this pull request", () => {
+    // behaviour already on main: main's own copy also accepts a record moved between record files and counts it as no record of this pull request; it replaces the test of a record moved out of STATE.md, which holds none now
+    it("accepts a record moved word for word into another file of docs/rule-changes/, and counts it as no record of this pull request", () => {
       const dir = onMain();
-      write(dir, "STATE.md", "# State\n\n## Rule changes\n\n");
-      write(dir, "docs/rule-changes/2026-10-01-agents.md", `${older}\n`);
+      rmSync(join(dir, OLD));
+      write(dir, "docs/rule-changes/2026-10-01-renamed.md", `${old}\n`);
       expect(judged(dir, PLAIN).status).toBe(0);
       sh(dir, ["git", "checkout", "-q", "feat"]);
       write(
@@ -3289,32 +3277,59 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
         ".github/workflows/ci.yml",
         "permissions: {contents: read}\njobs:\n  checks:\n    runs-on: y\n",
       );
-      const r = judged(dir, explained("AGENTS.md"));
+      const r = judged(dir, explained("ci.yml"));
       expect(r.out).toContain(
         "docs/rule-changes/ gains no record of #7 naming .github/workflows/ci.yml",
       );
       expect(r.status).toBe(1);
     });
 
-    // behaviour already on main: main's own copy refuses this line too; the test keeps that check from getting weaker now that records are files
-    it("refuses a line added to STATE.md → Rule changes that names another pull request, as main's copy did", () => {
-      const dir = onMain();
-      write(
-        dir,
-        ".github/workflows/ci.yml",
-        "permissions: {contents: read}\njobs:\n  checks:\n    runs-on: y\n",
-      );
-      recorded(dir, ".github/workflows/ci.yml");
-      const forged = record("biome.json", "899");
-      write(dir, "STATE.md", `${STATE_ON_MAIN.trimEnd()}\n${forged}\n`);
-      const r = judged(dir, explained("ci.yml"));
-      expect(r.out).toContain(
-        `STATE.md → Rule changes: "${forged}" names #899, not this pull request (#7)`,
-      );
-      expect(r.status).toBe(1);
+    // behaviour already on main: main's copy carries docs/tracker/parse.js and scripts/done-gate/ over (neither is product code), so it passes there; main's own copy accepts a well-written record naming this pull request in STATE.md and fails it
+    it("refuses any record line added to STATE.md → Rule changes, even a well-written one naming this pull request: a record is a file of its own", () => {
+      for (const line of [
+        record(".github/workflows/ci.yml"),
+        record("biome.json", "899"),
+      ]) {
+        const dir = onMain();
+        write(
+          dir,
+          ".github/workflows/ci.yml",
+          "permissions: {contents: read}\njobs:\n  checks:\n    runs-on: y\n",
+        );
+        recorded(dir, ".github/workflows/ci.yml");
+        write(dir, "STATE.md", `${STATE_ON_MAIN.trimEnd()}\n${line}\n`);
+        const r = judged(dir, explained("ci.yml"));
+        expect(r.out).toContain(
+          `STATE.md → Rule changes: "${line}" is a record line; write it as a file of its own in docs/rule-changes/ (its README says how)`,
+        );
+        // The record main's STATE.md already holds is main's to move, not this change's.
+        expect(r.out).not.toContain(older);
+        expect(r.status).toBe(1);
+      }
     });
 
-    // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts removing any STATE.md record is refused and it fails
+    // behaviour already on main: main's copy carries docs/tracker/parse.js and scripts/done-gate/ over (neither is product code), so it passes there; main's own copy lets a cell of any length through and fails it
+    it("refuses a Where / why cell of STATE.md over 600 characters that the change writes, and not one main already has", () => {
+      const state = (cells: string[]) =>
+        `PHASE: SETUP\n\n## What works today\n| Area | Capability | Status | Where / why |\n|---|---|---|---|\n${cells.map((c, i) => `| Data | row ${i} | Works | ${c} |`).join("\n")}\n\n## Waiting on Devesh\n`;
+      const long = "y".repeat(601);
+      const dir = project({ "STATE.md": state(["short", "short"]) });
+      write(dir, "STATE.md", state([long, "y".repeat(600)]));
+      const r = judged(dir, PLAIN);
+      expect(r.out).toContain(
+        'STATE.md: the Where / why cell of "row 0" is 601 characters, over 600: keep where it runs, why it has its status and a pointer, and move the rest to docs/done-gate.md or docs/what-works-today.md',
+      );
+      expect(r.out).not.toContain('"row 1"');
+      expect(r.status).toBe(1);
+      const had = project({ "STATE.md": state([long, "short"]) });
+      write(had, "STATE.md", state([long, "edited"]));
+      expect(judged(had, PLAIN)).toEqual({
+        status: 0,
+        out: expect.stringContaining("Pull request ✓"),
+      });
+    });
+
+    // behaviour already on main: main lets this record go too, as a record file holds it; after this change a line leaving STATE.md is no record at all, so it still goes
     it("lets a STATE.md record go once a record file on main already holds it word for word", () => {
       const dir = project({
         "STATE.md": STATE_ON_MAIN,
@@ -3328,7 +3343,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       });
     });
 
-    // behaviour already on main: main's copy carries scripts/done-gate/record-files.ts over (gate code is not product code), so it passes there; main's own copy has no such check and lets the line through, so it fails
+    // behaviour already on main: main's record-files.ts refuses this line with the same words; the refusal now comes from docs/tracker/parse.js
     it("refuses a decision line added to STATE.md → Decisions in force: a decision is a file of its own", () => {
       const pointer =
         "# State\n\n## Decisions in force\n\nOne file per decision, in docs/decisions-in-force/.\n\n## Rule changes\n\n";

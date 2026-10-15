@@ -1,0 +1,1 @@
+- 2026-10-03 · [#131](https://github.com/devesh911/revenue-os/pull/131) · .claude/settings.json, scripts/done-gate/ (merge-reading.ts, hook.ts) and scripts/done-gate.test.ts: the gate's hook runs before every MCP tool whose name says merge, and refuses one that merges a pull request (the desktop app's auto-merge tool) · tighter

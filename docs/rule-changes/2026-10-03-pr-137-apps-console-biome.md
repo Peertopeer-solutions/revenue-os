@@ -1,0 +1,1 @@
+- 2026-10-03 · [#137](https://github.com/devesh911/revenue-os/pull/137) · apps/console/biome.json: lint fails the Supabase client package in the console's src/ outside src/lib/supabase.ts, types included · tighter

@@ -1,0 +1,1 @@
+- 2026-09-25 · [#102](https://github.com/devesh911/revenue-os/pull/102) · AGENTS.md rewritten as the one working agreement; CODEOWNERS names Devesh for AGENTS.md and ROADMAP.md · neutral (rewrite)

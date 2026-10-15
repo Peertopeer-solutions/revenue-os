@@ -1,0 +1,1 @@
+- 2026-10-06 · [#152](https://github.com/devesh911/revenue-os/pull/152) · .github/workflows/ci.yml: the worker image build passes the commit (github.sha) as RELEASE and fails when the image's org.opencontainers.image.revision label is not that commit, or when a build without RELEASE is accepted (docker/Dockerfile refuses a build that names no commit id) · tighter

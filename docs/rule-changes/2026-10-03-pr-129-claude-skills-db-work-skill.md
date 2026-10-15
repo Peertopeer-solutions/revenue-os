@@ -1,0 +1,1 @@
+- 2026-10-03 · [#129](https://github.com/devesh911/revenue-os/pull/129) · .claude/skills/db-work/SKILL.md: the migrations are the schema and a change is a new, append-only migration, never DDL copied from docs/db-design.md; its "lessons outrank this file" sentence goes and its security codes name docs/security.md · tighter

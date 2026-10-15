@@ -1,0 +1,1 @@
+- 2026-10-15 · [#181](https://github.com/Peertopeer-solutions/revenue-os/pull/181) · scripts/done-gate/rules.ts and .github/CODEOWNERS: docs/tracker/parse.js is a rule file, so a change to STATE.md's format rules needs a rule-change line and record · tighter

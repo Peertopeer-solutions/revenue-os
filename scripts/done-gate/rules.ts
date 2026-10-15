@@ -31,9 +31,9 @@ const CODE = /\.[cm]?[jt]sx?$/;
 // test keeps the two equal. Changing one is allowed: Devesh is told at every stop and in CI's log, and its pull
 // request explains it and records it (rule-changes.ts). ROADMAP.md and STATE.md stay out, because every pull
 // request changes them. scripts/staging-migrations.ts is in: it decides whether the cloud test database waits for
-// `checks`.
+// `checks`. So is docs/tracker/parse.js: `rules-from-main` judges STATE.md's format with it (the 600-character cell).
 export const RULE_FILES =
-  /^(\.github\/|\.codex\/|scripts\/(guards(\.sh$|\/)|done-gate|staging-migrations|cycle-hook\.sh$|cycle\.ts$|local-env\.ts$|local-url\.ts$|app-service-login\.ts$)|tests\/(rls_coverage\.sql|setup[^/]*\.ts)$|\.mcp\.json$)|(^|\/)(\.claude\/(settings[^/]*\.json$|agents\/|skills\/|commands\/)|(AGENTS|CLAUDE)\.md$|\.gitleaks(\.toml|ignore)$|\.gitattributes$|package\.json$|bunfig\.toml$|biome\.jsonc?$|tsconfig[^/]*\.json$|playwright\.config\.ts$)/i;
+  /^(\.github\/|\.codex\/|docs\/tracker\/parse\.js$|scripts\/(guards(\.sh$|\/)|done-gate|staging-migrations|cycle-hook\.sh$|cycle\.ts$|local-env\.ts$|local-url\.ts$|app-service-login\.ts$)|tests\/(rls_coverage\.sql|setup[^/]*\.ts)$|\.mcp\.json$)|(^|\/)(\.claude\/(settings[^/]*\.json$|agents\/|skills\/|commands\/)|(AGENTS|CLAUDE)\.md$|\.gitleaks(\.toml|ignore)$|\.gitattributes$|package\.json$|bunfig\.toml$|biome\.jsonc?$|tsconfig[^/]*\.json$|playwright\.config\.ts$)/i;
 const ALLOW = "done-gate: allow";
 // In a test file, a test switched off or singled out: skip/only/todo, their conditional forms (skipIf, runIf,
 // todoIf, if), Playwright's fixme and fail, bun's failing, after any modifiers (concurrent, serial, describe),
