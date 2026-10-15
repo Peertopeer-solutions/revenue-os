@@ -580,6 +580,7 @@ describe("checkRules", () => {
     ]);
   });
 
+  // behaviour already on main: main's copy carries scripts/done-gate/rules.ts and .github/CODEOWNERS over (neither is product code), so it passes there; on main's own rules.ts docs/tracker/parse.js is no rule file and it fails
   it("treats as rule files exactly the files under CODEOWNERS' rule-file heading, both ways", () => {
     const root = join(import.meta.dir, "..");
     const owned = join(mkdtempSync(join(tmpdir(), "done-gate-owners-")), "p");
@@ -651,6 +652,7 @@ describe("checkRules", () => {
         "packages/db/biome.jsonc",
         "scripts/local-url.ts",
         "scripts/app-service-login.ts",
+        "docs/tracker/parse.js",
       ]),
     );
     // Every line under the heading names Devesh as the owner: a line with no owner leaves the file unowned.
