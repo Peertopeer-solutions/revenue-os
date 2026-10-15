@@ -1,0 +1,1 @@
+- 2026-10-03 · [#135](https://github.com/devesh911/revenue-os/pull/135) · .github/workflows/ci.yml: the Done rules step of `checks` judges the pull request's own commit against where it left main (`--head`), as rules-from-main does, instead of GitHub's merge commit against main's tip · neutral

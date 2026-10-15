@@ -1,0 +1,1 @@
+- 2026-10-03 · [#129](https://github.com/devesh911/revenue-os/pull/129) · .claude/skills/prevent-repeat/SKILL.md and .github/workflows/ci.yml: a new guard goes in scripts/guards/, and CI's guards step is named for all of them · neutral

@@ -1,0 +1,1 @@
+- 2026-10-06 · [#150](https://github.com/devesh911/revenue-os/pull/150) · scripts/done-gate-at-once.test.ts: two gate runs at once show the break check in their summary line · neutral

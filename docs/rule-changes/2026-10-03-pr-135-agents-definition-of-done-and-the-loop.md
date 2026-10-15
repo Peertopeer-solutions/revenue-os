@@ -1,0 +1,1 @@
+- 2026-10-03 · [#135](https://github.com/devesh911/revenue-os/pull/135) · AGENTS.md (Definition of done, and The loop, step 4): the done rules and product code as above, and the PR body's Exception and removed-test lines · tighter

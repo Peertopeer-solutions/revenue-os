@@ -1,0 +1,1 @@
+- 2026-10-03 · [#135](https://github.com/devesh911/revenue-os/pull/135) · scripts/done-gate/ (pr-quotes.ts, pr.ts): main's copy refuses a pull request whose body does not show each exception it adds, as an Exception line, and copy each line docs/removed-tests.md gains · tighter

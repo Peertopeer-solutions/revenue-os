@@ -1,0 +1,1 @@
+- 2026-10-06 · [#154](https://github.com/devesh911/revenue-os/pull/154) · scripts/done-gate.test.ts and scripts/done-gate-tests-proven.test.ts: their MAY_SKIP examples use a list of their own, as MAY_SKIP is empty; each still checks a listed test may skip and an unlisted one may not · neutral

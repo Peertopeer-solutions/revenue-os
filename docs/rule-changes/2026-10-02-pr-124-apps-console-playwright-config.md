@@ -1,0 +1,1 @@
+- 2026-10-02 · [#124](https://github.com/devesh911/revenue-os/pull/124) · apps/console/playwright.config.ts: a browser test that passes only on a retry fails the run when CI is set (`failOnFlakyTests`) · tighter

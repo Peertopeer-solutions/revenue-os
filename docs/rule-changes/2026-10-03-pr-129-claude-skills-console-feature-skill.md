@@ -1,0 +1,1 @@
+- 2026-10-03 · [#129](https://github.com/devesh911/revenue-os/pull/129) · .claude/skills/console-feature/SKILL.md: a save invalidates its queries instead of updating the screen optimistically, query keys come from each feature's own factory, the console's write set and its commands point at AGENTS.md and `bun run gate`, and its "lessons outrank this file" sentence goes · mixed

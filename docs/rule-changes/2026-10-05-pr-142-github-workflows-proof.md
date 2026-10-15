@@ -1,0 +1,1 @@
+- 2026-10-05 · [#142](https://github.com/devesh911/revenue-os/pull/142) · .github/workflows/proof.yml: each slice's report is written to slice-<n>/ inside its artifact, and the post job merges the artifacts as it downloads them, so it finds every report however many slices a run proves · neutral

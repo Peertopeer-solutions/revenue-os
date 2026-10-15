@@ -1,0 +1,1 @@
+- 2026-10-03 · [#137](https://github.com/devesh911/revenue-os/pull/137) · apps/console/playwright.config.ts: the browser checks also build the console with its settings empty and serve it on port 4175, for apps/console/e2e/no-settings.e2e.ts · tighter

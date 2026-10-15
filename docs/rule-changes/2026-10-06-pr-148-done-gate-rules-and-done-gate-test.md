@@ -1,0 +1,1 @@
+- 2026-10-06 · [#148](https://github.com/devesh911/revenue-os/pull/148) · scripts/done-gate/rules.ts and scripts/done-gate.test.ts: a throwing placeholder passes only when a Stub row the change adds or edits in STATE.md names its own file (by path, or by file name alone); before, adding or rewording any Stub row let every placeholder in the change through · tighter

@@ -1,0 +1,1 @@
+- 2026-10-06 · [#154](https://github.com/devesh911/revenue-os/pull/154) · packages/db/package.json: drizzle-orm leaves the database package's dependencies; no query used it, and its unused copy of three tables (packages/db/src/schema.ts) is deleted (docs/fix-when-touched.md entry 2) · neutral

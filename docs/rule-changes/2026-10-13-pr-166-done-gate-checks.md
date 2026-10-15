@@ -1,0 +1,1 @@
+- 2026-10-13 · [#166](https://github.com/Peertopeer-solutions/revenue-os/pull/166) · scripts/done-gate/checks.ts: the gate runs tests proven, the break check and the database policies before the whole suite, so a failure on the change alone shows first; the same checks run · neutral

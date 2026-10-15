@@ -1,0 +1,1 @@
+- 2026-10-03 · [#136](https://github.com/devesh911/revenue-os/pull/136) · AGENTS.md → Definition of done and The loop, step 3: a change's new and edited tests must fail on main's code and pass on the change, and one that passes on main says why · tighter

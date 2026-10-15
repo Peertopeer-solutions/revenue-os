@@ -1,0 +1,1 @@
+- 2026-10-02 · [#126](https://github.com/devesh911/revenue-os/pull/126) · scripts/done-gate-migrations.test.ts: the migration tests give the gate its parser, an accepted first line and a fix-when-touched table · neutral

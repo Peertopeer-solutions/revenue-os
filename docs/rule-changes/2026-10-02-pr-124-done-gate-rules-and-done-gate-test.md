@@ -1,0 +1,1 @@
+- 2026-10-02 · [#124](https://github.com/devesh911/revenue-os/pull/124) · scripts/done-gate/rules.ts and scripts/done-gate.test.ts: the done rules refuse a test line that drops a database trigger or creates, changes or drops a policy, each of which on the local stack locks every auth table and deadlocks another test run's sign-ups · tighter

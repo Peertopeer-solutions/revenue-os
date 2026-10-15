@@ -1,0 +1,1 @@
+- 2026-10-02 · [#124](https://github.com/devesh911/revenue-os/pull/124) · tests/setup.local.ts and scripts/app-service-login.ts: test start-up refuses a non-local LOCAL_DB_URL, DATABASE_URL or SUPABASE_URL with the one check (scripts/local-url.ts), and writes the app_service login only when it can't log in · tighter

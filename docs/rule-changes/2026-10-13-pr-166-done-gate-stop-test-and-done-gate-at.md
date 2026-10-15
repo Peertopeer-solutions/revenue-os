@@ -1,0 +1,1 @@
+- 2026-10-13 · [#166](https://github.com/Peertopeer-solutions/revenue-os/pull/166) · scripts/done-gate-stop.test.ts and scripts/done-gate-at-once.test.ts: they expect the gate's summary in its new order · neutral

@@ -1,0 +1,1 @@
+- 2026-10-06 · [#150](https://github.com/devesh911/revenue-os/pull/150) · scripts/done-gate/test-run.ts and scripts/done-gate/code-copy.ts: a test file's run can be given a shorter time limit, and the scratch copy's clone, checkout and install now stop after 10 minutes each instead of never · tighter

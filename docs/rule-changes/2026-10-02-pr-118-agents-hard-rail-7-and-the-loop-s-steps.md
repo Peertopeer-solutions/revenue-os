@@ -1,0 +1,1 @@
+- 2026-10-02 · [#118](https://github.com/devesh911/revenue-os/pull/118) · AGENTS.md hard rail 7 and the loop's steps 4 and 6: each changed rule file is named in a `Rule change:` line and a line here, `bun run gate pr` checks a body before it is opened, and the tracker is published with the commit it came from · tighter

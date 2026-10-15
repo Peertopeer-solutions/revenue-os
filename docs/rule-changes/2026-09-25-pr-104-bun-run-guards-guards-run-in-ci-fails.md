@@ -1,0 +1,1 @@
+- 2026-09-25 · [#104](https://github.com/devesh911/revenue-os/pull/104) · `bun run guards` (scripts/guards.sh, run in CI) fails on a public IPv4 address in any tracked file · tighter

@@ -1,0 +1,1 @@
+- 2026-10-02 · [#120](https://github.com/devesh911/revenue-os/pull/120) · AGENTS.md hard rail 7 and the definition of done: `rules-from-main` is a required check, as Devesh set it in GitHub · neutral

@@ -1,0 +1,1 @@
+- 2026-10-06 · [#154](https://github.com/devesh911/revenue-os/pull/154) · scripts/done-gate/tests-proven.ts: testsProven takes the list of tests allowed not to run as an argument, MAY_SKIP when none is given, so its test can give it one of its own; the gate gives it MAY_SKIP as before · neutral

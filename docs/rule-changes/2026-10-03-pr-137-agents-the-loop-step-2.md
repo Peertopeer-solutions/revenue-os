@@ -1,0 +1,1 @@
+- 2026-10-03 · [#137](https://github.com/devesh911/revenue-os/pull/137) · AGENTS.md (The loop, step 2): builders write tests at the layer they touch and where people meet it, edge cases included, pointing at the verifier's step 5, so they meet the verifier's check before it runs · tighter

@@ -1,0 +1,1 @@
+- 2026-10-02 · [#115](https://github.com/devesh911/revenue-os/pull/115) · AGENTS.md agent-harness rule: a do-not-call block is lifted only by the lead's own written YES · neutral (names the one way a block is lifted; the AI still cannot lift one)

@@ -1,0 +1,1 @@
+- 2026-10-13 · [#165](https://github.com/devesh911/revenue-os/pull/165) · scripts/staging-migrations.test.ts: the real-CLI test sends the CLI's usage reports to a closed port and shows the decide step's own output when it exits otherwise than expected; a test checks both CLI steps turn the reports off; the fake CLI's failed listing prints its error on stdout · tighter

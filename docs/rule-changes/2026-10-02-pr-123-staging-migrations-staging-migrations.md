@@ -1,0 +1,1 @@
+- 2026-10-02 · [#123](https://github.com/devesh911/revenue-os/pull/123) · scripts/staging-migrations.ts, scripts/staging-migrations.test.ts, scripts/done-gate/rules.ts and .github/CODEOWNERS: the script that decides whether the cloud test database waits for `checks`, and its test, become rule files with Devesh as code owner · tighter

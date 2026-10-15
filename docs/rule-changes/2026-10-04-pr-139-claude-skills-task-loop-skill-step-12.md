@@ -1,0 +1,1 @@
+- 2026-10-04 · [#139](https://github.com/devesh911/revenue-os/pull/139) · .claude/skills/task-loop/SKILL.md (step 12): the proof workflow runs a proof-ready slice's proof, and the passing run's date and link go after "Proof passed:" in a pull request carrying its report · neutral

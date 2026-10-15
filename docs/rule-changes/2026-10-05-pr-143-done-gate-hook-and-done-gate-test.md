@@ -1,0 +1,1 @@
+- 2026-10-05 · [#143](https://github.com/devesh911/revenue-os/pull/143) · scripts/done-gate/hook.ts and scripts/done-gate.test.ts: before a tool call, a merge is refused when the gate can't find its record (git fails, or never names the shared folder), where it used to go through unchecked; a test shows both · tighter

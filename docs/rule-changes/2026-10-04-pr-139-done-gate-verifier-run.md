@@ -1,0 +1,1 @@
+- 2026-10-04 · [#139](https://github.com/devesh911/revenue-os/pull/139) · scripts/done-gate-verifier-run.ts: the recorded verifier run the gate's tests use can also hand the gate's hook an environment and a time limit of the caller's choosing, which Slice 0's proof uses to give it only the PATH and home folder · neutral

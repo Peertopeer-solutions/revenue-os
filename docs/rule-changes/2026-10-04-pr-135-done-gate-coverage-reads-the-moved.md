@@ -1,0 +1,1 @@
+- 2026-10-04 · [#135](https://github.com/devesh911/revenue-os/pull/135) · scripts/done-gate/ (coverage.ts reads the moved lines the snapshot marks; moved-lines.ts, its own copy of the same detection, is deleted): one detector decides what moved for every rule · neutral

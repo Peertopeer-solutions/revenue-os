@@ -1,0 +1,1 @@
+- 2026-10-13 · [#163](https://github.com/devesh911/revenue-os/pull/163) · tests/setup.local.ts: its comment, and the two Decisions in force lines that cite the same Bun bug, now say its fix, oven-sh/bun#44581, first ships in Bun 1.4.3 (#40078 was closed unmerged) · neutral

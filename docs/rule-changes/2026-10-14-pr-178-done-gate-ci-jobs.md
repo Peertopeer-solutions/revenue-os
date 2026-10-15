@@ -1,0 +1,1 @@
+- 2026-10-14 · [#178](https://github.com/Peertopeer-solutions/revenue-os/pull/178) · scripts/done-gate/ci-jobs.ts: a job `checks` waits for may be held back from pull requests by `if: github.event_name != 'pull_request'` when `checks` holds the step that accepts a skipped job on a pull request only; in the merge queue and on main every job must still run and pass · looser

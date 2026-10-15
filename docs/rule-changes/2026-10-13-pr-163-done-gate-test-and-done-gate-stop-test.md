@@ -1,0 +1,1 @@
+- 2026-10-13 · [#163](https://github.com/devesh911/revenue-os/pull/163) · scripts/done-gate.test.ts and scripts/done-gate-stop.test.ts: their merges use the one stand-in GitHub (scripts/proof/gate.ts), which answers `checks` passed and main's tip, and expect the merge line to say so · neutral

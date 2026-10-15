@@ -1,0 +1,1 @@
+- 2026-10-13 · [#169](https://github.com/Peertopeer-solutions/revenue-os/pull/169) · .github/workflows/ci.yml: CI also runs on the merge queue's builds (`merge_group`): the secret scan reads the commits since the one the queue built on, and the done rules, tests proven and break check judge the change since main · tighter

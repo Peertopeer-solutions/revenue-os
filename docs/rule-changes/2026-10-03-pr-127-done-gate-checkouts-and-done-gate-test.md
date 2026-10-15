@@ -1,0 +1,1 @@
+- 2026-10-03 · [#127](https://github.com/devesh911/revenue-os/pull/127) · scripts/done-gate/checkouts.ts and scripts/done-gate.test.ts: a worktree is told apart by its `.git` file's inode number and change time, so one removed and added again at the same path is a new checkout on Linux too · tighter
