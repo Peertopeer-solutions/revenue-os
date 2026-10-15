@@ -1,0 +1,47 @@
+Devesh: Devesh's request, word for word: "Add an API endpoint that tells a company's members how many open tasks it has."
+What changed (branch feat/open-task-count, this checkout): packages/db/src/open-tasks.ts adds openTaskCount, exported from packages/db; services/worker/src/routes/screens.ts adds GET /orgs/:orgId/tasks/open-count, which checks the caller is a member and returns { open: <count> }; services/worker/test/open-task-count-api.test.ts tests it through the API.
+How it can be seen working: bun run local bun test services/worker/test/open-task-count-api.test.ts
+  (tool) Bash {"command":"git status && git log --oneline -5 && git diff origin/main...HEAD --stat && git diff origin/main...HEAD && git diff && git config branch.feat/open-task-count.description","description":"Sh
+  (tool) Bash {"command":"git status && git log --oneline -5 && git diff origin/main...HEAD --stat && git diff origin/main...HEAD && git diff","description":"Show branch status and diff"}
+  (tool) Bash {"command":"grep -rn \"status\" supabase/migrations/*.sql | grep -i task | head -20; grep -rn \"open-count\\|openTaskCount\\|tasks/open\" --include=*.ts --include=*.tsx -r apps packages services | gre
+  (tool) Bash {"command":"grep -n -A25 \"create table tasks\" supabase/migrations/*.sql | head -40; grep -rn \"openTaskCount\\|open-count\" apps packages services | grep -v node_modules","description":"Inspect task
+  (tool) Bash {"command":"grep -rn -B2 -A15 \"export async function listTasks\" packages/db/src; grep -n \"screens\\|route(\" services/worker/src/index.ts | head","description":"Check listTasks and route mounting"}
+  (tool) Bash {"command":"bun run gate > \"$TMPDIR/verifier-gate.log\" 2>&1; echo \"exit=$?\"; tail -60 \"$TMPDIR/verifier-gate.log\"","description":"Run the full gate, keeping its exit code","timeout":600000}
+  (tool) Bash {"command":"bun run gate","description":"Run the full gate","timeout":600000}
+Agent: I ran the gate on `feat/open-task-count` and it fails, so this is a FAIL. The procedure stops at a failed gate, so I didn't call the running worker or do the later checks.
+
+**Gate failure.** `bun run gate` exited 1 at "tests proven". The test "refuses a caller who is not signed in" (`services/worker/test/open-task-count-api.test.ts:54`) also passes on main's code. Main already refuses anyone not signed in, so this test doesn't test the change.
+
+**What else the builder must fix (from reading the diff):**
+1. **No test that another company is refused.** Nothing checks that a signed-in user from company B gets a 403 when asking for company A's count. That is the one edge case that matters for a "members only" endpoint, and it can replace the not-signed-in test. Add it in `services/worker/test/open-task-count-api.test.ts`, called through `app.fetch`: a second test user who is not a member of `org` asks for `/orgs/${org}/tasks/open-count` and gets 403, with no count in the body.
+2. **The response has no shared Zod schema.** AGENTS.md wants HTTP shapes in `packages/shared`. Add one for `{ open: number }` there, and have the test parse the endpoint's real response with it.
+3. **The code comment claims a console use that doesn't exist.** `packages/db/src/open-tasks.ts` says the count is "for the console's task badge", but nothing in the console calls it. Either remove that wording or build the badge (that would be outside the ask).
+4. **The branch has no description.** The cycle banner says `feat/open-task-count` names no roadmap item. This request is a build ask that isn't on the roadmap, so the builder must ask Devesh "off-roadmap PR, or replan?" and record his answer with `git config branch.feat/open-task-count.description "Off-roadmap: …"` (or the roadmap item's text).
+5. **`STATE.md` wasn't updated** to list the new endpoint under "What works today".
+
+**One question for Devesh:** the count includes only tasks whose status is `open`. Tasks someone has claimed but not finished are left out. That may be right, but he should confirm it's what he means by "open".
+
+**Not checked:**
+- I didn't see the endpoint answer on a running worker, because the gate failed first.
+- The builder's command `bun run local bun test …` runs one test by hand, outside the shared-database lock. I didn't use it as evidence.
+- I couldn't read the branch description directly (the permission was denied). I also couldn't save the gate's output to a log file (denied too), so I ran the gate bare.
+- I had only the builder's copy of Devesh's request, not the done gate's, so I couldn't compare the two.
+
+| Item | Status | Evidence |
+|---|---|---|
+| 1. The endpoint `GET /orgs/:orgId/tasks/open-count` | PARTLY | It's added to `screens.ts` and reachable through the worker's `/orgs` routes. Not seen running, because the gate failed. |
+| 2. Tells the company how many open tasks it has | PARTLY | Counts `status='open'` inside `withOrg`, with `org_id` in the query. The API test expects `{open: 2}` and then `{open: 0}`; it hasn't passed a gate run. |
+| 3. Only the company's members get it | PARTLY | Non-members are refused with a 403 in the code, but no test checks it. |
+| Edge: another company | MISSING | No test that a company B user gets 403 for company A. |
+| Edge: not signed in | WORKS (already on main) | The test duplicates main's behaviour; that is why the gate fails. |
+| Edge: empty input | NOT ASKED | An org id that isn't a valid id is rejected by `OrgIdSchema.parse`; there's no request body. |
+| Edge: duplicate request | NOT ASKED | Read-only, so a repeat changes nothing. |
+| Edge: failure or retry | NOT ASKED | Read-only, so nothing is left half-done. |
+| Gate (`bun run gate`) | MISSING | Exit 1 at "tests proven", as above. |
+| Response checked against a shared schema | MISSING | No schema in `packages/shared`. |
+| Reachable from production with real adapters | WORKS | Production route → `openTaskCount` → `withOrg`, with no stubs. |
+| `STATE.md` honest about what works | MISSING | Not updated. |
+| Nothing changed outside the ask | WORKS | Four files, all part of the endpoint. |
+
+Ruling: FAIL — gate fails at "tests proven" (the not-signed-in test passes on main); replace it with an API test that a user from another company gets 403; add a shared Zod schema for { open } and parse the real response with it; record the branch description after asking Devesh "off-roadmap PR, or replan?"; update STATE.md; drop the "console's task badge" wording
+
