@@ -3394,6 +3394,59 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       expect(r.out).not.toContain("docs/decisions-in-force/README.md");
       expect(r.status).toBe(1);
     });
+
+    // behaviour already on main: main's copy carries scripts/done-gate/ over (gate code is not product code), so it passes there; main's own pr.ts and record-files.ts let a line held by two files through and fail it
+    it("refuses a record or decision line a second file holds word for word, which the tracker page would list twice; a line moved to another file, or repeated before the change, is not refused", () => {
+      const DECISION = "- 2026-10-01 · **One way** (Devesh): kept.";
+      const MINE = "docs/decisions-in-force/2026-10-01-one-way.md";
+      const dir = project({
+        "STATE.md": STATE_ON_MAIN,
+        [MINE]: `${DECISION}\n`,
+      });
+      write(
+        dir,
+        ".github/workflows/ci.yml",
+        "permissions: {contents: read}\njobs:\n  checks:\n    runs-on: y\n",
+      );
+      recorded(dir, ".github/workflows/ci.yml");
+      // This pull request's own record written twice, and a decision written again under another name.
+      write(
+        dir,
+        "docs/rule-changes/2026-10-02-sample-again.md",
+        `${record(".github/workflows/ci.yml")}\n`,
+      );
+      write(
+        dir,
+        "docs/decisions-in-force/2026-10-02-same.md",
+        `${DECISION}\r\n`,
+      );
+      const r = judged(dir, explained("ci.yml"));
+      expect(r.out).toContain(
+        "docs/rule-changes/2026-10-02-sample.md holds the line of docs/rule-changes/2026-10-02-sample-again.md word for word, so the tracker page would list it twice: keep it in one file",
+      );
+      expect(r.out).toContain(
+        `docs/decisions-in-force/2026-10-02-same.md holds the line of ${MINE} word for word, so the tracker page would list it twice: keep it in one file`,
+      );
+      expect(r.status).toBe(1);
+      // Moved word for word: the old file goes, so one file holds each line.
+      sh(dir, ["git", "checkout", "-q", "feat"]);
+      rmSync(join(dir, "docs/rule-changes/2026-10-02-sample-again.md"));
+      rmSync(join(dir, MINE));
+      expect(judged(dir, explained("ci.yml"))).toEqual({
+        status: 0,
+        out: expect.stringContaining("Pull request ✓"),
+      });
+      // A line two files held before the change is not this change's, while it writes neither file.
+      const had = project({
+        [MINE]: `${DECISION}\n`,
+        "docs/decisions-in-force/2026-10-02-same.md": `${DECISION}\n`,
+      });
+      write(had, "docs/decisions-in-force/2026-10-03-other.md", "- another\n");
+      expect(judged(had, PLAIN)).toEqual({
+        status: 0,
+        out: expect.stringContaining("Pull request ✓"),
+      });
+    });
   });
 
   it("finds who uses an export in the branch's own code, not main's", () => {

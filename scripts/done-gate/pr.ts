@@ -6,7 +6,8 @@
 // on main changed or its number reused (migrations.ts), and each slice it sets to done proved by a passing proof run
 // on main, whose report its body carries (proof-link.ts). Each test the change marks as checking behaviour main
 // already has is copied into the body (already-on-main.ts). A change to STATE.md adds no format problem the
-// tracker's reader names (a Where / why cell over its length, a record or decision line in STATE.md).
+// tracker's reader names (a Where / why cell over its length, a record or decision line in STATE.md), and no record
+// file it writes holds a line a second file of its folder holds word for word (record-files.ts).
 
 import { parseState } from "../../docs/tracker/parse.js";
 import { changeMarks, markBodyProblems } from "./already-on-main";
@@ -18,11 +19,11 @@ import { unquotedMarks } from "./pr-coverage-marks";
 import { firstLineProblems } from "./pr-first-line";
 import { quoteProblems } from "./pr-quotes";
 import { proofLinks } from "./proof-link";
-import { recordFileProblems } from "./record-files";
+import { DECISIONS, recordFileProblems, repeatedRecords } from "./record-files";
 import { entriesOf } from "./removed-tests";
-import { ruleChangeProblems, shown } from "./rule-changes";
+import { RECORDS, ruleChangeProblems, shown } from "./rule-changes";
 import { rulesOn } from "./rules";
-import type { Snap } from "./snapshot";
+import { GREP, type Snap } from "./snapshot";
 
 const WORKFLOWS = ".github/workflows/";
 const OURS = `${WORKFLOWS}rules-from-main.yml`;
@@ -122,6 +123,19 @@ export async function judgePr(
     const had = new Set(parseState(onBase("STATE.md")).problems);
     return parseState(at(snap, "STATE.md")).problems.filter((p) => !had.has(p));
   };
+  // Every record file the change leaves, read whole by one `git grep` of every line, `<tree>:<path>\0<line>`: one git
+  // call per file took seconds for some 350 of them.
+  const recordTexts = () => {
+    const texts = new Map<string, string>();
+    const grep = [...GREP, "-I", "-e", "", snap.tree, "--", DECISIONS, RECORDS];
+    for (const l of git(snap.repo, grep, {}, true).split("\n")) {
+      const end = l.indexOf("\0");
+      if (end < 0) continue;
+      const f = l.slice(snap.tree.length + 1, end);
+      texts.set(f, `${texts.get(f) ?? ""}${l.slice(end + 1)}\n`);
+    }
+    return [...texts];
+  };
   const workflows = Object.fromEntries(
     git(
       snap.repo,
@@ -146,6 +160,7 @@ export async function judgePr(
       ...recordFileProblems(snap.files, (f) =>
         left(f) ? at(snap, f) : undefined,
       ),
+      ...repeatedRecords(recordTexts(), (f) => snap.files.includes(f)),
       ...(snap.files.includes("STATE.md") ? stateProblems() : []),
       ...fixWhenTouchedProblems(snap.files, body, table),
       ...quoteProblems(exceptions, entriesOf(snap.added), body),

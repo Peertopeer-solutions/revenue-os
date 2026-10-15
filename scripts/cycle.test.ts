@@ -327,6 +327,57 @@ it("`bun run cycle --check`, run as agents run it, refuses a Where / why cell ov
   }
 });
 
+it("`bun run cycle --check`, run as agents run it, names a record or decision line a second file holds word for word, and accepts it once moved to one file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cycle-repeat-"));
+  try {
+    for (const d of ["scripts", "docs/tracker"])
+      cpSync(join(ROOT, d), join(dir, d), { recursive: true });
+    const put = (f: string, body: string) => {
+      mkdirSync(join(dir, f, ".."), { recursive: true });
+      writeFileSync(join(dir, f), body);
+    };
+    const RECORD =
+      "- 2026-10-02 · [#9](https://github.com/o/r/pull/9) · biome.json · tighter";
+    put("ROADMAP.md", roadmap(slice(0, "in progress")));
+    put("STATE.md", STATE);
+    put("docs/rule-changes/2026-10-02-pr-9-biome.md", `${RECORD}\n`);
+    put("docs/rule-changes/2026-10-02-pr-9-biome-json.md", `${RECORD}\r\n`);
+    put(
+      "docs/rule-changes/2026-10-03-pr-10-other.md",
+      `${RECORD.replace(/9/g, "10")}\n`,
+    );
+    put("docs/decisions-in-force/2026-10-01-a.md", "- one way\n");
+    put("docs/decisions-in-force/2026-10-02-b.md", "- one way\n");
+    put("docs/decisions-in-force/2026-10-03-c.md", "- one way\n");
+    const run = () =>
+      spawnSync("bun", ["scripts/cycle.ts", "--check"], {
+        cwd: dir,
+        encoding: "utf8",
+      });
+    const r = run();
+    expect(r.stderr.trim().split("\n")).toEqual([
+      "docs/decisions-in-force/2026-10-02-b.md holds the line of docs/decisions-in-force/2026-10-01-a.md word for word, so the tracker page would list it twice: keep it in one file",
+      "docs/decisions-in-force/2026-10-03-c.md holds the line of docs/decisions-in-force/2026-10-01-a.md word for word, so the tracker page would list it twice: keep it in one file",
+      "docs/rule-changes/2026-10-02-pr-9-biome.md holds the line of docs/rule-changes/2026-10-02-pr-9-biome-json.md word for word, so the tracker page would list it twice: keep it in one file",
+    ]);
+    expect(r.status).toBe(1);
+    // Moved word for word: the other files go, and one file holds each line.
+    for (const f of [
+      "docs/rule-changes/2026-10-02-pr-9-biome.md",
+      "docs/decisions-in-force/2026-10-01-a.md",
+      "docs/decisions-in-force/2026-10-03-c.md",
+    ])
+      rmSync(join(dir, f));
+    const moved = run();
+    expect([moved.status, moved.stdout.trim()]).toEqual([
+      0,
+      "ROADMAP.md, STATE.md and the records: no format problems",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 it("both parsers read files saved with Windows line endings", () => {
   const crlf = (s: string) => s.replace(/\n/g, "\r\n");
   const r = parseRoadmap(

@@ -37,6 +37,34 @@ export function readRecord(
     : { problem: `${path}: hold one line, ${how}` };
 }
 
+/**
+ * PURE: record files' paths and texts → each well-written one whose line an earlier-named file of the same folder
+ * holds word for word, which `bun run records`, and so the tracker page, would list twice. `counts` picks the files
+ * whose repeats are named (those a pull request writes); a record moved word for word leaves one file holding it.
+ */
+export function repeatedRecords(
+  texts: [path: string, text: string][],
+  counts = (_path: string) => true,
+) {
+  const holders = new Map<string, string[]>();
+  for (const [path, text] of texts) {
+    const r = readRecord(path, text);
+    if (!("line" in r)) continue;
+    // The folder leads the key: the same line in both folders is listed once in each section.
+    const key = `${path.slice(0, path.lastIndexOf("/"))}\n${r.line}`;
+    holders.set(key, [...(holders.get(key) ?? []), path]);
+  }
+  return [...holders.values()].flatMap((paths) => {
+    const [first = "", ...rest] = paths.sort();
+    return rest
+      .filter((p) => counts(p) || counts(first))
+      .map(
+        (p) =>
+          `${p} holds the line of ${first} word for word, so the tracker page would list it twice: keep it in one file`,
+      );
+  });
+}
+
 /** PURE: the change's files and a reader of the files as it leaves them → each record file it leaves badly written. */
 export const recordFileProblems = (
   files: string[],
