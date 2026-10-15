@@ -327,7 +327,7 @@ it("`bun run cycle --check`, run as agents run it, refuses a Where / why cell ov
   }
 });
 
-it("`bun run cycle --check`, run as agents run it, names a record or decision line a second file holds word for word, and accepts it once moved to one file", () => {
+it("`bun run cycle --check`, run as agents run it, names a record or decision line a second file, in either folder, holds word for word, and accepts it once moved to one file", () => {
   const dir = mkdtempSync(join(tmpdir(), "cycle-repeat-"));
   try {
     for (const d of ["scripts", "docs/tracker"])
@@ -372,6 +372,13 @@ it("`bun run cycle --check`, run as agents run it, names a record or decision li
     expect([moved.status, moved.stdout.trim()]).toEqual([
       0,
       "ROADMAP.md, STATE.md and the records: no format problems",
+    ]);
+    // The same line in the other folder: the tracker page lists both folders, so it would show twice.
+    put("docs/decisions-in-force/2026-10-04-d.md", `${RECORD}\n`);
+    const across = run();
+    expect([across.status, across.stderr.trim()]).toEqual([
+      1,
+      "docs/rule-changes/2026-10-02-pr-9-biome-json.md holds the line of docs/decisions-in-force/2026-10-04-d.md word for word, so the tracker page would list it twice: keep it in one file",
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });

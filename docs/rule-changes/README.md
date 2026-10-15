@@ -10,10 +10,11 @@ scripts/done-gate/rules.ts matches), so two pull requests that each change a rul
 
 The records only grow: `rules-from-main` (scripts/done-gate/rule-changes.ts) refuses a PR whose changed rule files are
 not all named, in its body and in a record here for its number, and one that removes or rewrites an earlier record
-(moving one word for word into another file here is allowed), and one that writes a line another file here already
-holds word for word, which the tracker page would list twice. The records written before 2026-10-14 moved here from
-STATE.md → Rule changes, word for word, on 2026-10-15; that section now only points here, and `rules-from-main` refuses
-a record line written there. `bun run records` prints them all, newest first, for the tracker page.
+(moving one word for word into another file here is allowed), and one that writes a line another record file, here or
+in docs/decisions-in-force/, already holds word for word, which the tracker page would list twice. The records written
+before 2026-10-14 moved here from STATE.md → Rule changes, word for word, on 2026-10-15; that section now only points
+here, and `rules-from-main` refuses a record line written there. `bun run records` prints them all, newest first, for
+the tracker page.
 
 ## How the older records were written
 

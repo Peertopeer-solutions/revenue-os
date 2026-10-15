@@ -3396,7 +3396,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     });
 
     // behaviour already on main: main's copy carries scripts/done-gate/ over (gate code is not product code), so it passes there; main's own pr.ts and record-files.ts let a line held by two files through and fail it
-    it("refuses a record or decision line a second file holds word for word, which the tracker page would list twice; a line moved to another file, or repeated before the change, is not refused", () => {
+    it("refuses a record or decision line a second file, in either folder, holds word for word, which the tracker page would list twice; a line moved to another file, or repeated before the change, is not refused", () => {
       const DECISION = "- 2026-10-01 · **One way** (Devesh): kept.";
       const MINE = "docs/decisions-in-force/2026-10-01-one-way.md";
       const dir = project({
@@ -3436,6 +3436,18 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
         status: 0,
         out: expect.stringContaining("Pull request ✓"),
       });
+      // The same line in the other folder: the tracker page lists both folders, so it would show twice.
+      sh(dir, ["git", "checkout", "-q", "feat"]);
+      write(
+        dir,
+        "docs/decisions-in-force/2026-10-02-sample.md",
+        `${record(".github/workflows/ci.yml")}\n`,
+      );
+      const across = judged(dir, explained("ci.yml"));
+      expect(across.out).toContain(
+        "docs/rule-changes/2026-10-02-sample.md holds the line of docs/decisions-in-force/2026-10-02-sample.md word for word, so the tracker page would list it twice: keep it in one file",
+      );
+      expect(across.status).toBe(1);
       // A line two files held before the change is not this change's, while it writes neither file.
       const had = project({
         [MINE]: `${DECISION}\n`,

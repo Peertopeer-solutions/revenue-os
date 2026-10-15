@@ -7,7 +7,7 @@
 // on main, whose report its body carries (proof-link.ts). Each test the change marks as checking behaviour main
 // already has is copied into the body (already-on-main.ts). A change to STATE.md adds no format problem the
 // tracker's reader names (a Where / why cell over its length, a record or decision line in STATE.md), and no record
-// file it writes holds a line a second file of its folder holds word for word (record-files.ts).
+// file it writes holds a line a second record file, in either folder, holds word for word (record-files.ts).
 
 import { parseState } from "../../docs/tracker/parse.js";
 import { changeMarks, markBodyProblems } from "./already-on-main";
@@ -93,10 +93,10 @@ export function secondCheck(workflows: Record<string, string>): string[] {
 }
 
 /**
- * Each line that a record file among `files` shares word for word with a second file of its folder in `tree`
- * (record-files.ts). Every record file is read whole by one `git grep` of every line, `<tree>:<path>\0<line>`: one git
- * call per file took seconds for some 350 of them. A grep that fails, or reports a file it could not read, is named,
- * never taken for "no records".
+ * Each line that a record file among `files` shares word for word with a second record file in `tree`, in either
+ * folder (record-files.ts). Every record file is read whole by one `git grep` of every line, `<tree>:<path>\0<line>`:
+ * one git call per file took seconds for some 350 of them. A grep that fails, or reports a file it could not read, is
+ * named, never taken for "no records".
  */
 export function repeatProblems(repo: string, tree: string, files: string[]) {
   const r = gitAnswer(repo, [
