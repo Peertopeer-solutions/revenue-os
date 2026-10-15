@@ -27,7 +27,7 @@ import { parseDiff } from "./done-gate/diff";
 import { usesExport } from "./done-gate/export-users";
 import { areasOf, fixWhenTouchedProblems } from "./done-gate/fix-when-touched";
 import { mergeOf } from "./done-gate/merge-reading";
-import { secondCheck } from "./done-gate/pr";
+import { repeatProblems, secondCheck } from "./done-gate/pr";
 import { firstLineProblems } from "./done-gate/pr-first-line";
 import { names, ruleChangeProblems } from "./done-gate/rule-changes";
 import { checkRules, RULE_FILES } from "./done-gate/rules";
@@ -3446,6 +3446,19 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
         status: 0,
         out: expect.stringContaining("Pull request ✓"),
       });
+    });
+
+    // behaviour already on main: main's copy carries scripts/done-gate/ over (gate code is not product code), so it passes there; main's own pr.ts has no repeatProblems, so it fails to load
+    it("names record files git can't read, never taking them for no records, and finds none in folders that hold no file", () => {
+      const dir = project();
+      // git's own words for a missing object differ between versions.
+      expect(repeatProblems(dir, "0".repeat(40), [])).toEqual([
+        expect.stringMatching(
+          /^the record files could not be read \(git grep: fatal: .+\), so a line two of them hold can't be ruled out$/,
+        ),
+      ]);
+      const tree = sh(dir, ["git", "rev-parse", "main^{tree}"]).stdout.trim();
+      expect(repeatProblems(dir, tree, [])).toEqual([]);
     });
   });
 

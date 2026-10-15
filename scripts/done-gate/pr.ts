@@ -12,7 +12,7 @@
 import { parseState } from "../../docs/tracker/parse.js";
 import { changeMarks, markBodyProblems } from "./already-on-main";
 import { fixWhenTouchedProblems, TABLE, unreadTable } from "./fix-when-touched";
-import { git } from "./git";
+import { git, gitAnswer } from "./git";
 import { migrationProblems } from "./migrations";
 import { unquotedBreakMarks } from "./pr-break-marks";
 import { unquotedMarks } from "./pr-coverage-marks";
@@ -92,6 +92,37 @@ export function secondCheck(workflows: Record<string, string>): string[] {
   return problems;
 }
 
+/**
+ * Each line that a record file among `files` shares word for word with a second file of its folder in `tree`
+ * (record-files.ts). Every record file is read whole by one `git grep` of every line, `<tree>:<path>\0<line>`: one git
+ * call per file took seconds for some 350 of them. A grep that fails is named, never taken for "no records".
+ */
+export function repeatProblems(repo: string, tree: string, files: string[]) {
+  const r = gitAnswer(repo, [
+    ...GREP,
+    "-I",
+    "-e",
+    "",
+    tree,
+    "--",
+    DECISIONS,
+    RECORDS,
+  ]);
+  if (r.status !== 0 && r.status !== 1)
+    // 1: no line matched, as when the folders hold no file
+    return [
+      `the record files could not be read (git grep: ${r.stderr.trim() || `ended by ${r.signal}`}), so a line two of them hold can't be ruled out`,
+    ];
+  const texts = new Map<string, string>();
+  for (const l of r.stdout.split("\n")) {
+    const end = l.indexOf("\0");
+    if (end < 0) continue;
+    const f = l.slice(tree.length + 1, end);
+    texts.set(f, `${texts.get(f) ?? ""}${l.slice(end + 1)}\n`);
+  }
+  return repeatedRecords([...texts], (f) => files.includes(f));
+}
+
 /** The snapshot's code, read from git: a file the change leaves (empty when it has none). */
 const at = (snap: Snap, file: string) =>
   git(snap.repo, ["cat-file", "blob", `${snap.tree}:${file}`], {}, true);
@@ -123,19 +154,6 @@ export async function judgePr(
     const had = new Set(parseState(onBase("STATE.md")).problems);
     return parseState(at(snap, "STATE.md")).problems.filter((p) => !had.has(p));
   };
-  // Every record file the change leaves, read whole by one `git grep` of every line, `<tree>:<path>\0<line>`: one git
-  // call per file took seconds for some 350 of them.
-  const recordTexts = () => {
-    const texts = new Map<string, string>();
-    const grep = [...GREP, "-I", "-e", "", snap.tree, "--", DECISIONS, RECORDS];
-    for (const l of git(snap.repo, grep, {}, true).split("\n")) {
-      const end = l.indexOf("\0");
-      if (end < 0) continue;
-      const f = l.slice(snap.tree.length + 1, end);
-      texts.set(f, `${texts.get(f) ?? ""}${l.slice(end + 1)}\n`);
-    }
-    return [...texts];
-  };
   const workflows = Object.fromEntries(
     git(
       snap.repo,
@@ -160,7 +178,7 @@ export async function judgePr(
       ...recordFileProblems(snap.files, (f) =>
         left(f) ? at(snap, f) : undefined,
       ),
-      ...repeatedRecords(recordTexts(), (f) => snap.files.includes(f)),
+      ...repeatProblems(snap.repo, snap.tree, snap.files),
       ...(snap.files.includes("STATE.md") ? stateProblems() : []),
       ...fixWhenTouchedProblems(snap.files, body, table),
       ...quoteProblems(exceptions, entriesOf(snap.added), body),
