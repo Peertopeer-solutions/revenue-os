@@ -49,7 +49,8 @@ const SHAPE =
  * for each changed rule file (a line in the body, as GitHub shows it, saying how it changed and why, and a record file
  * the change adds in docs/rule-changes/ for this PR); any earlier record the change removes or rewrites, unless a
  * record file it adds holds it word for word (a record moved to another file); and any record it adds that is badly
- * written or names another PR.
+ * written or names another PR, unless it moved there word for word (from another record file, or from STATE.md, which
+ * held the records written before 2026-10-14).
  */
 export function ruleChangeProblems(
   files: string[],
@@ -65,7 +66,11 @@ export function ruleChangeProblems(
       (r) =>
         `${RECORDS} only grows: this change removes or rewrites the record "${r.text}"`,
     );
-  const moved = new Set(removed.filter(isRecord).map((r) => r.text));
+  const moved = new Set(
+    removed
+      .filter((r) => r.file === "STATE.md" || isRecord(r))
+      .map((r) => r.text),
+  );
   const judged = added
     .filter((a) => isRecord(a) && a.text.trim() && !moved.has(a.text))
     .map((a) => ({ text: a.text, m: a.text.match(RECORDED) }));
