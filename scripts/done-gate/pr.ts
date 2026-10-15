@@ -6,23 +6,24 @@
 // on main changed or its number reused (migrations.ts), and each slice it sets to done proved by a passing proof run
 // on main, whose report its body carries (proof-link.ts). Each test the change marks as checking behaviour main
 // already has is copied into the body (already-on-main.ts). A change to STATE.md adds no format problem the
-// tracker's reader names (a Where / why cell over its length, a record or decision line in STATE.md).
+// tracker's reader names (a Where / why cell over its length, a record or decision line in STATE.md), and no record
+// file it writes holds a line a second record file, in either folder, holds word for word (record-files.ts).
 
 import { parseState } from "../../docs/tracker/parse.js";
 import { changeMarks, markBodyProblems } from "./already-on-main";
 import { fixWhenTouchedProblems, TABLE, unreadTable } from "./fix-when-touched";
-import { git } from "./git";
+import { git, gitAnswer } from "./git";
 import { migrationProblems } from "./migrations";
 import { unquotedBreakMarks } from "./pr-break-marks";
 import { unquotedMarks } from "./pr-coverage-marks";
 import { firstLineProblems } from "./pr-first-line";
 import { quoteProblems } from "./pr-quotes";
 import { proofLinks } from "./proof-link";
-import { recordFileProblems } from "./record-files";
+import { DECISIONS, recordFileProblems, repeatedRecords } from "./record-files";
 import { entriesOf } from "./removed-tests";
-import { ruleChangeProblems, shown } from "./rule-changes";
+import { RECORDS, ruleChangeProblems, shown } from "./rule-changes";
 import { rulesOn } from "./rules";
-import type { Snap } from "./snapshot";
+import { GREP, type Snap } from "./snapshot";
 
 const WORKFLOWS = ".github/workflows/";
 const OURS = `${WORKFLOWS}rules-from-main.yml`;
@@ -91,6 +92,39 @@ export function secondCheck(workflows: Record<string, string>): string[] {
   return problems;
 }
 
+/**
+ * Each line that a record file among `files` shares word for word with a second record file in `tree`, in either
+ * folder (record-files.ts). Every record file is read whole by one `git grep` of every line, `<tree>:<path>\0<line>`:
+ * one git call per file took seconds for some 350 of them. A grep that fails, or reports a file it could not read, is
+ * named, never taken for "no records".
+ */
+export function repeatProblems(repo: string, tree: string, files: string[]) {
+  const r = gitAnswer(repo, [
+    ...GREP,
+    "-I",
+    "-e",
+    "",
+    tree,
+    "--",
+    DECISIONS,
+    RECORDS,
+  ]);
+  // It answers 1 when no line matched, as when the folders hold no file, and still 0 with a file it could not read
+  // (a missing object), which it reports only as an error line.
+  if ((r.status !== 0 && r.status !== 1) || /^(error|fatal):/m.test(r.stderr))
+    return [
+      `the record files could not be read (git grep: ${r.stderr.trim().split("\n")[0] || `ended by ${r.signal}`}), so a line two of them hold can't be ruled out`,
+    ];
+  const texts = new Map<string, string>();
+  for (const l of r.stdout.split("\n")) {
+    const end = l.indexOf("\0");
+    if (end < 0) continue;
+    const f = l.slice(tree.length + 1, end);
+    texts.set(f, `${texts.get(f) ?? ""}${l.slice(end + 1)}\n`);
+  }
+  return repeatedRecords([...texts], (f) => files.includes(f));
+}
+
 /** The snapshot's code, read from git: a file the change leaves (empty when it has none). */
 const at = (snap: Snap, file: string) =>
   git(snap.repo, ["cat-file", "blob", `${snap.tree}:${file}`], {}, true);
@@ -146,6 +180,7 @@ export async function judgePr(
       ...recordFileProblems(snap.files, (f) =>
         left(f) ? at(snap, f) : undefined,
       ),
+      ...repeatProblems(snap.repo, snap.tree, snap.files),
       ...(snap.files.includes("STATE.md") ? stateProblems() : []),
       ...fixWhenTouchedProblems(snap.files, body, table),
       ...quoteProblems(exceptions, entriesOf(snap.added), body),

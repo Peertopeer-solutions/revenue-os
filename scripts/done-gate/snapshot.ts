@@ -126,7 +126,7 @@ const NONE = (repo: string, tree: string): Snap => ({
 // The change's own .gitattributes must not hide it (`*.ts -diff`, `binary`) nor run a program on it, so the
 // attributes come from the empty tree, and no text conversion runs.
 const NO_ATTRIBUTES = "--attr-source=4b825dc642cb6eb9a060e54bf8d69288fbee4904"; // the empty tree
-const GREP = [NO_ATTRIBUTES, "-c", "core.quotePath=off", "grep", "-z"];
+export const GREP = [NO_ATTRIBUTES, "-c", "core.quotePath=off", "grep", "-z"];
 const OPTIONS = [
   "--no-textconv",
   "--unified=0",

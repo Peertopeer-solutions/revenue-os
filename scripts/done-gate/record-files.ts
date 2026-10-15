@@ -1,8 +1,9 @@
 // The record files: one decision in force per file in docs/decisions-in-force/, one rule-change record per file in
 // docs/rule-changes/, each folder's README aside, so two pull requests that each add one never edit the same lines.
-// `bun run gate pr` (rules-from-main) refuses a file the change leaves badly named or badly written, and
-// `bun run records` (scripts/records.ts) prints them for the tracker page. STATE.md's two sections of the same names
-// only point at the folders; the tracker's reader (docs/tracker/parse.js) names a line written there.
+// `bun run gate pr` (rules-from-main) refuses a file the change leaves badly named or badly written, or holding a line
+// a second record file, in either folder, holds word for word, and `bun run records` (scripts/records.ts) prints them
+// for the tracker page. STATE.md's two sections of the same names only point at the folders; the tracker's reader
+// (docs/tracker/parse.js) names a line written there.
 
 import { RECORDED, RECORDS } from "./rule-changes";
 
@@ -35,6 +36,33 @@ export function readRecord(
   return lines.length === 1 && shape.test(line)
     ? { line: line.slice(2) }
     : { problem: `${path}: hold one line, ${how}` };
+}
+
+/**
+ * PURE: record files' paths and texts, of both folders → each well-written one whose line an earlier-named file, in
+ * either folder, holds word for word, which `bun run records`, and so the tracker page, would list twice. `counts`
+ * picks the files whose repeats are named (those a pull request writes); a record moved word for word leaves one file
+ * holding it.
+ */
+export function repeatedRecords(
+  texts: [path: string, text: string][],
+  counts = (_path: string) => true,
+) {
+  const holders = new Map<string, string[]>();
+  for (const [path, text] of texts) {
+    const r = readRecord(path, text);
+    if ("line" in r)
+      holders.set(r.line, [...(holders.get(r.line) ?? []), path]);
+  }
+  return [...holders.values()].flatMap((paths) => {
+    const [first = "", ...rest] = paths.sort();
+    return rest
+      .filter((p) => counts(p) || counts(first))
+      .map(
+        (p) =>
+          `${p} holds the line of ${first} word for word, so the tracker page would list it twice: keep it in one file`,
+      );
+  });
 }
 
 /** PURE: the change's files and a reader of the files as it leaves them → each record file it leaves badly written. */
