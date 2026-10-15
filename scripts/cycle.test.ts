@@ -4,6 +4,7 @@ import { expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -135,6 +136,20 @@ it("the repo's own ROADMAP.md and STATE.md have no format problems", () => {
   expect(problems(read("ROADMAP.md"), read("STATE.md"))).toEqual([]);
 });
 
+// behaviour already on main: STATE.md and the detail docs are not product code, so tests proven's copy of main holds them; on main's own STATE.md no cell points at a detail doc and it fails
+it("each Where / why cell of the repo's own STATE.md that points at a detail doc names a section that doc holds", () => {
+  const read = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const pointers = parseState(read("STATE.md")).rows.flatMap((r) =>
+    [...(r[3] ?? "").matchAll(/Detail: (\S+) → (.+)$/g)].map((m) => [
+      m[1] ?? "",
+      m[2] ?? "",
+    ]),
+  );
+  expect(pointers.length).toBeGreaterThan(0);
+  for (const [doc, heading] of pointers)
+    expect(read(doc).split("\n")).toContain(`## ${heading}`);
+});
+
 // Hooks drop the output of a command that fails or is not found, so the wrapper must always print.
 const hook = (env: Record<string, string>) =>
   spawnSync("sh", ["scripts/cycle-hook.sh", "--pin"], {
@@ -262,16 +277,54 @@ it('a "## " section that is neither a slice nor the Side track is a format probl
   ).toEqual([]);
 });
 
-it("reads STATE.md → Rule changes for the tracker page, one entry per line", () => {
+// behaviour already on main: parse.js is under docs/, not product code, so tests proven's copy of main carries this refusal; main's own parse.js reads these lines as records, names no problem, and fails it
+it("names a decision or record line left in STATE.md → Decisions in force or Rule changes: each is a file of its own", () => {
   const s = parseState(
-    `${STATE}\n## Rule changes\n\nNewest first.\n\n- 2026-10-02 · [#9](https://example.com) · biome.json · tighter\n- 2026-10-01 · [#8](https://example.com) · AGENTS.md · looser\n`,
+    `${STATE}- 2026-10-14 · **A decision** (Devesh): written the old way.\n\n## Rule changes\n\nOne file per changed rule, in docs/rule-changes/.\n\n- 2026-10-02 · [#9](https://example.com) · biome.json · tighter\n`,
   );
-  expect(s.problems).toEqual([]);
-  expect(s.ruleChanges).toEqual([
-    "2026-10-02 · [#9](https://example.com) · biome.json · tighter",
-    "2026-10-01 · [#8](https://example.com) · AGENTS.md · looser",
+  expect(s.problems).toEqual([
+    'STATE.md → Decisions in force: "- 2026-10-14 · **A decision** (Devesh): written the old way." is a decision line; write it as a file of its own in docs/decisions-in-force/ (its README says how)',
+    'STATE.md → Rule changes: "- 2026-10-02 · [#9](https://example.com) · biome.json · tighter" is a record line; write it as a file of its own in docs/rule-changes/ (its README says how)',
   ]);
-  expect(parseState(STATE).ruleChanges).toEqual([]);
+  expect(
+    parseState(
+      `${STATE}One file per decision.\n\n## Rule changes\n\nOne file per changed rule, in docs/rule-changes/.\n`,
+    ).problems,
+  ).toEqual([]);
+});
+
+// behaviour already on main: parse.js is under docs/, not product code, so tests proven's copy of main carries the cap; main's own parse.js lets a 601-character cell through and fails it
+it("`bun run cycle --check`, run as agents run it, refuses a Where / why cell over 600 characters and accepts one of 600", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cycle-cap-"));
+  try {
+    for (const d of ["scripts", "docs/tracker"])
+      cpSync(join(ROOT, d), join(dir, d), { recursive: true });
+    for (const d of ["docs/decisions-in-force", "docs/rule-changes"])
+      mkdirSync(join(dir, d), { recursive: true });
+    writeFileSync(join(dir, "ROADMAP.md"), roadmap(slice(0, "in progress")));
+    const check = (cell: string) => {
+      writeFileSync(
+        join(dir, "STATE.md"),
+        STATE.replace("| Works | y |", `| Works | ${cell} |`),
+      );
+      return spawnSync("bun", ["scripts/cycle.ts", "--check"], {
+        cwd: dir,
+        encoding: "utf8",
+      });
+    };
+    const long = check("y".repeat(601));
+    expect(long.stderr).toContain(
+      'STATE.md: the Where / why cell of "x" is 601 characters, over 600: keep where it runs, why it has its status and a pointer, and move the rest to docs/done-gate.md or docs/what-works-today.md',
+    );
+    expect(long.status).toBe(1);
+    const fits = check("y".repeat(600));
+    expect([fits.status, fits.stdout.trim()]).toEqual([
+      0,
+      "ROADMAP.md, STATE.md and the records: no format problems",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 it("both parsers read files saved with Windows line endings", () => {

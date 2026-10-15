@@ -217,6 +217,7 @@ describe("a stop judges a checkout whose latest commit main does not hold, howev
     expect(stop(other).reason).toContain(RULE_PROBLEM);
   });
 
+  // behaviour already on main: only a comment in it now names docs/done-gate.md, where STATE.md's known holes moved
   it("does not judge a checkout whose latest commit is on origin/main: a pull, or a switch back to main", () => {
     const dir = repo();
     start(dir);
@@ -230,7 +231,7 @@ describe("a stop judges a checkout whose latest commit main does not hold, howev
     commit(dir);
     expect(stop(dir).sentBack).toBe(true); // its own work, judged
     sh(dir, ["git", "checkout", "-q", "main"]); // and set aside: main's code is not the session's to answer for
-    expect(stop(dir)).toEqual(QUIET); // a known hole (STATE.md): the merge check, not a stop, judges that commit
+    expect(stop(dir)).toEqual(QUIET); // a known hole (docs/done-gate.md): the merge check, not a stop, judges that commit
   });
 
   /** A worktree on a branch of the session's own, noted, holding a commit main does not hold. */

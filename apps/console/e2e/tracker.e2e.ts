@@ -48,11 +48,13 @@ test("the tracker page shows every decision and every rule change the records ho
   const md = records();
   const decisions = bullets(md, "Decisions in force");
   const rules = bullets(md, "Rule changes");
-  // One decision per file in the folder, and at least one rule change per file in its folder.
+  // One decision and one rule change per file in its folder (a hidden file a computer leaves behind is no record).
   const files = (dir: string) =>
-    readdirSync(join(ROOT, dir)).filter((f) => f !== "README.md").length;
+    readdirSync(join(ROOT, dir)).filter(
+      (f) => f !== "README.md" && !f.startsWith("."),
+    ).length;
   expect(decisions.length).toBe(files("docs/decisions-in-force"));
-  expect(rules.length).toBeGreaterThanOrEqual(files("docs/rule-changes"));
+  expect(rules.length).toBe(files("docs/rule-changes"));
   await open(page, md);
   await expect(page.locator("#decsum")).toHaveText(
     `Show ${decisions.length} decisions`,

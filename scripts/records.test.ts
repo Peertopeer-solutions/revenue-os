@@ -48,7 +48,12 @@ describe("one file per record", () => {
   it("two branches off the same main that each add a decision and a rule-change record merge with no conflict, and both are listed", () => {
     const dir = scratch();
     git(dir, "init", "-q", "-b", "main");
-    write(dir, "STATE.md", STATE(rule(100, "AGENTS.md", "2026-10-01")));
+    write(dir, "STATE.md", STATE());
+    write(
+      dir,
+      "docs/rule-changes/2026-10-01-pr-100-agents.md",
+      `${rule(100, "AGENTS.md", "2026-10-01")}\n`,
+    );
     write(dir, "docs/decisions-in-force/README.md", "# Decisions in force\n");
     write(dir, "docs/rule-changes/README.md", "# Rule changes\n");
     write(
@@ -123,10 +128,10 @@ describe("one file per record", () => {
     );
   });
 
-  it("lists the folders newest first, the README aside, then the rule changes STATE.md kept, each once", () => {
+  it("lists the folders newest first, the README aside, and no record line left in STATE.md", () => {
     const dir = scratch();
     const kept = rule(150, "ci.yml", "2026-10-02");
-    write(dir, "STATE.md", STATE(kept, rule(100, "AGENTS.md", "2026-09-25")));
+    write(dir, "STATE.md", STATE(rule(100, "AGENTS.md", "2026-09-25")));
     write(dir, "docs/decisions-in-force/README.md", "# How\n- not a record\n");
     write(dir, "docs/decisions-in-force/2026-09-25-a.md", "- first\n");
     write(dir, "docs/decisions-in-force/2026-10-14-b.md", "- second\r\n");
@@ -136,11 +141,7 @@ describe("one file per record", () => {
     const r = records(dir);
     expect(r).toEqual({
       decisions: ["second", "first"],
-      ruleChanges: [
-        rule(175, "x.ts").slice(2),
-        kept.slice(2),
-        rule(100, "AGENTS.md", "2026-09-25").slice(2),
-      ],
+      ruleChanges: [rule(175, "x.ts").slice(2), kept.slice(2)],
       problems: [],
     });
     // The tracker page reads what `bun run records` prints as the same two lists.
@@ -162,9 +163,7 @@ describe("one file per record", () => {
     write(dir, "docs/rule-changes/2026-10-14-nested/x.md", "- one\n");
     const r = records(dir);
     expect(r.decisions).toEqual([]);
-    expect(r.ruleChanges).toEqual([
-      rule(100, "AGENTS.md", "2026-09-25").slice(2),
-    ]);
+    expect(r.ruleChanges).toEqual([]);
     expect(r.problems).toEqual([
       "docs/decisions-in-force/ is missing: it holds the records",
       "docs/rule-changes/2026-10-14-nested: a record is a file, not a folder",

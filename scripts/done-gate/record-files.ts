@@ -1,7 +1,8 @@
 // The record files: one decision in force per file in docs/decisions-in-force/, one rule-change record per file in
 // docs/rule-changes/, each folder's README aside, so two pull requests that each add one never edit the same lines.
 // `bun run gate pr` (rules-from-main) refuses a file the change leaves badly named or badly written, and
-// `bun run records` (scripts/records.ts) prints them for the tracker page.
+// `bun run records` (scripts/records.ts) prints them for the tracker page. STATE.md's two sections of the same names
+// only point at the folders; the tracker's reader (docs/tracker/parse.js) names a line written there.
 
 import { RECORDED, RECORDS } from "./rule-changes";
 
@@ -49,30 +50,3 @@ export const recordFileProblems = (
     const r = readRecord(f, text);
     return "problem" in r ? [r.problem] : [];
   });
-
-/**
- * PURE: the lines a change adds and STATE.md as it leaves it → a decision line added to STATE.md → Decisions in
- * force, which now only points at docs/decisions-in-force/: a decision written there is shared lines again, and
- * neither `bun run records` nor the tracker page would show it.
- */
-export function stateDecisionProblems(
-  added: { file: string; line: number; text: string }[],
-  state: string,
-) {
-  const lines = state.split("\n");
-  const from = lines.indexOf("## Decisions in force") + 1; // its line number; 0 when the heading is missing
-  const to = lines.findIndex((l, i) => i >= from && /^## /.test(l));
-  return added
-    .filter(
-      (a) =>
-        from > 0 &&
-        a.file === "STATE.md" &&
-        a.line > from &&
-        (to < 0 || a.line <= to) &&
-        a.text.startsWith("- "),
-    )
-    .map(
-      (a) =>
-        `STATE.md → Decisions in force: "${a.text}" is a decision line; write it as a file of its own in ${DECISIONS} (its README says how)`,
-    );
-}

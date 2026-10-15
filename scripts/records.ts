@@ -1,11 +1,9 @@
-// `bun run records` — every decision in force (docs/decisions-in-force/) and every rule change (docs/rule-changes/,
-// then the older ones STATE.md → Rule changes keeps), newest first, printed as the records.md the tracker page reads
-// (AGENTS.md → The loop, step 6). One file per record, so two pull requests that each add one never edit the same
-// lines. A file not written as its folder's README says is named, here, by `bun run cycle --check` and by
-// `bun run gate pr` (scripts/done-gate/record-files.ts).
+// `bun run records` — every decision in force (docs/decisions-in-force/) and every rule change (docs/rule-changes/),
+// newest first, printed as the records.md the tracker page reads (AGENTS.md → The loop, step 6). One file per record,
+// so two pull requests that each add one never edit the same lines. A file not written as its folder's README says is
+// named, here, by `bun run cycle --check` and by `bun run gate pr` (scripts/done-gate/record-files.ts).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseState } from "../docs/tracker/parse.js";
 import { DECISIONS, readRecord } from "./done-gate/record-files";
 import { RECORDS } from "./done-gate/rule-changes";
 
@@ -38,10 +36,9 @@ function folder(root: string, dir: string) {
 export function records(root: string) {
   const d = folder(root, DECISIONS);
   const r = folder(root, RECORDS);
-  const older = parseState(readFileSync(join(root, "STATE.md"), "utf8"));
   return {
     decisions: d.lines,
-    ruleChanges: [...new Set([...r.lines, ...older.ruleChanges])],
+    ruleChanges: r.lines,
     problems: [...d.problems, ...r.problems],
   };
 }

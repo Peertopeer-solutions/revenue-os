@@ -2,7 +2,8 @@
 // refusal stays as tight as it was: structure rules and secret scans live in lint (biome.json) and `bun run guards`
 // (scripts/guards/), never in a test file, so no exception is ever needed. Bun can also read a file as text by
 // importing it with options (`with { type: "text" }`, or `type: "file"`, which hands over its path), which reads
-// nothing through readFileSync or Bun.file; that is refused too. What still gets past it is listed in STATE.md.
+// nothing through readFileSync or Bun.file; that is refused too. What still gets past it is listed in
+// docs/done-gate.md → The done gate.
 import { describe, expect, it } from "bun:test";
 import { checkRules } from "./done-gate/rules";
 
