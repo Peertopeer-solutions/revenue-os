@@ -212,6 +212,39 @@ it("passes a job held back from pull requests, with the step that accepts it ski
   expect(ciJobProblems(ciYml((ci) => (ci.jobs.b.if = QUEUE_ONLY)))).toEqual([]);
 });
 
+it("the held-back step, run as GitHub runs it, passes in the queue and on main only when every job passed, and on a pull request also with held-back jobs skipped", () => {
+  // GitHub runs a step's `run` in bash -eo pipefail, with RESULTS as join(needs.*.result, ' ') and HELD_BACK as
+  // 'none' outside a pull request and 'skipped' on one.
+  const exit = (results: string, heldBack: "none" | "skipped") =>
+    spawnSync(
+      "bash",
+      [
+        "--noprofile",
+        "--norc",
+        "-eo",
+        "pipefail",
+        "-c",
+        QUEUE_ONLY_SKIPPED.run,
+      ],
+      {
+        env: { PATH: process.env.PATH, RESULTS: results, HELD_BACK: heldBack },
+        encoding: "utf8",
+      },
+    ).status;
+  const cases: [string, "none" | "skipped", number][] = [
+    ["success success success", "none", 0],
+    ["success skipped success", "none", 1],
+    ["success success failure", "none", 1],
+    ["success cancelled success", "none", 1],
+    ["skipped skipped skipped", "none", 1],
+    ["success skipped skipped", "skipped", 0],
+    ["success success success", "skipped", 0],
+    ["failure skipped skipped", "skipped", 1],
+    ["success cancelled skipped", "skipped", 1],
+  ];
+  expect(cases.map(([r, h]) => [r, h, exit(r, h)])).toEqual(cases);
+});
+
 it("refuses a job `checks` waits for that runs on any other condition, which could skip it in the merge queue", () => {
   for (const cond of [
     "false",

@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true # superseded pushes stop burning the stack spin-ups
 
 # Three jobs run at once, each on a fresh runner and local stack: the quick checks, the whole suite, and the
-# four-runs-at-once test alone. A pull request runs only the quick checks: the Mac's gate already ran the whole suite
-# on its head, and the merge queue's build, on top of main and the pull requests ahead of it, runs all three before
+# four-runs-at-once test alone. A pull request runs only the quick checks: the Mac's gate ran the whole suite on its
+# head (with Docker; a pass without it skips the database tests), and the merge queue's build, on top of main and the pull requests ahead of it, runs all three before
 # it lands (a push to main runs all three again). The required check is the `checks` job, which waits for all three
 # and passes only when every one passed, or, on a pull request only, was held back from it (a done rule,
 # scripts/done-gate/ci-jobs.ts, refuses a ci.yml where it could pass otherwise).
