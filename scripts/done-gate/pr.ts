@@ -95,7 +95,8 @@ export function secondCheck(workflows: Record<string, string>): string[] {
 /**
  * Each line that a record file among `files` shares word for word with a second file of its folder in `tree`
  * (record-files.ts). Every record file is read whole by one `git grep` of every line, `<tree>:<path>\0<line>`: one git
- * call per file took seconds for some 350 of them. A grep that fails is named, never taken for "no records".
+ * call per file took seconds for some 350 of them. A grep that fails, or reports a file it could not read, is named,
+ * never taken for "no records".
  */
 export function repeatProblems(repo: string, tree: string, files: string[]) {
   const r = gitAnswer(repo, [
@@ -108,10 +109,11 @@ export function repeatProblems(repo: string, tree: string, files: string[]) {
     DECISIONS,
     RECORDS,
   ]);
-  if (r.status !== 0 && r.status !== 1)
-    // 1: no line matched, as when the folders hold no file
+  // It answers 1 when no line matched, as when the folders hold no file, and still 0 with a file it could not read
+  // (a missing object), which it reports only as an error line.
+  if ((r.status !== 0 && r.status !== 1) || /^(error|fatal):/m.test(r.stderr))
     return [
-      `the record files could not be read (git grep: ${r.stderr.trim() || `ended by ${r.signal}`}), so a line two of them hold can't be ruled out`,
+      `the record files could not be read (git grep: ${r.stderr.trim().split("\n")[0] || `ended by ${r.signal}`}), so a line two of them hold can't be ruled out`,
     ];
   const texts = new Map<string, string>();
   for (const l of r.stdout.split("\n")) {

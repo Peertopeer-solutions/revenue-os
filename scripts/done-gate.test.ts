@@ -3449,7 +3449,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
     });
 
     // behaviour already on main: main's copy carries scripts/done-gate/ over (gate code is not product code), so it passes there; main's own pr.ts has no repeatProblems, so it fails to load
-    it("names record files git can't read, never taking them for no records, and finds none in folders that hold no file", () => {
+    it("names record files git can't read, a whole tree or one file, never taking them for no records, and finds none in folders that hold no file", () => {
       const dir = project();
       // git's own words for a missing object differ between versions.
       expect(repeatProblems(dir, "0".repeat(40), [])).toEqual([
@@ -3459,6 +3459,31 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       ]);
       const tree = sh(dir, ["git", "rev-parse", "main^{tree}"]).stdout.trim();
       expect(repeatProblems(dir, tree, [])).toEqual([]);
+      // A record file main and the branch share whose stored copy is gone: git grep reports it, yet may answer 0. It
+      // goes after the commit and checkout `judged` makes, where `git add` would store a just-written file again.
+      const lost = onMain();
+      write(lost, "docs/notes.md", "a note\n");
+      commitAll(lost);
+      sh(lost, ["git", "checkout", "-q", "main"]);
+      const blob = sh(lost, ["git", "rev-parse", `main:${OLD}`]).stdout.trim();
+      rmSync(join(lost, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
+      const r = sh(
+        lost,
+        [
+          "bun",
+          "scripts/done-gate.ts",
+          "pr",
+          "--base",
+          "main",
+          "--head",
+          "feat",
+        ],
+        { PR_NUMBER: PR, PR_BODY: PLAIN },
+      );
+      expect(r.stdout + r.stderr).toContain(
+        "the record files could not be read (git grep: error: ",
+      );
+      expect(r.status).toBe(1);
     });
   });
 
