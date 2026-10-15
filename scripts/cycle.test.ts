@@ -138,7 +138,7 @@ it("the repo's own ROADMAP.md and STATE.md have no format problems", () => {
 
 // behaviour already on main: STATE.md and the detail docs are not product code, so tests proven's copy of main holds them; on main's own STATE.md no cell points at a detail doc and it fails
 it("each Where / why cell of the repo's own STATE.md that points at a detail doc names a section that doc holds", () => {
-  const read = (f: string) => readFileSync(join(ROOT, f), "utf8");
+  const read = (f: string) => readFileSync(join(ROOT, f), "utf8"); // done-gate: allow reads STATE.md and its two detail docs, which are data
   const pointers = parseState(read("STATE.md")).rows.flatMap((r) =>
     [...(r[3] ?? "").matchAll(/Detail: (\S+) → (.+)$/g)].map((m) => [
       m[1] ?? "",
