@@ -1376,6 +1376,15 @@ describe("accessibility + first paint", () => {
     }
   });
 
+  test("the footer's legal links reach the privacy policy at /privacy and the terms at /terms", () => {
+    const legal = around(markup, "nav", 'aria-label="Legal"');
+    expect(around(markup, "footer", legal), "inside the footer").toContain(
+      legal,
+    );
+    expect(legal).toMatch(/<a href="\/privacy"[^>]*>Privacy policy<\/a>/);
+    expect(legal).toMatch(/<a href="\/terms"[^>]*>Terms of service<\/a>/);
+  });
+
   test("nothing is hidden by an inline style on first paint", () => {
     expect(markup).not.toMatch(/style="[^"]*opacity:\s*0/);
   });

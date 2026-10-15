@@ -420,6 +420,46 @@
     var(--color-clay);
 }
 
+/* ── legal pages (privacy.html, terms.html): the running text of a document ── */
+@utility legal-prose {
+  color: var(--color-ink-2);
+  font-size: 16px;
+  line-height: 1.7;
+  text-wrap: pretty;
+  & h2 {
+    margin-top: 44px;
+    color: var(--color-ink);
+    font-family: var(--font-serif);
+    font-size: 25px;
+    line-height: 1.2;
+    letter-spacing: -0.014em;
+    text-wrap: balance;
+  }
+  & p,
+  & ul {
+    margin-top: 12px;
+  }
+  & ul {
+    padding-left: 20px;
+    list-style: disc;
+  }
+  & li + li {
+    margin-top: 6px;
+  }
+  & li::marker {
+    color: var(--color-clay);
+  }
+  & strong {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+  & a {
+    color: var(--color-clay-deep);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+
 /* ── scroll reveal — mark an element with {...reveal(delayMs)} (lib/reveal.ts).
       Content is only hidden once lib/reveal.ts has set html[data-motion] (JS on,
       motion allowed), so a failed script or reduced motion never hides anything —

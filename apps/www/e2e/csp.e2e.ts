@@ -4,8 +4,8 @@
 // ignores _headers, so this test adds them to every response from the site itself. A
 // visitor's whole visit (scrolling the page, playing the sample call, opening its
 // transcript, stepping through the booking dialog to its last step and pausing the
-// animations) must break none of the content security policy, and a page on another site
-// that frames this one must get nothing.
+// animations) must break none of the content security policy, nor must the privacy policy
+// and the terms, and a page on another site that frames this one must get nothing.
 // The test build sets neither Cal.com nor Plausible, so the dialog runs in preview mode
 // and no analytics script loads; test/build.test.ts checks the policy names both hosts.
 import { readFileSync } from "node:fs";
@@ -115,6 +115,40 @@ test("a visitor's whole visit breaks none of the content security policy", async
       () => (window as unknown as { violations: string[] }).violations,
     ),
   ).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test("the privacy policy and the terms break none of the content security policy", async ({
+  page,
+  baseURL,
+}) => {
+  const errors: string[] = [];
+  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  await page.addInitScript(() => {
+    const seen: string[] = [];
+    Object.assign(window, { violations: seen });
+    document.addEventListener("securitypolicyviolation", (e) =>
+      seen.push(`${e.violatedDirective} refused ${e.blockedURI}`),
+    );
+  });
+  await withHeaders(page, new URL(String(baseURL)).origin);
+  for (const [path, title] of [
+    ["/privacy", "Privacy policy"],
+    ["/terms", "Terms of service"],
+  ]) {
+    const response = await page.goto(path);
+    expect(response?.headers()["content-security-policy"]).toBe(
+      headers["Content-Security-Policy"],
+    );
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
+    await page.evaluate(() => document.fonts.ready);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { violations: string[] }).violations,
+      ),
+      path,
+    ).toEqual([]);
+  }
   expect(errors).toEqual([]);
 });
 
