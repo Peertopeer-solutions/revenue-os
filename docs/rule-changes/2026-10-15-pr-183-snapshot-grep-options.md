@@ -1,0 +1,1 @@
+- 2026-10-15 · [#183](https://github.com/Peertopeer-solutions/revenue-os/pull/183) · scripts/done-gate/snapshot.ts: exports its `git grep` options so pr.ts reads every record file with them in one call · neutral

@@ -1,0 +1,1 @@
+- 2026-10-15 · [#183](https://github.com/Peertopeer-solutions/revenue-os/pull/183) · scripts/done-gate.test.ts: a test through the real `bun scripts/done-gate.ts pr` that a repeated record or decision line is refused, and a moved one or a repeat main already has is not · tighter
