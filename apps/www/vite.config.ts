@@ -16,9 +16,18 @@ export default defineConfig(({ command, mode }) => {
       "\n[www] VITE_CALCOM_USERNAME / VITE_CALCOM_EVENT_SLUG are not set: the booking flow ships in PREVIEW mode and books nothing.\n",
     );
   }
+  // The pages: the landing page, and the legal pages beside it with no script (README → Legal pages). Bun's
+  // coverage never sees these lines run: only vite reads this file, in the child process test/build.test.ts starts.
+  // coverage gap: only vite's build runs it, in test/build.test.ts's child process
+  const input = ["index", "privacy", "terms"].map(
+    // coverage gap: only vite's build runs it, in test/build.test.ts's child process
+    (page) => `${import.meta.dirname}/${page}.html`,
+  );
   // 5174, strict: 5173 belongs to the console (auth redirects and CORS name it).
   return {
     plugins: [react(), tailwindcss()],
     server: { port: 5174, strictPort: true },
+    // coverage gap: only vite's build runs it, in test/build.test.ts's child process
+    build: { rolldownOptions: { input } },
   };
 });

@@ -33,4 +33,12 @@ export const footerMeta = {
   copyright: "Revenue OS © 2026",
   note: "Built in India",
   skip: "Skip to content",
+  legal: "Legal",
 } as const;
+
+// The footer's links to the legal pages, plain documents beside index.html (privacy.html, terms.html), whose
+// titles and headings carry these same words.
+export const legalLinks: NavLink[] = [
+  { label: "Privacy policy", href: "/privacy" },
+  { label: "Terms of service", href: "/terms" },
+];

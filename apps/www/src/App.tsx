@@ -1,5 +1,5 @@
 import { useLayoutEffect } from "react";
-import { brand, footerMeta } from "./content/site";
+import { brand, footerMeta, legalLinks } from "./content/site";
 import { DotList } from "./design/DotList";
 import { MonoLabel } from "./design/MonoLabel";
 import { BookingProvider } from "./lib/bookingContext";
@@ -66,6 +66,20 @@ export function App() {
               items={[footerMeta.note]}
               className="gap-y-[6px] font-mono text-[11.5px] text-stone uppercase tracking-[0.1em]"
             />
+            <nav aria-label={footerMeta.legal}>
+              <ul className="flex flex-wrap gap-x-[24px] font-mono text-[11.5px] uppercase tracking-[0.1em]">
+                {legalLinks.map((link) => (
+                  <li key={link.href}>
+                    <a
+                      href={link.href}
+                      className="inline-flex min-h-[24px] items-center text-stone hover:text-ink"
+                    >
+                      {link.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
             <MonoLabel className="text-[11.5px] text-stone tracking-[0.06em]">
               {footerMeta.copyright}
             </MonoLabel>

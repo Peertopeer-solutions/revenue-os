@@ -73,12 +73,13 @@ filter (the `heard_sample` property on each completed booking gives the split).
 
 | Path | What it holds |
 | --- | --- |
+| `privacy.html`, `terms.html` | The privacy policy and the terms of service: plain documents with no script, served at `/privacy` and `/terms` (see **Legal pages**). |
 | `index.html` | The Vite entry: a `#root` div + `<script type="module" src="/src/main.tsx">`, plus the head meta (title, description, Open Graph, `theme-color`, `color-scheme: only light` so forced-dark browsers leave the page alone) and the favicon link. The title and description repeat the hero copy — update them together. |
 | `public/` | Static files served as-is — `favicon.svg` (the brand mark), `sample-call.m4a` (the dramatised sample call, voiced with ElevenLabs), `_headers` (the security headers Cloudflare Pages sends: a content security policy that lets a page use only the site, Cal.com's booking API and Plausible, and no other site frame it; a new outside host, such as a Cal.com embed or a Plausible proxy, goes in this file and in `test/build.test.ts`, or browsers refuse it). |
 | `scripts/make-sample-call.ts` | Rebuilds `public/sample-call.m4a` from its ElevenLabs takes (one line per take; run it with no folder to print the voices, model and exact lines to generate). Needs ffmpeg. Afterwards, set `sampleCall.seconds` in `content/hero.ts` to the new length — the copy-parity suite checks it against the file. |
 | `src/main.tsx` | Boot entry — mounts `<App/>` into `#root`, owns the single stylesheet side-effect `import "./styles.css"` (so `App` stays SSR-safe), loads Plausible when configured, calls `armChime()` so the visitor's first tap, click or key press unlocks the message chime (see **Sound**), and calls `armReveal()` before mounting, so scroll-reveal blocks start hidden and only rise in (see **Motion rules**). |
-| `src/App.tsx` | Composes the page inside `BookingProvider`: skip link, sticky `header → nav`, `main` → the sections in page order (see **Page order**): hero · How it works (`HowItWorks`: the intro, then the five steps beside the product window) · the engine panel (`StageGrid`, the call and after) · examples · pilot · the pilot report (`Proof`) · FAQ · closing, `footer` → the meta row, and the one `BookingDialog`. Honours cold-load deep links (`/#pilot`; `/#book` opens the booking dialog). Imports no CSS. |
-| `src/styles.css` | `@import "tailwindcss"` + the `@theme` tokens (paper / ink / clay palette, illustration plates, the `card` surface, the `lift` shadow, type families, the soft ease), the shared `ro-*` keyframes, one reserved block per visual for its own keyframes and utilities (`survey-*` for the hero's drawing sheet, `intent-*` for the intent study, `brief-*` for the call brief, `how-*` for How it works' steps and window), the scroll-reveal, pause, and reduced-motion rules, the decorative `@utility` classes, and **every** `@font-face` block. The **only** place raw colour hex lives. |
+| `src/App.tsx` | Composes the page inside `BookingProvider`: skip link, sticky `header → nav`, `main` → the sections in page order (see **Page order**): hero · How it works (`HowItWorks`: the intro, then the five steps beside the product window) · the engine panel (`StageGrid`, the call and after) · examples · pilot · the pilot report (`Proof`) · FAQ · closing, `footer` → the meta row with its links to the legal pages, and the one `BookingDialog`. Honours cold-load deep links (`/#pilot`; `/#book` opens the booking dialog). Imports no CSS. |
+| `src/styles.css` | `@import "tailwindcss"` + the `@theme` tokens (paper / ink / clay palette, illustration plates, the `card` surface, the `lift` shadow, type families, the soft ease), the shared `ro-*` keyframes, one reserved block per visual for its own keyframes and utilities (`survey-*` for the hero's drawing sheet, `intent-*` for the intent study, `brief-*` for the call brief, `how-*` for How it works' steps and window, `legal-prose` for the legal pages' running text), the scroll-reveal, pause, and reduced-motion rules, the decorative `@utility` classes, and **every** `@font-face` block. The **only** place raw colour hex lives. |
 | `src/design/` | Reusable, tokens-only elements — `Heading` (display / section / card scale, `balance`), `Text` (lede / body / small sizes; default / muted / inverse tones), `Kicker` (section / hero / inverse / clay eyebrows), `MonoLabel`, `CtaButton` (accent / ghost pills; `busy` for a pending submit), `SectionFrame` (plain paper; wash / ink / clay inset panels; `flush`), `DotList` (a dot-separated run), `Typed` (a line of the agent's voice streaming on word by word with a caret; the plain line when still). `Heading`, `Text`, `Kicker`, `MonoLabel` and `SectionFrame` take `ref`, so `reveal()` spreads onto them. Named exports; no copy, no raw hex. |
 | `src/sections/` | One file per section — `Nav`, `Hero` (the plain mono eyebrow, the headline, the lede, the demo button, the listen button, its note and transcript, the pause switch, and the result card on the drawing sheet), `Proof` (the pilot report, after the pilot it reports on: a "Pilot report" kicker, an "Illustrative example" tag, example figures), `HowItWorks` (How it works, told as one enquiry: the kicker with its "Illustrative example" tag, the headline with its accent words in clay, the lede, then `HowSteps`), `StageGrid` (the dark engine panel, "The call and after": it opens on the call at 7:14 PM, then three unnumbered steps, each with a small product example; hosts `FunnelFlow` and `IntentRouting`), `IntentRouting` (the follow-up route for buyers not ready to visit, with the example follow-up plan), `Moats` (the examples: Rohan's call up close — the conversation, the summary, the WhatsApp confirmation), `Pricing` (the pilot, how fees work, and the "Compare plans" disclosure), `Faq`, `FooterCta` (the clay closing invitation). Each composes `design/` elements and imports its copy from `content/`. |
 | `src/visuals/` | `BrandMark` (the logo mark), `SampleAudio` (the hero's listen button: plays the sample recording in place, fetched on the first press; then its honesty note and the closed transcript), `FunnelFlow` (enquiries running the three steps, the not-yet-ready ones looping through follow-up), `MoatArt` (the example cards' line illustrations), `CallArt` (the closing panel's poster mark), `BookingDialog` (the booking flow), `Icon` (the 16px line glyphs), `SurveyGround` (the hero's drawing sheet, and `SurveyPlan`: the 2 BHK floor plan under the result card, which draws itself once), `IntentEvidence` (the brief's Intent row opened up: the four signals build his score to 78 and route him to "Call now"; under the line, the follow-up plan), `CallBrief` (the call brief writing itself before the call, with Priya's WhatsApp reply and its chime), `HowSteps` (How it works' five steps as vertical tabs beside a product window that plays `CallBrief` and `IntentEvidence` on one timeline; `visuals/HowSteps.tsx`). SVG + CSS keyframes / SMIL; no animation library. |
@@ -86,7 +87,7 @@ filter (the `heard_sample` property on each completed booking gives the split).
 | `src/content/` | Every word on the page, as typed modules (`site`, `hero` — including `result`, the hero's card, and `survey`, the drawing sheet's labels — `proof` — the pilot report — `beforeCall` — How it works' intro and its five steps (`howItWorks`, with the headline's accent words and the step list's name, and `howSteps`) and the four intent signals — `intentEvidence`, `callBrief`, `workflow` — the call and after (the engine panel) and the one follow-up plan — `examples`, `pilot`, `faqs`, `closing`, `booking`). Sections and visuals import these and **inline nothing**. Where the design has a slot the copy doesn't fill (a kicker, a plate word, a diagram label), the fill is taken from the copy around it and lives in the same module. |
 | `fonts/` | Self-hosted `.woff2` subsets (Lora 400 + italic, IBM Plex Mono 400). Referenced from `src/styles.css` as `../fonts/<file>.woff2`. |
 | `test/` | `copy-parity.test.tsx` (the SSR first paint: copy, one "Book a demo" action, the listen button and its disclosure, the hero's plain eyebrow and its result card word for word with no clock time on its face, the old call card gone, the drawing sheet and the plan drawn, the page order heading by heading, How it works' intro (its accent words, its tag) and its five steps as tabs (one selected, one tab stop, each naming the window), the window tagged illustrative with the finished brief showing and the intent study held back until its step, no chapter or step numbers, both studies' final frame, the intent study opening the brief's Intent row, one call-now rule and one follow-up plan, the sound switch, Rohan's one evening told the same everywhere with the call and after opening on the call, a score out of 100 only inside How it works, the pilot report after the pilot and labelled honestly, plans labelled honestly, retired copy stays retired, default UI state and accessibility), `lib.test.ts` (booking client, analytics, `useSequence`'s first paint, a looped range and a driven visual, How it works' accents and the beats each step plays, the chime and its sound switch), `build.test.ts` (`vite build`, and the security headers it ships: exactly the policy in `public/_headers`). |
-| `e2e/` | Browser checks against a production build (the `www` project in `apps/console/playwright.config.ts`, run by `bun run e2e` and the gate): `how-it-works.e2e.ts` (the steps beside the window: autoplay, keys, Pause, reduced motion, the accent colour, the plate, the phone framing), `sample-call.e2e.ts` (the call plays and pauses at its real length; the transcript opens by mouse and keyboard, every speaker label at 4.5:1), `motion.e2e.ts` (reduced motion stills every screen, the scroll reveal, the Pause switch stopping every animation and finishing the floor plan), `fonts.e2e.ts` (both typefaces load from the site itself, no face failing), `readability.e2e.ts` (small-text colours keep 4.5:1 on their grounds, the focus ring 3:1), `csp.e2e.ts` (a whole visit breaks none of the security policy, and no other site can frame the page). |
+| `e2e/` | Browser checks against a production build (the `www` project in `apps/console/playwright.config.ts`, run by `bun run e2e` and the gate): `how-it-works.e2e.ts` (the steps beside the window: autoplay, keys, Pause, reduced motion, the accent colour, the plate, the phone framing), `sample-call.e2e.ts` (the call plays and pauses at its real length; the transcript opens by mouse and keyboard, every speaker label at 4.5:1), `motion.e2e.ts` (reduced motion stills every screen, the scroll reveal, the Pause switch stopping every animation and finishing the floor plan), `fonts.e2e.ts` (both typefaces load from the site itself, no face failing), `readability.e2e.ts` (small-text colours keep 4.5:1 on their grounds, the focus ring 3:1), `csp.e2e.ts` (a whole visit, and a visit to each legal page, breaks none of the security policy, and no other site can frame the page), `legal.e2e.ts` (each legal page read with JavaScript off, as Meta's crawler reads it: HTTP 200 with no redirect, its title, its whole text and no script; what the privacy policy must say; the landing page's footer opening both). |
 
 ## Design language
 
@@ -343,7 +344,8 @@ studies in How it works — and never decorates for its own sake.
   (`e2e/readability.e2e.ts` checks the palette) — use the `-deep` variants or
   `stone`, never `clay` / `olive` / `mute` as small text on paper.
 - **Copy lives in `src/content/`.** A section or visual imports its strings, never
-  inlines them. "Book a demo" is defined
+  inlines them. The legal pages are the one exception: their words live in their own
+  HTML (see **Legal pages**). "Book a demo" is defined
   once (`content/site.ts`); every primary button is a `BookDemoButton` with its
   analytics `source` (nav, hero, pilot, closing). Copy edits keep the
   copy-parity anchors green in the same change.
@@ -368,6 +370,37 @@ studies in How it works — and never decorates for its own sake.
   ("2 min after it landed"), WhatsApp confirmation Thu 7:16 PM, visit Sat 11:00 AM — and the
   copy-parity suite checks every section against it.
 
+## Legal pages
+
+`privacy.html` (the privacy policy) and `terms.html` (the terms of service) are
+plain HTML documents beside `index.html`, with **no script**. Meta takes a privacy
+policy's address for a WhatsApp app only if its crawler, which runs no JavaScript,
+gets the page itself: HTTP 200, no redirect, no sign-in, clearly titled. So their
+words live in the HTML, not in `src/content/`, and nothing renders them. Each links
+the shared stylesheet (`src/styles.css`, whose `legal-prose` utility sets the running
+text) and copies the nav's brand link and the landing page's footer row: change
+those together.
+
+- **Where they are served.** `vite.config.ts` builds the three pages, so
+  `dist/privacy.html` and `dist/terms.html` sit at the build's root. Cloudflare Pages
+  serves `privacy.html` at `/privacy` with HTTP 200 (its "Serving Pages" docs, route
+  matching), and `vite preview` does the same. Keep them there, not in a folder
+  (`privacy/index.html`, which Pages serves at `/privacy/`, so `/privacy` may answer
+  with a redirect that Meta's check refuses). The footers link the clean addresses,
+  `/privacy` and `/terms`, since Pages redirects `/privacy.html` to `/privacy`.
+- **Placeholders.** Every `[bracketed]` word waits on the business that will run
+  Revenue OS: `[Legal name]`, `[Registered address]` and `[contact email]`, in both
+  pages. Fill all of them before the site is published or the address is given to
+  Meta, and change the "Last updated" date whenever the words change.
+- **What the privacy policy must keep saying** (`e2e/legal.e2e.ts` checks it): no
+  WhatsApp data trains or improves an AI model (Meta's terms for the WhatsApp
+  Business Platform); a lead replies STOP to stop messages; the developer is the
+  Data Fiduciary and we are its Data Processor under India's Digital Personal Data
+  Protection Act, 2023; the Data Protection Board of India; and the service
+  providers that receive personal data (Meta, Supabase, the AI model provider, the
+  voice provider). These pages are a plain-English starting point, not legal advice:
+  have a lawyer review them before the first customer signs.
+
 ## Adding a page (future contact-us)
 
 The next surface (e.g. a `/contact-us`) is a new entry, not a rewrite:
@@ -376,8 +409,8 @@ The next surface (e.g. a `/contact-us`) is a new entry, not a rewrite:
 2. Build its sections under `src/sections/`, composing `src/design/` elements — no
    new colours outside `@theme`, no inlined copy.
 3. Give it an entry `contact.html` + `src/contact.tsx` (mirroring `index.html` /
-   `main.tsx`) and register it as a Vite `build.rollupOptions.input` so `vite build`
-   emits both pages. Keep it static; no secrets.
+   `main.tsx`) and add its name to the pages `vite.config.ts` builds
+   (`build.rolldownOptions.input`). Keep it static; no secrets.
 
 ## Self-hosted fonts (rationale)
 
