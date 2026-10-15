@@ -74,6 +74,27 @@ it("passes the repo's own ci.yml", () => {
   expect(ciJobProblems(text)).toEqual([]);
 });
 
+it("holds the repo's whole suite and four-runs-at-once test back from pull requests into main, and nothing else", () => {
+  const text = readFileSync(
+    join(import.meta.dir, "..", ".github", "workflows", "ci.yml"),
+    "utf8",
+  );
+  const ci = Bun.YAML.parse(text) as Ci & { on: Record<string, unknown> };
+  expect(
+    Object.entries(ci.jobs).flatMap(([id, job]) =>
+      job.if === QUEUE_ONLY ? [id] : [],
+    ),
+  ).toEqual(["suite", "at-once"]);
+  expect(ciJobProblems(text)).toEqual([]);
+  expect(Object.keys(ci.jobs)).toEqual(["quick", "suite", "at-once", "checks"]);
+  expect(ci.jobs.checks.steps).toEqual([QUEUE_ONLY_SKIPPED]);
+  expect(ci.on).toEqual({
+    pull_request: { branches: ["main"] },
+    push: { branches: ["main"] },
+    merge_group: { types: ["checks_requested"] },
+  });
+});
+
 it("says nothing of a ci.yml with no job besides `checks`", () => {
   const one = (ci: Ci) => {
     ci.jobs = { checks: { "runs-on": "ubuntu-latest", steps: [{ run: "x" }] } };
@@ -189,6 +210,39 @@ it("passes a job held back from pull requests, with the step that accepts it ski
   ).toEqual([]);
   // The step that accepts no skip at all still passes beside a held-back job: there `checks` fails on a pull request.
   expect(ciJobProblems(ciYml((ci) => (ci.jobs.b.if = QUEUE_ONLY)))).toEqual([]);
+});
+
+it("the held-back step, run as GitHub runs it, passes in the queue and on main only when every job passed, and on a pull request also with held-back jobs skipped", () => {
+  // GitHub runs a step's `run` in bash -eo pipefail, with RESULTS as join(needs.*.result, ' ') and HELD_BACK as
+  // 'none' outside a pull request and 'skipped' on one.
+  const exit = (results: string, heldBack: "none" | "skipped") =>
+    spawnSync(
+      "bash",
+      [
+        "--noprofile",
+        "--norc",
+        "-eo",
+        "pipefail",
+        "-c",
+        QUEUE_ONLY_SKIPPED.run,
+      ],
+      {
+        env: { PATH: process.env.PATH, RESULTS: results, HELD_BACK: heldBack },
+        encoding: "utf8",
+      },
+    ).status;
+  const cases: [string, "none" | "skipped", number][] = [
+    ["success success success", "none", 0],
+    ["success skipped success", "none", 1],
+    ["success success failure", "none", 1],
+    ["success cancelled success", "none", 1],
+    ["skipped skipped skipped", "none", 1],
+    ["success skipped skipped", "skipped", 0],
+    ["success success success", "skipped", 0],
+    ["failure skipped skipped", "skipped", 1],
+    ["success cancelled skipped", "skipped", 1],
+  ];
+  expect(cases.map(([r, h]) => [r, h, exit(r, h)])).toEqual(cases);
 });
 
 it("refuses a job `checks` waits for that runs on any other condition, which could skip it in the merge queue", () => {
