@@ -3329,7 +3329,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       });
     });
 
-    // behaviour already on main: main's copy carries scripts/done-gate/rule-changes.ts over (gate code is not product code), so it passes there; on main's own rule-changes.ts removing any STATE.md record is refused and it fails
+    // behaviour already on main: main lets this record go too, as a record file holds it; after this change a line leaving STATE.md is no record at all, so it still goes
     it("lets a STATE.md record go once a record file on main already holds it word for word", () => {
       const dir = project({
         "STATE.md": STATE_ON_MAIN,
@@ -3343,7 +3343,7 @@ describe("bun run gate pr: main's copy of the rules judges a pull request (rules
       });
     });
 
-    // behaviour already on main: main's copy carries scripts/done-gate/record-files.ts over (gate code is not product code), so it passes there; main's own copy has no such check and lets the line through, so it fails
+    // behaviour already on main: main's record-files.ts refuses this line with the same words; the refusal now comes from docs/tracker/parse.js
     it("refuses a decision line added to STATE.md → Decisions in force: a decision is a file of its own", () => {
       const pointer =
         "# State\n\n## Decisions in force\n\nOne file per decision, in docs/decisions-in-force/.\n\n## Rule changes\n\n";

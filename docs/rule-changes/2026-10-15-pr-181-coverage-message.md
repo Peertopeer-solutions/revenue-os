@@ -1,0 +1,1 @@
+- 2026-10-15 · [#181](https://github.com/Peertopeer-solutions/revenue-os/pull/181) · scripts/done-gate/coverage.ts: its message for a line no test runs points at docs/done-gate.md, not STATE.md, for the shapes the rule gets wrong · neutral
