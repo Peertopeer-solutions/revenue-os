@@ -1,0 +1,41 @@
+Devesh: Which roadmap slice and item are you on? Say which, then wait: don't start any work yet.
+Agent: I'm on **Slice 1: Foundations the agent will stand on**, which is in progress with 13 of 25 items done.
+
+The next unchecked item is:
+
+> The rule-change records still in STATE.md → Rule changes move word for word into docs/rule-changes/, one file each, and STATE.md drops that section: `rules-from-main` accepts each removed line that a record file holds word for word, and `bun run records` and the tracker page still show every rule change once
+
+I'm currently on `main`, which has no roadmap item. I haven't started anything and haven't made a branch for this item. The cycle banner was read from the last fetch, which failed, so it may be out of date. The `gh` CLI isn't logged in either, so I couldn't read the proof runs.
+
+I'm waiting for your go-ahead.
+
+Devesh: what does the worker's /ready endpoint check?
+  (tool) Bash {"command":"grep -rniE \"/ready|readiness\" services/worker --include=*.ts -l | grep -v node_modules | head"}
+  (tool) Bash {"command":"grep -rniE \"/ready|readiness\" services/worker --include='*.ts' -l --exclude-dir=node_modules | head"}
+  (tool) Read {"file_path":"/private/var/folders/68/jjdcz2hx74vcvhsmnh0r_zm00000gn/T/proof-gXK7tD/repo/services/worker/src/ready.ts"}
+  (tool) Bash {"command":"cd /private/var/folders/68/jjdcz2hx74vcvhsmnh0r_zm00000gn/T/proof-gXK7tD/repo/services/worker/src && grep -n -B3 -A8 \"checks\" app.ts | head -50"}
+Agent: The worker's `GET /ready` (`services/worker/src/ready.ts`) runs two checks in parallel:
+
+- **`database`**: runs `select 1` through the worker's pool and passes if it returns one row.
+- **`job queue`**: runs `jobQueueReachable`, wired in `app.ts:45`. I didn't open its definition, so I don't know exactly what it tests.
+
+- **Time limit:** each check has 2 seconds (`READY_LIMIT_MS`). A check that throws, returns false or doesn't answer in time counts as failed. The error goes to the log, not to the caller.
+- **Success:** it returns `200 {ok: true}`.
+- **Failure:** it returns `503 {ok: false, unreachable: [...]}`, listing the names of the failed checks, such as `"database"`.
+- **Token:** the endpoint sits behind the ready token (`requireReadyToken`). `GET /release` is behind the same token and returns the commit the worker was built from, or `"unknown"`.
+
+I changed nothing. My shell's working directory is now `services/worker/src` because of the last command.
+
+Devesh: which item are you on?
+Agent: I'm not on any item yet. I'm on `main`, which has no roadmap item, and I haven't made a branch or changed anything.
+
+The current slice is Slice 1, and its next unchecked item is the one about moving the rule-change records from STATE.md into `docs/rule-changes/`, one file each. I haven't started it. I'm waiting for you to tell me to.
+
+Devesh: add a dark mode to the console
+Agent: off-roadmap PR, or replan?
+
+Dark mode for the console isn't on the current slice's roadmap, so I'm building nothing until you pick. I haven't checked whether a later slice already lists it.
+
+- **Off-roadmap PR:** it gets its own PR whose body starts with `Roadmap: off-roadmap — …`. Only one off-roadmap PR can be open at a time. I'd check for an open one first.
+- **Replan:** I add the item to Slice 1 in the same PR that builds it.
+
