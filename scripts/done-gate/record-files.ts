@@ -1,7 +1,8 @@
 // The record files: one decision in force per file in docs/decisions-in-force/, one rule-change record per file in
 // docs/rule-changes/, each folder's README aside, so two pull requests that each add one never edit the same lines.
-// `bun run gate pr` (rules-from-main) refuses a file the change leaves badly named or badly written, and
-// `bun run records` (scripts/records.ts) prints them for the tracker page. STATE.md's two sections of the same names
+// `bun run gate pr` (rules-from-main) refuses a file the change leaves badly named or badly written, or holding a line
+// a second file of its folder holds word for word, and `bun run records` (scripts/records.ts) prints them for the
+// tracker page. STATE.md's two sections of the same names
 // only point at the folders; the tracker's reader (docs/tracker/parse.js) names a line written there.
 
 import { RECORDED, RECORDS } from "./rule-changes";
