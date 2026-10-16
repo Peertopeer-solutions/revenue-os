@@ -301,7 +301,7 @@ describe("copy — the buyer-outcome story", () => {
     "Four stages run on machine time",
     "HIGH INTENT",
     "Three competitors, three moats",
-    "Choose a plan to connect Krate",
+    "Choose a plan to connect Revenue OS",
     "Choose plan",
     "Subscribe",
     "Asked before every pilot",
@@ -342,6 +342,9 @@ describe("copy — the buyer-outcome story", () => {
     "02 · Call now or follow up",
     "03 · The call and after",
     "The Intent row from Rohan's brief, opened up",
+    // buyers see the site as Krate: the old name is gone, with either space
+    "Revenue OS",
+    "Revenue OS",
   ];
   for (const needle of RETIRED) {
     test(`no longer renders: ${needle}`, () => {
