@@ -8,7 +8,7 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
 
-# The project's pages.dev address and each preview's own serve the same pages: search engines index only krate.si.
+# The project's pages.dev address and each deployment's own serve the same pages: search engines index only krate.si.
 https://:project.pages.dev/*
   X-Robots-Tag: noindex
 https://:version.:project.pages.dev/*

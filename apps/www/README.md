@@ -76,14 +76,17 @@ The site's one public address is **https://krate.si**. Cloudflare Pages builds a
 serves it: Cloudflare's GitHub app (installed on the Peertopeer-solutions
 organisation, for this repository only) sees each push to `main` and builds the site
 on Cloudflare's machines. No GitHub Actions job takes part and no token exists. A
-commit reaches `main` only through the merge queue, after `checks` passed on it, so
-Pages builds only checked code; a failed build leaves the last site up. Slice 5's
+commit reaches `main` only through the merge queue, after `checks` passed on it, and
+preview deployments are off (by default Pages builds and publishes every push to every
+branch at a `pages.dev` address), so Pages builds only checked code; a failed build
+leaves the last site up. Slice 5's
 publish item later moves the upload into GitHub Actions (ROADMAP.md).
 
 | Pages setting | Value |
 | --- | --- |
 | Project name | `krate-www` (its own address is `krate-www.pages.dev`) |
 | Production branch | `main` |
+| Preview deployments | **None** (Settings → Builds → Branch control), so no other branch is built or published |
 | Build command | `bun install --frozen-lockfile && bun run --filter www build` |
 | Build output directory | `apps/www/dist` |
 | Root directory | the repository root (the Bun workspace needs it) |
@@ -94,7 +97,8 @@ publish item later moves the upload into GitHub Actions (ROADMAP.md).
 **Search engines.** Each page names its address on krate.si (`<link rel="canonical">`;
 the landing page also `og:url`), `public/robots.txt` points at `public/sitemap.xml`,
 which lists the three pages, and `public/_headers` sends `X-Robots-Tag: noindex` from
-the `pages.dev` addresses, so only krate.si is indexed. `test/build.test.ts` checks all
+the `pages.dev` addresses (the project's, and each deployment's own), so only krate.si is
+indexed. `test/build.test.ts` checks all
 of these against one address: a new address changes them together.
 
 ## Layout
@@ -418,8 +422,9 @@ those together.
   `/privacy` and `/terms`, since Pages redirects `/privacy.html` to `/privacy`.
 - **Who runs it.** Until a company is registered, both pages say Krate is run from
   India, with no street address (never invent one: these pages are a legal
-  statement), and give `support@krate.si`, which Cloudflare Email Routing forwards
-  to Devesh. When the company exists, its legal name and registered address go in
+  statement), and give `support@krate.si`. Mail to it arrives only once Cloudflare
+  Email Routing forwards it to Devesh, which is not set up yet (STATE.md → Waiting on
+  Devesh, "Landing page go-live inputs"). When the company exists, its legal name and registered address go in
   "Who we are" / "Who these terms are between" and "Contact" on both pages. No
   `[bracketed]` placeholder may remain (`e2e/legal.e2e.ts` checks it), and the
   "Last updated" date changes whenever the words change.

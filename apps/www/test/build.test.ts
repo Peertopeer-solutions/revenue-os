@@ -177,7 +177,7 @@ describe("apps/www builds into a bundled component app with its security headers
       ),
     ).toEqual(Object.values(PAGES).map((path) => new URL(path, SITE).href));
 
-    // The project's pages.dev address and each preview's own serve the same pages: only krate.si is indexed.
+    // The project's pages.dev address and each deployment's own serve the same pages: only krate.si is indexed.
     for (const host of [
       "https://:project.pages.dev/*",
       "https://:version.:project.pages.dev/*",
@@ -185,5 +185,21 @@ describe("apps/www builds into a bundled component app with its security headers
       expect(headersFor(read("_headers"), host), host).toEqual({
         "x-robots-tag": "noindex",
       });
+  });
+
+  test("no built file names the old brand, Revenue OS, with any space, and the landing page's title and link preview say Krate", () => {
+    const files = readdirSync(DIST_DIR, { recursive: true })
+      .map(String)
+      .filter((f) => /\.(html|js|css|svg|txt|xml)$/.test(f));
+    expect(files).toContain("favicon.svg");
+    for (const file of files)
+      expect(readFileSync(resolve(DIST_DIR, file), "utf8"), file).not.toMatch(
+        /Revenue(?:\s|\\u00[aA]0|\\x[aA]0|&nbsp;|&#160;)OS/,
+      );
+    const index = readFileSync(resolve(DIST_DIR, "index.html"), "utf8");
+    expect(index.match(/<title>([^<]*)<\/title>/)?.[1]).toStartWith("Krate — ");
+    expect(
+      index.match(/<meta property="og:title" content="([^"]*)"/)?.[1],
+    ).toStartWith("Krate — ");
   });
 });
