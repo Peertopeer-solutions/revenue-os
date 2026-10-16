@@ -68,7 +68,7 @@ export const sampleCall = {
 export const hero = {
   eyebrow: "Voice AI for Indian real estate",
   title: "Turn property enquiries into qualified site visits.",
-  sub: "Revenue OS calls new leads in Hinglish, qualifies budget and timeline, and follows up on WhatsApp\u2060—so your sales team can focus on buyers ready to visit.",
+  sub: "Krate calls new leads in Hinglish, qualifies budget and timeline, and follows up on WhatsApp\u2060—so your sales team can focus on buyers ready to visit.",
   secondary: "Hear a sample call",
 } as const;
 

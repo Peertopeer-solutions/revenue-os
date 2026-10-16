@@ -12,7 +12,7 @@ export const howItWorks = {
   title: "Follow one lead, from the moment it lands to the site visit.",
   // The title's words set in clay, in the order they appear (same serif, colour only).
   accents: ["lands", "site visit"],
-  sub: "One evening, one buyer: Rohan Mehta's enquiry lands at 7:12\u00a0PM. Here is what Revenue\u00a0OS does before it calls him, how it decides to call now or follow up, and what happens on the call and after.",
+  sub: "One evening, one buyer: Rohan Mehta's enquiry lands at 7:12\u00a0PM. Here is what Krate does before it calls him, how it decides to call now or follow up, and what happens on the call and after.",
   illustrative: "Illustrative example",
   stepsLabel: "Rohan's enquiry, step by step", // names the tab list for screen readers
 } as const;
@@ -63,7 +63,7 @@ const { total, outOf, callNow } = intentScore;
 export const howSteps: readonly HowStep[] = [
   {
     title: "It starts the moment a lead lands.",
-    body: "Wherever it came from, Revenue\u00a0OS reads his enquiry in his own words, notes what he asked for and starts his call brief.",
+    body: "Wherever it came from, Krate reads his enquiry in his own words, notes what he asked for and starts his call brief.",
   },
   {
     title: "A brief before every call.",

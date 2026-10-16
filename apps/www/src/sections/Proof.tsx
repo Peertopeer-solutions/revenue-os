@@ -13,7 +13,7 @@ import { Icon, INFO } from "../visuals/Icon";
 // the project line, both column heads and the footnote all say so. Head left and
 // the report card right from lg; stacked below. The card has a serif line beside
 // a mono pill for its header and the plan cards' hairlines;
-// figures are serif numerals — the current process in stone, Revenue OS in ink.
+// figures are serif numerals — the current process in stone, Krate in ink.
 // The comparison is a <dl> (one group per measure), so it survives the phone
 // reflow for screen readers: each value carries its column name, visually hidden;
 // the visible column heads are aria-hidden. From sm the two value columns keep

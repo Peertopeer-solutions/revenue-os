@@ -1,4 +1,4 @@
-// The pilot report, right after the Pilot section it reports on. Revenue OS has no measured customer
+// The pilot report, right after the Pilot section it reports on. Krate has no measured customer
 // results yet, so this is an EXAMPLE of the pilot report — clearly labelled, with
 // illustrative figures — never presented as a customer result. Replace with a
 // real project, period, comparison and attributed quote once a pilot has run.
@@ -15,13 +15,13 @@ export const proof = {
   badge: "Illustrative example",
   title: "What your pilot report shows",
   intro:
-    "One project, four weeks, the same enquiries split between your current process and Revenue OS. This example shows the format. The figures are illustrative, not customer results.",
+    "One project, four weeks, the same enquiries split between your current process and Krate. This example shows the format. The figures are illustrative, not customer results.",
   project: "Example project: 2\u00a0BHK\u00a0launch, Whitefield",
   period: "4-week pilot",
   columns: {
     metric: "Measure",
     before: "Current process (example)",
-    after: "Revenue OS (example)",
+    after: "Krate (example)",
   },
   rows: [
     { metric: "Enquiries called the same day", before: "61%", after: "98%" },

@@ -26,7 +26,7 @@ export const faqs: Faq[] = [
   },
   {
     q: "Which tools does it work with?",
-    a: "In the pilot, your leads come in as a CSV export from the system you use today, and Revenue OS will call them and follow up on WhatsApp. Connectors for CRMs such as Zoho and HubSpot are planned; tell us what you use on the demo.",
+    a: "In the pilot, your leads come in as a CSV export from the system you use today, and Krate will call them and follow up on WhatsApp. Connectors for CRMs such as Zoho and HubSpot are planned; tell us what you use on the demo.",
   },
   {
     q: "How long does onboarding take?",
@@ -34,11 +34,11 @@ export const faqs: Faq[] = [
   },
   {
     q: "How does pricing work?",
-    a: "During the four-week pilot there's no platform fee: you pay only for qualified site visits that happen, and nothing at all if Revenue OS doesn't beat your current process on conversion to site visit. After that, a monthly platform fee is credited against your visit fees, so you never pay twice for the same visit. Rates are agreed per project.",
+    a: "During the four-week pilot there's no platform fee: you pay only for qualified site visits that happen, and nothing at all if Krate doesn't beat your current process on conversion to site visit. After that, a monthly platform fee is credited against your visit fees, so you never pay twice for the same visit. Rates are agreed per project.",
   },
   {
     q: "How are do-not-call rules handled?",
-    a: "In the pilot, Revenue OS will check your do-not-call list, quiet hours and attempt limits before every outbound call, and log every conversation so you can review it.",
+    a: "In the pilot, Krate will check your do-not-call list, quiet hours and attempt limits before every outbound call, and log every conversation so you can review it.",
   },
 ];
 

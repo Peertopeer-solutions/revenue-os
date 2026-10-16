@@ -15,7 +15,7 @@ export const pilot = {
     },
     {
       title: "Over four weeks",
-      body: "In week one we set up your project details, your call script and your lead import (a CSV export from your portal or CRM) with you. For the next three weeks, Revenue OS works your new enquiries alongside your current process.",
+      body: "In week one we set up your project details, your call script and your lead import (a CSV export from your portal or CRM) with you. For the next three weeks, Krate works your new enquiries alongside your current process.",
     },
     {
       title: "What you provide",
@@ -23,7 +23,7 @@ export const pilot = {
     },
     {
       title: "How success is measured",
-      body: "Site visits booked and completed, compared with your current process on the same enquiries. If Revenue OS doesn't beat your current process on conversion to site visit, you pay nothing for the pilot.",
+      body: "Site visits booked and completed, compared with your current process on the same enquiries. If Krate doesn't beat your current process on conversion to site visit, you pay nothing for the pilot.",
     },
   ],
   fees: {

@@ -1,6 +1,6 @@
 import { cx } from "../lib/cx";
 
-// The Revenue OS mark: a clay dot (the lead) with two ink arcs (the voice reaching
+// The Krate mark: a clay dot (the lead) with two ink arcs (the voice reaching
 // it). Decorative — always paired with the visible wordmark — so aria-hidden.
 // `live` pulses the arcs, inner then outer: the voice reaching the lead (How it
 // works' window tab, while its story plays). The Nav and footer marks stay still.

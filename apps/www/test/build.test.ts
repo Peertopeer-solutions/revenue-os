@@ -28,6 +28,13 @@ const HERO = "Turn property enquiries into qualified site visits.";
 // Plausible's script and event host (README → analytics): the test build sets no
 // script, so the bundle can't name it. A proxy or custom domain changes it here too.
 const PLAUSIBLE = "https://plausible.io";
+// The site's one public address (README → Publishing) and each built page's path there.
+const SITE = "https://krate.si";
+const PAGES = {
+  "index.html": "/",
+  "privacy.html": "/privacy",
+  "terms.html": "/terms",
+};
 
 // The headers a _headers file gives one path: a path line, then its indented
 // "Name: value" lines; # starts a comment.
@@ -140,5 +147,43 @@ describe("apps/www builds into a bundled component app with its security headers
     });
     expect(headers["x-content-type-options"]).toBe("nosniff");
     expect(headers["referrer-policy"]).toBe("strict-origin-when-cross-origin");
+  });
+
+  test("each page names its krate.si address, robots.txt and sitemap.xml send search engines there, and the pages.dev copies stay out of search", () => {
+    const read = (file: string) =>
+      readFileSync(resolve(DIST_DIR, file), "utf8");
+    for (const [file, path] of Object.entries(PAGES))
+      expect(
+        read(file).match(/<link rel="canonical" href="([^"]*)"/)?.[1],
+        `${file}'s canonical address`,
+      ).toBe(new URL(path, SITE).href);
+    expect(
+      read("index.html").match(
+        /<meta property="og:url" content="([^"]*)"/,
+      )?.[1],
+    ).toBe(`${SITE}/`);
+
+    const robots = read("robots.txt")
+      .split("\n")
+      .map((l) => l.trim());
+    expect(robots).toContain("User-agent: *");
+    expect(robots, "nothing is closed to search engines").not.toContain(
+      "Disallow: /",
+    );
+    expect(robots).toContain(`Sitemap: ${SITE}/sitemap.xml`);
+    expect(
+      [...read("sitemap.xml").matchAll(/<loc>([^<]*)<\/loc>/g)].map(
+        (m) => m[1],
+      ),
+    ).toEqual(Object.values(PAGES).map((path) => new URL(path, SITE).href));
+
+    // The project's pages.dev address and each preview's own serve the same pages: only krate.si is indexed.
+    for (const host of [
+      "https://:project.pages.dev/*",
+      "https://:version.:project.pages.dev/*",
+    ])
+      expect(headersFor(read("_headers"), host), host).toEqual({
+        "x-robots-tag": "noindex",
+      });
   });
 });

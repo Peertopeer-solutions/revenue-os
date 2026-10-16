@@ -1,6 +1,7 @@
 # apps/www — marketing landing page
 
-The **marketing surface** of Revenue OS: a landing page whose one job is to get a
+The **marketing surface** of Revenue OS, shown to buyers as **Krate** at
+https://krate.si (see **Publishing**): a landing page whose one job is to get a
 qualified buyer to **book a demo**. A small **React + Vite + Tailwind v4** app (the
 console's stack) that composes reusable design elements and typed content into the
 page. It has no backend of its own and holds no secrets; it talks to exactly two
@@ -27,7 +28,7 @@ a secret):
 | Variable | What it is |
 | --- | --- |
 | `VITE_CALCOM_USERNAME` | The Cal.com username that owns the demo event type. |
-| `VITE_CALCOM_EVENT_SLUG` | The demo event type's slug (e.g. `revenue-os-demo`). |
+| `VITE_CALCOM_EVENT_SLUG` | The demo event type's slug (e.g. `krate-demo`). |
 | `VITE_PLAUSIBLE_SRC` | The site-specific Plausible script URL (e.g. `https://plausible.io/js/pa-XXXX.js`). |
 
 **Preview mode.** Without the two Cal.com variables the booking flow still works
@@ -37,7 +38,7 @@ Without `VITE_PLAUSIBLE_SRC`, `track()` is a no-op (it logs in development).
 
 ### Cal.com setup (once)
 
-1. Create a **30-minute** public event type, e.g. "Revenue OS demo", with a video
+1. Create a **30-minute** public event type, e.g. "Krate demo", with a video
    location and the availability you want to offer.
 2. Add a booking question with the identifier **`company`** (short text,
    required). Phone uses Cal.com's attendee phone field (optional).
@@ -69,13 +70,40 @@ To see whether listening goes with booking, filter the dashboard by the `Sample
 play` goal and compare `Booking complete`'s conversion rate with and without that
 filter (the `heard_sample` property on each completed booking gives the split).
 
+## Publishing
+
+The site's one public address is **https://krate.si**. Cloudflare Pages builds and
+serves it: Cloudflare's GitHub app (installed on the Peertopeer-solutions
+organisation, for this repository only) sees each push to `main` and builds the site
+on Cloudflare's machines. No GitHub Actions job takes part and no token exists. A
+commit reaches `main` only through the merge queue, after `checks` passed on it, so
+Pages builds only checked code; a failed build leaves the last site up. Slice 5's
+publish item later moves the upload into GitHub Actions (ROADMAP.md).
+
+| Pages setting | Value |
+| --- | --- |
+| Project name | `krate-www` (its own address is `krate-www.pages.dev`) |
+| Production branch | `main` |
+| Build command | `bun install --frozen-lockfile && bun run --filter www build` |
+| Build output directory | `apps/www/dist` |
+| Root directory | the repository root (the Bun workspace needs it) |
+| Build watch paths (include) | `apps/www/*`, `package.json`, `bun.lock`, `bunfig.toml`, `tsconfig.base.json` |
+| Environment variables | `BUN_VERSION` = `1.3.11` (the repository's pinned Bun; Pages' own is older), `SKIP_DEPENDENCY_INSTALL` = `1` (the build command installs, from the lockfile), and the three in **Configuration** |
+| Custom domains | `krate.si` and `www.krate.si`; a Cloudflare redirect rule sends `www` to `https://krate.si` with a 301 |
+
+**Search engines.** Each page names its address on krate.si (`<link rel="canonical">`;
+the landing page also `og:url`), `public/robots.txt` points at `public/sitemap.xml`,
+which lists the three pages, and `public/_headers` sends `X-Robots-Tag: noindex` from
+the `pages.dev` addresses, so only krate.si is indexed. `test/build.test.ts` checks all
+of these against one address: a new address changes them together.
+
 ## Layout
 
 | Path | What it holds |
 | --- | --- |
 | `privacy.html`, `terms.html` | The privacy policy and the terms of service: plain documents with no script, served at `/privacy` and `/terms` (see **Legal pages**). |
-| `index.html` | The Vite entry: a `#root` div + `<script type="module" src="/src/main.tsx">`, plus the head meta (title, description, Open Graph, `theme-color`, `color-scheme: only light` so forced-dark browsers leave the page alone) and the favicon link. The title and description repeat the hero copy — update them together. |
-| `public/` | Static files served as-is — `favicon.svg` (the brand mark), `sample-call.m4a` (the dramatised sample call, voiced with ElevenLabs), `_headers` (the security headers Cloudflare Pages sends: a content security policy that lets a page use only the site, Cal.com's booking API and Plausible, and no other site frame it; a new outside host, such as a Cal.com embed or a Plausible proxy, goes in this file and in `test/build.test.ts`, or browsers refuse it). |
+| `index.html` | The Vite entry: a `#root` div + `<script type="module" src="/src/main.tsx">`, plus the head meta (title, description, its krate.si canonical link, Open Graph, `theme-color`, `color-scheme: only light` so forced-dark browsers leave the page alone) and the favicon link. The title and description repeat the hero copy — update them together. |
+| `public/` | Static files served as-is — `favicon.svg` (the brand mark), `sample-call.m4a` (the dramatised sample call, voiced with ElevenLabs), `robots.txt` and `sitemap.xml` (for search engines; see **Publishing**), `_headers` (the security headers Cloudflare Pages sends: a content security policy that lets a page use only the site, Cal.com's booking API and Plausible, and no other site frame it; a new outside host, such as a Cal.com embed or a Plausible proxy, goes in this file and in `test/build.test.ts`, or browsers refuse it; and `noindex` from the `pages.dev` addresses). |
 | `scripts/make-sample-call.ts` | Rebuilds `public/sample-call.m4a` from its ElevenLabs takes (one line per take; run it with no folder to print the voices, model and exact lines to generate). Needs ffmpeg. Afterwards, set `sampleCall.seconds` in `content/hero.ts` to the new length — the copy-parity suite checks it against the file. |
 | `src/main.tsx` | Boot entry — mounts `<App/>` into `#root`, owns the single stylesheet side-effect `import "./styles.css"` (so `App` stays SSR-safe), loads Plausible when configured, calls `armChime()` so the visitor's first tap, click or key press unlocks the message chime (see **Sound**), and calls `armReveal()` before mounting, so scroll-reveal blocks start hidden and only rise in (see **Motion rules**). |
 | `src/App.tsx` | Composes the page inside `BookingProvider`: skip link, sticky `header → nav`, `main` → the sections in page order (see **Page order**): hero · How it works (`HowItWorks`: the intro, then the five steps beside the product window) · the engine panel (`StageGrid`, the call and after) · examples · pilot · the pilot report (`Proof`) · FAQ · closing, `footer` → the meta row with its links to the legal pages, and the one `BookingDialog`. Honours cold-load deep links (`/#pilot`; `/#book` opens the booking dialog). Imports no CSS. |
@@ -86,7 +114,7 @@ filter (the `heard_sample` property on each completed booking gives the split).
 | `src/lib/` | `booking.ts` (the Cal.com client + preview adapter + form helpers), `analytics.ts` (`track()`), `bookingContext.tsx` (`BookingProvider`, `useBooking()`, `BookDemoButton`), `reveal.ts` (`reveal(delayMs)` props + `armReveal()`), `motion.ts` (the page-wide pause switch `useStill()` / `setStill()`, and `useLiveSvg()`, which runs an SVG's animations only while it is on screen and not paused), `sequence.ts` (`useSequence()`: steps a looping visual beat by beat while it is on screen; it can loop one range of beats, or stand aside while something else drives the visual), `chime.ts` (the message chime and its remembered sound switch), `cx.ts` (the one-line className joiner). |
 | `src/content/` | Every word on the page, as typed modules (`site`, `hero` — including `result`, the hero's card, and `survey`, the drawing sheet's labels — `proof` — the pilot report — `beforeCall` — How it works' intro and its five steps (`howItWorks`, with the headline's accent words and the step list's name, and `howSteps`) and the four intent signals — `intentEvidence`, `callBrief`, `workflow` — the call and after (the engine panel) and the one follow-up plan — `examples`, `pilot`, `faqs`, `closing`, `booking`). Sections and visuals import these and **inline nothing**. Where the design has a slot the copy doesn't fill (a kicker, a plate word, a diagram label), the fill is taken from the copy around it and lives in the same module. |
 | `fonts/` | Self-hosted `.woff2` subsets (Lora 400 + italic, IBM Plex Mono 400). Referenced from `src/styles.css` as `../fonts/<file>.woff2`. |
-| `test/` | `copy-parity.test.tsx` (the SSR first paint: copy, one "Book a demo" action, the listen button and its disclosure, the hero's plain eyebrow and its result card word for word with no clock time on its face, the old call card gone, the drawing sheet and the plan drawn, the page order heading by heading, How it works' intro (its accent words, its tag) and its five steps as tabs (one selected, one tab stop, each naming the window), the window tagged illustrative with the finished brief showing and the intent study held back until its step, no chapter or step numbers, both studies' final frame, the intent study opening the brief's Intent row, one call-now rule and one follow-up plan, the sound switch, Rohan's one evening told the same everywhere with the call and after opening on the call, a score out of 100 only inside How it works, the pilot report after the pilot and labelled honestly, plans labelled honestly, retired copy stays retired, default UI state and accessibility), `lib.test.ts` (booking client, analytics, `useSequence`'s first paint, a looped range and a driven visual, How it works' accents and the beats each step plays, the chime and its sound switch), `build.test.ts` (`vite build`, and the security headers it ships: exactly the policy in `public/_headers`). |
+| `test/` | `copy-parity.test.tsx` (the SSR first paint: copy, one "Book a demo" action, the listen button and its disclosure, the hero's plain eyebrow and its result card word for word with no clock time on its face, the old call card gone, the drawing sheet and the plan drawn, the page order heading by heading, How it works' intro (its accent words, its tag) and its five steps as tabs (one selected, one tab stop, each naming the window), the window tagged illustrative with the finished brief showing and the intent study held back until its step, no chapter or step numbers, both studies' final frame, the intent study opening the brief's Intent row, one call-now rule and one follow-up plan, the sound switch, Rohan's one evening told the same everywhere with the call and after opening on the call, a score out of 100 only inside How it works, the pilot report after the pilot and labelled honestly, plans labelled honestly, retired copy stays retired, default UI state and accessibility), `lib.test.ts` (booking client, analytics, `useSequence`'s first paint, a looped range and a driven visual, How it works' accents and the beats each step plays, the chime and its sound switch), `build.test.ts` (`vite build`; the security headers it ships: exactly the policy in `public/_headers`; and each page's krate.si address, `robots.txt`, `sitemap.xml` and the `pages.dev` `noindex`). |
 | `e2e/` | Browser checks against a production build (the `www` project in `apps/console/playwright.config.ts`, run by `bun run e2e` and the gate): `how-it-works.e2e.ts` (the steps beside the window: autoplay, keys, Pause, reduced motion, the accent colour, the plate, the phone framing), `sample-call.e2e.ts` (the call plays and pauses at its real length; the transcript opens by mouse and keyboard, every speaker label at 4.5:1), `motion.e2e.ts` (reduced motion stills every screen, the scroll reveal, the Pause switch stopping every animation and finishing the floor plan), `fonts.e2e.ts` (both typefaces load from the site itself, no face failing), `readability.e2e.ts` (small-text colours keep 4.5:1 on their grounds, the focus ring 3:1), `csp.e2e.ts` (a whole visit, and a visit to each legal page, breaks none of the security policy, and no other site can frame the page), `legal.e2e.ts` (each legal page read with JavaScript off, as Meta's crawler reads it: HTTP 200 with no redirect, its title, its whole text and no script; what the privacy policy must say; the landing page's footer opening both). |
 
 ## Design language
@@ -197,7 +225,7 @@ left, a **product window** on the right (stacked below lg: the steps, then the
 window). Each tab is a Lora title over a thin rule; the selected title turns ink,
 its description opens under it, and its rule fills with clay beat by beat as the
 step plays. The window is quiet chrome in our tokens (three grey dots, a tab with
-the pulsing mark and "Revenue OS", the tag), with a lift below it, over a clay
+the pulsing mark and "Krate", the tag), with a lift below it, over a clay
 **brand plate** with the grain and the mark's voice arcs drawn large. The plate
 keeps at least 48px clear of the headline and lede: from 1280 it rises high but is
 narrower (55% of the column), below that it barely rises.
@@ -321,7 +349,7 @@ studies in How it works — and never decorates for its own sake.
 
 ## Editing rules
 
-- **Honesty.** Revenue OS has no live customers yet: never present names, logos,
+- **Honesty.** Krate has no live customers yet: never present names, logos,
   results or quotes as real. Examples are labelled ("Illustrative example",
   "Example", "Sample call", and the dramatised-call note under the listen button).
   Claims match what exists today: English + Hindi/Hinglish; leads arrive by CSV
@@ -388,10 +416,13 @@ those together.
   (`privacy/index.html`, which Pages serves at `/privacy/`, so `/privacy` may answer
   with a redirect that Meta's check refuses). The footers link the clean addresses,
   `/privacy` and `/terms`, since Pages redirects `/privacy.html` to `/privacy`.
-- **Placeholders.** Every `[bracketed]` word waits on the business that will run
-  Revenue OS: `[Legal name]`, `[Registered address]` and `[contact email]`, in both
-  pages. Fill all of them before the site is published or the address is given to
-  Meta, and change the "Last updated" date whenever the words change.
+- **Who runs it.** Until a company is registered, both pages say Krate is run from
+  India, with no street address (never invent one: these pages are a legal
+  statement), and give `support@krate.si`, which Cloudflare Email Routing forwards
+  to Devesh. When the company exists, its legal name and registered address go in
+  "Who we are" / "Who these terms are between" and "Contact" on both pages. No
+  `[bracketed]` placeholder may remain (`e2e/legal.e2e.ts` checks it), and the
+  "Last updated" date changes whenever the words change.
 - **What the privacy policy must keep saying** (`e2e/legal.e2e.ts` checks it): no
   WhatsApp data trains or improves an AI model (Meta's terms for the WhatsApp
   Business Platform); a lead replies STOP to stop messages; the developer is the
@@ -411,6 +442,8 @@ The next surface (e.g. a `/contact-us`) is a new entry, not a rewrite:
 3. Give it an entry `contact.html` + `src/contact.tsx` (mirroring `index.html` /
    `main.tsx`) and add its name to the pages `vite.config.ts` builds
    (`build.rolldownOptions.input`). Keep it static; no secrets.
+4. Give it its canonical link (`https://krate.si/contact`), and add that address to
+   `public/sitemap.xml` and its file to `PAGES` in `test/build.test.ts`.
 
 ## Self-hosted fonts (rationale)
 

@@ -23,15 +23,20 @@ test.describe("with JavaScript off, as Meta's crawler reads them", () => {
       expect(response?.status()).toBe(200);
       expect(response?.request().redirectedFrom()).toBeNull();
       expect(page.url()).toBe(new URL(path, baseURL).href);
-      await expect(page).toHaveTitle(`${title} — Revenue OS`);
+      await expect(page).toHaveTitle(`${title} — Krate`);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(title);
       // the last section arrived with the first: the whole document is in the page itself
       await expect(
         page.getByRole("heading", { level: 2, name: "Contact" }),
       ).toBeVisible();
+      // every [placeholder] filled, and the contact address one a reader can write to
+      await expect(page.locator("main")).not.toContainText(/\[[^\]]+\]/);
+      await expect(
+        page.locator('main a[href="mailto:support@krate.si"]').last(),
+      ).toHaveText("support@krate.si");
       expect(await page.locator("script").count()).toBe(0);
       await expect(
-        page.getByRole("link", { name: "Revenue OS" }).first(),
+        page.getByRole("link", { name: "Krate" }).first(),
       ).toHaveAttribute("href", "/");
       const legal = page.getByRole("navigation", { name: "Legal" });
       await expect(legal.getByRole("link", { name: title })).toHaveAttribute(

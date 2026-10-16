@@ -224,7 +224,7 @@ describe("copy — the buyer-outcome story", () => {
     ["hero headline", "Turn property enquiries into qualified site visits."],
     [
       "hero sub",
-      "Revenue OS calls new leads in Hinglish, qualifies budget and timeline, and follows up on WhatsApp",
+      "Krate calls new leads in Hinglish, qualifies budget and timeline, and follows up on WhatsApp",
     ],
     ["hero secondary", "Hear a sample call"],
     ["proof badge", "Illustrative example"],
@@ -259,7 +259,7 @@ describe("copy — the buyer-outcome story", () => {
     ["faq — onboarding", "How long does onboarding take?"],
     ["faq — pricing", "How does pricing work?"],
     ["faq — do-not-call", "How are do-not-call rules handled?"],
-    ["closing", "See how Revenue OS would handle your next property enquiry."],
+    ["closing", "See how Krate would handle your next property enquiry."],
     [
       "closing sub",
       "Hear a sample call, review the qualification summary, and see how a site visit gets booked.",
@@ -301,7 +301,7 @@ describe("copy — the buyer-outcome story", () => {
     "Four stages run on machine time",
     "HIGH INTENT",
     "Three competitors, three moats",
-    "Choose a plan to connect Revenue OS",
+    "Choose a plan to connect Krate",
     "Choose plan",
     "Subscribe",
     "Asked before every pilot",
@@ -666,7 +666,7 @@ describe("the page, told in order — one lead, from the moment it lands to the 
       expect(h2).toContain(`<span class="text-clay-type">${word}</span>`);
     // the kicker, its tag, the heading and the lede, then the steps
     expect(textOf(unaccent(intro())).trim()).toBe(
-      "How it works Illustrative example Follow one lead, from the moment it lands to the site visit. One evening, one buyer: Rohan Mehta's enquiry lands at 7:12 PM. Here is what Revenue OS does before it calls him, how it decides to call now or follow up, and what happens on the call and after.",
+      "How it works Illustrative example Follow one lead, from the moment it lands to the site visit. One evening, one buyer: Rohan Mehta's enquiry lands at 7:12 PM. Here is what Krate does before it calls him, how it decides to call now or follow up, and what happens on the call and after.",
     );
     inView(intro(), "Illustrative example", true);
     for (const tags of runs(intro(), "Illustrative example"))
@@ -1259,7 +1259,7 @@ describe("the pilot report — after the Pilot it reports on; an example, never 
       "Illustrative example",
       "Example project:",
       "Current process (example)",
-      "Revenue OS (example)",
+      "Krate (example)",
       "The figures are illustrative, not customer results.",
     ]) {
       expect(t).toContain(s);
@@ -1277,13 +1277,13 @@ describe("pilot — built vs planned, no rates", () => {
   test("the FAQ's tools and do-not-call answers speak of the pilot, not of today", () => {
     const faq = textOf(sectionAround(markup, ' id="faq"'));
     expect(faq).toContain(
-      "In the pilot, your leads come in as a CSV export from the system you use today, and Revenue OS will call them",
+      "In the pilot, your leads come in as a CSV export from the system you use today, and Krate will call them",
     );
     expect(faq).toContain(
-      "In the pilot, Revenue OS will check your do-not-call list",
+      "In the pilot, Krate will check your do-not-call list",
     );
     expect(faq).not.toContain("follow-ups go out by voice and WhatsApp");
-    expect(faq).not.toContain("Revenue OS checks your do-not-call list");
+    expect(faq).not.toContain("Krate checks your do-not-call list");
   });
 
   test('three plans, the last one "Custom", none with a price figure', () => {
