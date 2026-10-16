@@ -100,7 +100,7 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
   checked`, never a ✓), then, if product code changed (every file but docs/, Markdown, tests and the gate, CI
   and hook files: .github/, .codex/, .claude/, scripts/done-gate*), a ruling from the verifier agent
   (`.claude/agents/verifier.md`), which runs the product and compares it with Devesh's words (when
-  he gave none, the roadmap item's text, word for word): PASS,
+  he gave none, the message that started the session, or else the roadmap item's text, word for word): PASS,
   or CANNOT_VERIFY naming what only Devesh can provide (a real phone number, an account, a key),
   which reaches him marked NOT verified. Until then the agent is sent back to work, and Devesh sees
   each verdict. Codex runs the same gate when a turn ends (`.codex/hooks.json`, once trusted in
@@ -202,8 +202,8 @@ https://claude.ai/artifact/AA8oywPgYW1VgSefP4Va2E
    still runs that test when a change adds or edits it. Never skip, silence or weaken a check to get past it. CI
    also runs gitleaks, `bun audit` and a Docker build; CI is the verdict.
 4. See it work (`bun run see <console path>` saves what a signed-in person sees), then run the
-   verifier agent with Devesh's request word for word (when he gave none, the roadmap item's text,
-   word for word). PR body: the first line is `Roadmap: Slice N —
+   verifier agent with Devesh's request word for word (when he gave none, the message that started the
+   session, or else the roadmap item's text, word for word). PR body: the first line is `Roadmap: Slice N —
    <item>` (an item of the current slice, or one of Devesh's, by its text as ROADMAP.md has it, whole or up
    to its first colon; a note in brackets may follow; an item main already has ticked only in a follow-up
    that adds to its evidence), `Roadmap: Slice N — replan: <what>` (a PR that changes ROADMAP.md and ticks

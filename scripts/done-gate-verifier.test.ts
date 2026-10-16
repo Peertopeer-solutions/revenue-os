@@ -739,7 +739,7 @@ describe("what the verifier is handed when it starts", () => {
     expect(text).not.toContain("script output");
   });
 
-  it("marks a script's prompt as script output, and gives the roadmap item as the request when Devesh typed nothing", () => {
+  it("gives the message that started the session, a script's here, as the request when Devesh typed nothing, and marks its later prompts as script output", () => {
     const dir = project("feat/ruling");
     plan(dir, [ITEM]);
     describeBranch(dir, "feat/ruling", ITEM);
@@ -754,15 +754,78 @@ describe("what the verifier is handed when it starts", () => {
         },
       },
       ...noise,
+      {
+        type: "user",
+        promptSource: "sdk",
+        turnOrigin: "sdk",
+        message: { role: "user", content: "Now run the gate again." },
+      },
     ]);
     expect(text).toContain(
-      "Build the next roadmap item and open a pull request.",
+      "--- the message that started this session (another session or a script wrote it, not Devesh) ---\nBuild the next roadmap item and open a pull request.",
     );
     expect(text).toContain("script output, not typed by Devesh");
     expect(text).toContain(
-      "Devesh typed nothing in this session, so the request is the roadmap item, below, of the checkout whose change you are verifying, word for word",
+      "Devesh typed nothing in this session, so the request is the message that started this session, below, word for word (another session or a script wrote it, not Devesh); when it doesn't ask for this work, the roadmap item, below, of the checkout whose change you are verifying, word for word",
     );
     expect(text).toContain(ITEM);
+    expect(text).toContain(
+      "--- script output, not typed by Devesh ---\nNow run the gate again.",
+    );
+  });
+
+  it("hands a session another session started its brief as the request, Devesh's typed words first once he types, and no request when nothing started it", () => {
+    const dir = project("feat/legal-pages");
+    plan(dir, [ITEM]);
+    // A Side-track branch names no roadmap item, and its description, the building agent's words, is never the request.
+    describeBranch(
+      dir,
+      "feat/legal-pages",
+      "Side track: privacy and terms pages",
+    );
+    // The brief the desktop app hands a session another session started, recorded as its first prompt.
+    const brief = {
+      type: "user",
+      promptSource: "sdk",
+      turnOrigin: "sdk",
+      timestamp: "2026-10-15T09:51:54Z",
+      message: {
+        role: "user",
+        content:
+          "<system-reminder>\nYou are operating in a git worktree.\n</system-reminder>\n\nBackground (from the session that started this one):\nDevesh is getting Meta's approval to send WhatsApp messages.\n\nTask:\nAdd a privacy policy page at /privacy and a terms page at /terms, linked from the footer.",
+      },
+    };
+    const TASK =
+      "Task:\nAdd a privacy policy page at /privacy and a terms page at /terms, linked from the footer.";
+    const quiet = handed(dir, [brief, ...noise]);
+    expect(quiet).toContain(
+      "Devesh typed nothing in this session, so the request is the message that started this session",
+    );
+    expect(quiet).toContain(
+      "--- the message that started this session (another session or a script wrote it, not Devesh) at 2026-10-15T09:51:54Z ---\n<system-reminder>",
+    );
+    expect(quiet).toContain(TASK);
+    expect(quiet).toContain("matches no item in ROADMAP.md on origin/main");
+    expect(quiet).not.toContain("word for word:\nSide track:");
+    expect(quiet).not.toContain("no request to hand you");
+
+    // Once Devesh types, his words come first; the brief is the request only when none of them asks for the work.
+    const said = handed(dir, [
+      brief,
+      ...noise,
+      typed("and link them from the sign-up page too", "2026-10-15T10:30:00Z"),
+    ]);
+    expect(said).toContain(
+      "The request is what Devesh typed, below: the message or messages asking for this work. When none of them asks for it, the request is the message that started this session",
+    );
+    const his = said.indexOf("and link them from the sign-up page too");
+    expect(his).toBeGreaterThan(-1);
+    expect(his).toBeLessThan(said.indexOf(TASK));
+
+    // Nothing typed, no message that started it and no roadmap item: still no request.
+    expect(handed(dir, noise)).toContain(
+      "Devesh typed nothing in this session, and no checkout's branch names a roadmap item, so the gate has no request to hand you.",
+    );
   });
 
   it("hands it the roadmap item as ROADMAP.md on origin/main words it, never the branch's description in its place", () => {
@@ -823,11 +886,11 @@ describe("what the verifier is handed when it starts", () => {
     expect(long).toContain("BBBB");
   });
 
-  it("tells the agent to run the verifier with Devesh's words, or the item's text when he typed none, and never to pick its model", () => {
+  it("tells the agent to run the verifier with Devesh's words, or the message that started the session or the item's text when he typed none, and never to pick its model", () => {
     const dir = project();
     const why = stop(dir).reason;
     expect(why).toContain(
-      "when he typed none for this work, the roadmap item's text, word for word",
+      "when he typed none for this work, the message that started the session, or else the roadmap item's text, word for word",
     );
     expect(why).toContain("no `model`");
   });

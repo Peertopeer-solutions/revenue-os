@@ -17,7 +17,7 @@ export type Ruling = {
 };
 
 const NEED_VERIFIER = `You can't finish yet: product code changed, and nobody independent has seen it work.
-Run the verifier agent (Agent tool, subagent_type "verifier"), with no \`model\`: it runs on the one .claude/agents/verifier.md names. Give it Devesh's request word for word (when he typed none for this work, the roadmap item's text, word for word; the gate also hands it his typed words and the item's text itself), what you changed, and how you believe it can be seen working. Only its own delivered report counts: it ends with its ruling line. If it rules FAIL, fix what it found and run it again.
+Run the verifier agent (Agent tool, subagent_type "verifier"), with no \`model\`: it runs on the one .claude/agents/verifier.md names. Give it Devesh's request word for word (when he typed none for this work, the message that started the session, or else the roadmap item's text, word for word; the gate also hands it his typed words, that message and the item's text itself), what you changed, and how you believe it can be seen working. Only its own delivered report counts: it ends with its ruling line. If it rules FAIL, fix what it found and run it again.
 If you are stopping to ask Devesh a question rather than finishing, run \`bun run gate pause "<the question>"\` and stop again.`;
 
 /**
