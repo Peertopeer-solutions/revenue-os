@@ -6,7 +6,7 @@ import { bookingCopy } from "./booking";
 
 export const closing = {
   kicker: bookingCopy.length,
-  title: "See how Revenue\u00a0OS would handle your next property enquiry.",
+  title: "See how Krate would handle your next property enquiry.",
   sub: "Hear a sample call, review the qualification summary, and see how a site visit gets booked.",
   coversTitle: "What the 30 minutes cover",
   covers: [

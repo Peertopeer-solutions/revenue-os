@@ -7,7 +7,7 @@ interface NavLink {
   href: string;
 }
 
-export const brand = "Revenue OS";
+export const brand = "Krate";
 
 export const navLabel = "Primary";
 
@@ -30,7 +30,7 @@ export const motionToggle = {
 } as const;
 
 export const footerMeta = {
-  copyright: "Revenue OS © 2026",
+  copyright: "Krate © 2026",
   note: "Built in India",
   skip: "Skip to content",
   legal: "Legal",
