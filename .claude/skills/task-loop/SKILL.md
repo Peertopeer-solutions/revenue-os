@@ -33,8 +33,8 @@ description: Use when building a roadmap item — any session implementing the n
    What works today` if reality changed; add a file to `docs/decisions-in-force/` for any decision.
 8. Go through **Before your first verifier run** (below), then `bun run gate` run bare (never piped).
    Every check passes in `bun run gate` here first, and CI confirms it.
-9. Run the verifier agent with Devesh's request word for word (when he gave none, the roadmap item's
-   text, word for word); the done gate won't let you stop on product code without its PASS, or its
+9. Run the verifier agent with Devesh's request word for word (when he gave none, the message that
+   started the session, or else the roadmap item's text, word for word); the done gate won't let you stop on product code without its PASS, or its
    CANNOT_VERIFY naming what only Devesh can provide (he is told it is NOT verified). A FAIL means a
    fix, then steps 7 to 9 again on the new code.
 10. Put the gate's line and the verifier's ruling in the PR body, which is not in the files, so the

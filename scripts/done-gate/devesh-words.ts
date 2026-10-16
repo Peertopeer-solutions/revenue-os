@@ -1,7 +1,8 @@
 // What the verifier is handed when it starts: the roadmap item each checkout the session worked in builds, as
 // ROADMAP.md on origin/main words it (found by the branch's description, which the building agent writes, so the
 // description itself is never handed over as the item), and Devesh's own typed words from Claude Code's transcript
-// of the session (a script's prompts, marked as script output, when a script started it). That transcript is a file
+// of the session, then, when another session or a script started it, the message that started it, which is the
+// request when he typed none for the work, and its later prompts, marked as script output. That transcript is a file
 // the building agent could append to: docs/done-gate.md lists it among the gate's open holes. A branch's checkpoint
 // (checkpoint.ts) reads Devesh's words and the roadmap item the same way.
 
@@ -37,9 +38,9 @@ function newestFirst(prompts: Prompt[]) {
 
 /**
  * PURE: a session transcript → the messages Devesh typed (`origin.kind` "human"; one typed while the agent was busy
- * may be recorded only as a queued_command attachment), and, when the session's first prompt has no origin (a script
- * or the SDK sent it), the prompts with none. Tool results, system reminders, task notifications and other agents'
- * messages are not prompts anyone typed.
+ * may be recorded only as a queued_command attachment), and, when the session's first prompt has no origin (another
+ * session's brief or a script's prompt, sent through the SDK), that first prompt and the later prompts with none. Tool
+ * results, system reminders, task notifications and other agents' messages are not prompts anyone typed.
  */
 export function promptsOf(transcript: string) {
   const prompts = transcript.split("\n").flatMap((line): Prompt[] => {
@@ -59,12 +60,15 @@ export function promptsOf(transcript: string) {
       return [];
     }
   });
+  const [first, ...later] = prompts;
+  const started =
+    first && !first.origin
+      ? { at: first.at, text: textOf(first.content) }
+      : undefined;
   return {
     typed: newestFirst(prompts.filter((p) => p.origin?.kind === "human")),
-    byScript:
-      prompts[0] && !prompts[0].origin
-        ? newestFirst(prompts.filter((p) => !p.origin))
-        : [],
+    started,
+    byScript: started ? newestFirst(later.filter((p) => !p.origin)) : [],
   };
 }
 
@@ -108,19 +112,24 @@ export function requestFor(
   } catch {
     // no transcript to read: nothing typed is known
   }
-  const { typed, byScript } = promptsOf(text);
+  const { typed, started, byScript } = promptsOf(text);
   const roadmap = git(repo, ["show", "origin/main:ROADMAP.md"], {}, true);
   const known = parseRoadmap(roadmap).slices.flatMap((s) =>
     s.items.map((i) => i.text),
   );
   const items = roots.map((root) => itemOf(root, known));
   const where = transcript ?? "none named";
+  const item =
+    "the roadmap item, below, of the checkout whose change you are verifying, word for word";
+  const brief = started
+    ? `the message that started this session, below, word for word (another session or a script wrote it, not Devesh); when it doesn't ask for this work, ${item}`
+    : item;
   const note = [
     `The done gate hands the verifier this note. Each roadmap item below is the line ROADMAP.md holds on origin/main, and Devesh's words are read from Claude Code's transcript of this session (${where}), not from the building agent's brief.`,
     typed.length
-      ? "The request is what Devesh typed, below: the message or messages asking for this work. When none of them asks for it, the request is the roadmap item, below, of the checkout whose change you are verifying, word for word."
-      : items.some((i) => i.item)
-        ? "Devesh typed nothing in this session, so the request is the roadmap item, below, of the checkout whose change you are verifying, word for word."
+      ? `The request is what Devesh typed, below: the message or messages asking for this work. When none of them asks for it, the request is ${brief}.`
+      : started || items.some((i) => i.item)
+        ? `Devesh typed nothing in this session, so the request is ${brief}.`
         : "Devesh typed nothing in this session, and no checkout's branch names a roadmap item, so the gate has no request to hand you.",
     ...(roadmap
       ? []
@@ -133,9 +142,17 @@ export function requestFor(
           `Devesh's typed messages in this session, newest first, each word for word:\n${blocks(typed, "typed by Devesh")}`,
         ]
       : []),
+    ...(started
+      ? [
+          blocks(
+            [started],
+            "the message that started this session (another session or a script wrote it, not Devesh)",
+          ),
+        ]
+      : []),
     ...(byScript.length
       ? [
-          `A script started this session. Its prompts, newest first, are script output, not typed by Devesh:\n${blocks(byScript, "script output, not typed by Devesh")}`,
+          `Its later prompts that nobody typed, newest first, are script output, not typed by Devesh:\n${blocks(byScript, "script output, not typed by Devesh")}`,
         ]
       : []),
   ].join("\n\n");
