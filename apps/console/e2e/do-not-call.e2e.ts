@@ -14,13 +14,7 @@ import {
   DEV_LOGIN_PASSWORD,
 } from "../../../scripts/dev-login";
 import { isLocalUrl } from "../../../scripts/local-url";
-
-function env(name: string): string {
-  const value = process.env[name];
-  if (!value)
-    throw new Error(`${name} must be set to run the do-not-call e2e spec`);
-  return value;
-}
+import { env, signIn } from "./sign-in";
 
 test("a person marks a lead do-not-call on the Contacts screen, and the block stays", async ({
   page,
@@ -61,11 +55,7 @@ test("a person marks a lead do-not-call on the Contacts screen, and the block st
 
   const db = new pg.Pool({ connectionString: dbUrl });
   try {
-    await page.goto("/login");
-    await page.getByLabel("Email", { exact: true }).fill(DEV_LOGIN_EMAIL);
-    await page.getByLabel("Password", { exact: true }).fill(DEV_LOGIN_PASSWORD);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/o/${orgId}/home$`));
+    await signIn(page);
 
     const find = async (q: string) => {
       await page.getByLabel("Search leads by name or phone number").fill(q);

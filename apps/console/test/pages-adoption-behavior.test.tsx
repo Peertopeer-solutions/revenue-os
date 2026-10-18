@@ -1,10 +1,13 @@
-// The Conversations, Contacts and Transcript pages, built from DataShell and the Table suite, each render their
-// per-state copy and their key content. renderToStaticMarkup over the REAL page with its query hook MOCKED
-// (mockModule over bun mock.module) and orgId/conversationId supplied by a static SSR <Router>/<Route> — the ui-smoke
-// + console-boot-honesty precedent, env-free by construction (mocking the api module also keeps lib/api's
-// import.meta.env off the module graph). Conversations reads features/screens/api, Contacts features/contacts/api
-// (its do-not-call column: contacts-do-not-call.test.tsx), Transcript features/conversations/api. The Contacts
-// header cells carry the TH primitive's full token set, font-medium included.
+// Behaviour pins for the data pages built on DataShell and the Table suite: each page
+// must render the SAME per-state copy and the SAME key content. renderToStaticMarkup over the
+// REAL page with its query hook MOCKED (mockModule over bun mock.module) and orgId/conversationId supplied by a
+// static SSR <Router>/<Route> — the ui-smoke + console-boot-honesty precedent, env-free by
+// construction (mocking the api module also keeps lib/api's import.meta.env off the module graph).
+// Conversations reads features/screens/api, Contacts features/contacts/api (its do-not-call column:
+// contacts-do-not-call.test.tsx); Transcript reads features/conversations/api.
+//
+// One case pins a deliberate visual change: Contacts' header cells carry the standardized TH token
+// `font-medium` the TH primitive gives every header cell.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -235,8 +238,8 @@ describe("task-31 behavior: Contacts page states + content", () => {
     expect(text).toContain("2026-07-02T00:00:00Z");
   });
 
-  // The TH primitive standardizes the header weight, so the <thead> carries the full TH token set, font-medium
-  // included.
+  // The deliberate visual change: the TH primitive standardizes the header weight, so the <thead>
+  // carries the full standardized TH token set, font-medium included.
   it("header cells carry the standardized TH token classes, incl. font-medium (the intended delta)", () => {
     contactsState = {
       data: { contacts: [CONTACT_ROW] },
@@ -270,6 +273,17 @@ describe("task-31 behavior: Transcript page keeps its exact custom copy + render
     expect(text).not.toContain("Unable to load data.");
   });
 
+  it("a conversation with no message yet says so, as an empty state, never a blank card", () => {
+    transcriptState = {
+      data: { messages: [] },
+      isLoading: false,
+      isError: false,
+    };
+    const html = renderTranscript();
+    expect(visible(html)).toContain("No messages in this conversation yet.");
+    expect(html).toContain('data-state="empty"');
+  });
+
   it("no data (undefined, isError false) shows 'Transcript unavailable.'", () => {
     transcriptState = { data: undefined, isLoading: false, isError: false };
     expect(visible(renderTranscript())).toContain("Transcript unavailable.");
@@ -297,9 +311,9 @@ describe("task-31 behavior: Transcript page keeps its exact custom copy + render
   });
 });
 
-// The Contacts and Conversations name cells use <TD tone="ink" className="font-medium">, so they emit text-ink
-// alone: TD's default tone="soft" (text-ink-soft) beside className="text-ink" would emit both, and cx has no
-// tailwind-merge to settle that cascade. These render the real page (same mocked hooks) and read the name cell's
+// The Contacts + Conversations name cells use <TD tone="ink" className="font-medium">, emitting text-ink ALONE:
+// a className of text-ink beside TD's default tone="soft" would emit both text-ink-soft and text-ink, since cx has
+// no tailwind-merge (an ambiguous cascade). These render the real page (same mocked hooks) and read the name cell's
 // class list — the ONE body <td> carrying font-medium (the header's font-medium sits on <th>, excluded).
 describe("task-33 tone flip: Conversations + Contacts name cells adopt tone=ink (text-ink, not text-ink-soft)", () => {
   // The name cell is the sole body <td> with font-medium; capture its class token list.
@@ -309,6 +323,7 @@ describe("task-33 tone flip: Conversations + Contacts name cells adopt tone=ink 
     return cls.split(/\s+/).filter(Boolean);
   };
 
+  // behaviour already on main: only its stale "RED today" comment changed (docs/fix-when-touched.md entry 3)
   it("Conversations name cell carries text-ink and NOT text-ink-soft", () => {
     convState = {
       data: {
@@ -329,9 +344,10 @@ describe("task-33 tone flip: Conversations + Contacts name cells adopt tone=ink 
     };
     const tokens = nameCellTokens(renderConversations());
     expect(tokens).toContain("text-ink"); // full-ink emphasis for the linked name
-    expect(tokens).not.toContain("text-ink-soft"); // RED today: soft default still baked in beside it
+    expect(tokens).not.toContain("text-ink-soft"); // never the soft default beside it
   });
 
+  // behaviour already on main: only its stale "RED today" comment changed (docs/fix-when-touched.md entry 3)
   it("Contacts name cell carries text-ink and NOT text-ink-soft", () => {
     contactsState = {
       data: { contacts: [CONTACT_ROW] },
@@ -340,6 +356,6 @@ describe("task-33 tone flip: Conversations + Contacts name cells adopt tone=ink 
     };
     const tokens = nameCellTokens(renderContacts());
     expect(tokens).toContain("text-ink");
-    expect(tokens).not.toContain("text-ink-soft"); // RED today: same soft/ink ambiguity as Conversations
+    expect(tokens).not.toContain("text-ink-soft"); // the same as Conversations
   });
 });

@@ -1,7 +1,6 @@
-// Conversation transcript page (S7.1) — migrated from src/screens/transcript.tsx (that
-// path was NOT test-pinned, unlike its screens/ siblings). Reads {orgId, conversationId}
-// from the URL (R7), fetches through the transcript query hook, and renders messages as
-// inert text nodes via the test-pinned TranscriptView (features/conversations/).
+// Conversation transcript page (docs/security.md S7.1: a lead's words render as inert text). Reads {orgId,
+// conversationId} from the URL, fetches through the transcript query hook, and renders messages as inert text nodes
+// via TranscriptView (features/conversations/); a conversation with no message yet says so.
 import { useParams } from "wouter";
 import { useTranscriptQuery } from "../../features/conversations/api";
 import { TranscriptView } from "../../features/conversations/TranscriptView";
@@ -26,8 +25,10 @@ export function TranscriptPage() {
       <DataShell
         isLoading={isLoading}
         isError={isError || !data}
+        isEmpty={data?.messages.length === 0}
         loadingText="Loading transcript…"
         errorText="Transcript unavailable."
+        emptyText="No messages in this conversation yet."
       >
         <Card padding="lg">
           <TranscriptView messages={data?.messages ?? []} />
