@@ -16,7 +16,7 @@ apps/console/src/app/session: public /login with a safe return-to, a signed-in g
 
 ## Call results
 
-Webhook receiver works (services/worker/src/vapi); a call id and a provider's event id are kept per company, so another company's event with the same id is neither dropped nor filed on this company's conversation; an event that can't be filed is marked failed with its reason (webhook_events.error) and the company's other events still go through, while a failure of the database itself (a lost connection, a deadlock, a cancelled or timed-out statement) fails the whole job, which runs again, and marks no event failed; a failed event stays failed until someone sets it back to received. The call's outcome is not saved (Slice 4)
+Webhook receiver works (services/worker/src/vapi); a call id and a provider's event id are kept per company, so another company's event with the same id is neither dropped nor filed on this company's conversation; an event that can't be filed is marked failed with its reason (webhook_events.error) and the company's other events still go through, while a failure of the database itself (a lost connection, a deadlock, a cancelled or timed-out statement) fails the whole job, which runs again, and marks no event failed; a failed event stays failed until someone sets it back to received. An end-of-call report whose AI reading (its analysis.structuredData) says doNotCall: true blocks the call's lead from every later message and call; any other reading, or a call linked to no lead, blocks nobody, and a reading never lifts a block or grants consent. The call's outcome is not saved (Slice 4)
 
 ## Deployment
 

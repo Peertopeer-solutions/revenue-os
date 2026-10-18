@@ -1,4 +1,5 @@
-// Boundary truth (T11): every boundary parses with these — never re-declare shapes locally.
+// Boundary truth (AGENTS.md → Conventions: Zod at every boundary): every boundary parses with these — never
+// re-declare shapes locally.
 import { z } from "zod";
 
 export const OrgIdSchema = z.string().uuid();
@@ -36,7 +37,7 @@ export const UpdateOrgSchema = z
   .strict();
 export type UpdateOrg = z.infer<typeof UpdateOrgSchema>;
 
-// Guardrail-policy config is the SAFETY BOUNDARY (task-52). The harness quiet_hours hook reads
+// Guardrail-policy config is the SAFETY BOUNDARY. The harness quiet_hours hook reads
 // guardrail_policies.config FAIL-OPEN (packages/harness/src/policies.ts): a malformed config
 // silently disables the gate for every send. This strict discriminated union is what stops a bad
 // config reaching the row — the PUT route parses it before any write. One union export is the whole
@@ -118,7 +119,7 @@ export const VapiReadingSaysDoNotCallSchema = z.object({
   }),
 });
 
-// ── Eval scenarios (task-59) — the three JSONB columns of eval_scenarios. A row that fails ANY
+// ── Eval scenarios — the three JSONB columns of eval_scenarios. A row that fails ANY
 //    of these is a malformed scenario: the eval runner records it and fails ONLY that scenario,
 //    never the whole run. Extra keys pass through (.passthrough) so assertions can carry future
 //    v2 checks the mechanical engine does not yet read.
