@@ -174,7 +174,7 @@ describe("Settings Guardrails section — what each form says about its save", (
     expect(html).not.toContain('role="alert"');
   });
 
-  it("while a save runs, its form says 'Saving…' and its Save button waits", async () => {
+  it("while a save runs, its form says 'Saving…' and its fields and Save button wait", async () => {
     guardrailsResult = ok({ policies });
     saveResult = { ...idle, isPending: true };
     const html = await renderSettings();
@@ -182,6 +182,17 @@ describe("Settings Guardrails section — what each form says about its save", (
     expect(
       (html.match(/<button[^>]*type="submit"[^>]*disabled=""/g) ?? []).length,
     ).toBe(2);
+    // Quiet hours' start, end and time zone, and autonomy's two tools: none can change under a running save.
+    expect(
+      (html.match(/<(input|select)\b[^>]*disabled=""/g) ?? []).length,
+    ).toBe(5);
+  });
+
+  it("with no save running, every field can be changed", async () => {
+    guardrailsResult = ok({ policies });
+    saveResult = { ...idle, isSuccess: true };
+    const html = await renderSettings();
+    expect(html).not.toMatch(/<(input|select|button)\b[^>]*disabled=""/);
   });
 
   it("a save the API took says 'Saved.'", async () => {
@@ -219,5 +230,9 @@ describe("Settings Guardrails section — what each form says about its save", (
     }).error;
     expect(emptyStart).toBeDefined();
     expect(notSaved(emptyStart)).toBe("Not saved: fill in every field.");
+    // Anything else (an answer that isn't JSON, say) claims nothing about the fields.
+    expect(notSaved(new SyntaxError("Unexpected token <"))).toBe(
+      "Not saved: something went wrong. Try again.",
+    );
   });
 });

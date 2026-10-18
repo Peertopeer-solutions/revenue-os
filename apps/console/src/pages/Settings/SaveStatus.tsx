@@ -2,10 +2,13 @@
 // it has answered, or why the save failed, as an alert. Nothing before the first save. Shared by QuietHoursForm and
 // AutonomyForm.
 import { ApiError } from "@revenue-os/shared";
+import { ZodError } from "zod";
 
-/** PURE: why a save failed, in a person's words. Anything but an API error is the shared schema refusing a value. */
+/** PURE: why a save failed, in a person's words: the shared schema refusing a value, or the API's answer. */
 export function notSaved(error: unknown): string {
-  if (!(error instanceof ApiError)) return "Not saved: fill in every field.";
+  if (error instanceof ZodError) return "Not saved: fill in every field.";
+  if (!(error instanceof ApiError))
+    return "Not saved: something went wrong. Try again.";
   if (error.status === 0)
     return error.code === "timeout"
       ? "Not saved: the API took too long to answer. Try again."

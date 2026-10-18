@@ -1,5 +1,6 @@
 // The autonomy form of the Settings page's Guardrails section: for each AI tool, whether it runs by itself, waits for
-// a person's approval or is forbidden, with its own save call, and under it what that save did (SaveStatus).
+// a person's approval or is forbidden, with its own save call, and under it what that save did (SaveStatus). A change
+// clears that message, and the controls wait while a save runs, so the message always speaks of what is on screen.
 import {
   type GuardrailPolicy,
   useUpdateGuardrailPolicy,
@@ -25,6 +26,7 @@ export function AutonomyForm({
     <form
       aria-label="Autonomy"
       className="grid gap-4"
+      onChange={update.reset}
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
@@ -45,6 +47,7 @@ export function AutonomyForm({
               id={`autonomy-${tool}`}
               name={tool}
               defaultValue={asStr(config[tool])}
+              disabled={update.isPending}
               className={SELECT_CLASS}
             >
               {AUTONOMY_TIERS.map((tier) => (

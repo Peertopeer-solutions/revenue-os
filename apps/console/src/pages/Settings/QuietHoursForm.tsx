@@ -1,5 +1,6 @@
 // The quiet-hours form of the Settings page's Guardrails section: the window (start, end, time zone) in which no call
-// or message goes out, with its own save call, and under it what that save did (SaveStatus).
+// or message goes out, with its own save call, and under it what that save did (SaveStatus). A change clears that
+// message, and the fields wait while a save runs, so the message always speaks of the hours on screen.
 import {
   type GuardrailPolicy,
   useUpdateGuardrailPolicy,
@@ -21,6 +22,7 @@ export function QuietHoursForm({
     <form
       aria-label="Quiet hours"
       className="grid gap-3"
+      onChange={update.reset}
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
@@ -42,6 +44,7 @@ export function QuietHoursForm({
             name="start"
             type="time"
             defaultValue={asStr(config.start)}
+            disabled={update.isPending}
           />
         </Field>
         <Field id="qh-end" label="End">
@@ -50,10 +53,16 @@ export function QuietHoursForm({
             name="end"
             type="time"
             defaultValue={asStr(config.end)}
+            disabled={update.isPending}
           />
         </Field>
         <Field id="qh-tz" label="Timezone">
-          <Input id="qh-tz" name="tz" defaultValue={asStr(config.tz)} />
+          <Input
+            id="qh-tz"
+            name="tz"
+            defaultValue={asStr(config.tz)}
+            disabled={update.isPending}
+          />
         </Field>
         <Button
           type="submit"

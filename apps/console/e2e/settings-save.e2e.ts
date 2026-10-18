@@ -1,6 +1,6 @@
 // Saving calling hours in Settings (the workspace's quiet-hours window), as the dev login on the seeded workspace
-// against the real local stack: a save says "Saved." and the new hours are still there after a reload; a save the
-// API fails shows its error and changes nothing. The workspace's quiet-hours setting is put back as it was at the
+// against the real local stack: a save says "Saved." and the new hours are still there after a reload; a change
+// made after it clears "Saved." and, unsaved, is not kept; a save the API fails shows its error and changes nothing. The workspace's quiet-hours setting is put back as it was at the
 // end, whatever happened, so the check is safe on a workspace people use. FILENAME: *.e2e.ts, so `bun test` leaves
 // it alone.
 import { expect, type Page, test } from "@playwright/test";
@@ -41,6 +41,9 @@ test("calling hours saved in Settings are kept after a reload, and a save that f
     await quietHours(page).getByLabel("End").fill("09:30");
     await quietHours(page).getByRole("button", { name: "Save" }).click();
     await expect(quietHours(page).getByRole("status")).toHaveText("Saved.");
+    // Changing a field again clears "Saved.": the hours on screen are no longer the saved ones, and are not kept.
+    await quietHours(page).getByLabel("Start").fill("20:45");
+    await expect(quietHours(page).getByRole("status")).toHaveCount(0);
     await page.reload();
     await expect(quietHours(page).getByLabel("Start")).toHaveValue("20:30");
     await expect(quietHours(page).getByLabel("End")).toHaveValue("09:30");

@@ -100,7 +100,8 @@ on conflict (org_id, key) do nothing;
 -- key (pg_temp.seed_id): re-running the pack inserts nothing twice. The md5 gets the version (3,
 -- name-based) and variant digits of a real UUID, which the app's id checks require. Re-running it also moves
 -- the demo rows' times to its own run ("a day ago" stays a day ago), so the console's 30-day screens keep
--- showing them on a database seeded weeks ago; outcomes, which are never edited, keep their first times.
+-- showing them on a database seeded weeks ago. Messages and outcomes are append-only for the product; this
+-- local demo data alone re-dates its own rows, as it may already delete their stale copies (below).
 create or replace function pg_temp.seed_id(key text) returns uuid language sql stable
   return overlay(overlay(md5(current_setting('seed.org_id') || ':' || key) placing '3' from 13)
                  placing '8' from 17)::uuid;
@@ -241,4 +242,4 @@ from (values
   ('lakshmi', 'booking',   now() - interval '2 days' + interval '3 minutes'),
   ('lakshmi', 'qualified', now() - interval '2 days')
 ) as o(who, kind, occurred_at)
-on conflict (id) do nothing;
+on conflict (id) do update set occurred_at = excluded.occurred_at;

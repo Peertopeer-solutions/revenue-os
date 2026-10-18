@@ -235,9 +235,9 @@ describe.each([
     expect(otherBefore).toHaveLength(5);
   });
 
-  // The console's screens count the last 30 days (Analytics' trends, the browser check that opens every screen),
-  // so a local database seeded weeks ago showed no demo activity. Re-running the pack, as the browser checks do,
-  // moves its demo rows' times back to the run's own time; outcomes, which are never edited, keep theirs.
+  // The console's screens count the last 30 days (Analytics' tiles and trends, the browser check that opens every
+  // screen), so a local database seeded weeks ago showed no demo activity. Re-running the pack, as the browser checks
+  // do, moves every demo time it sets back to the run's own time, outcomes and messages with their conversations.
   it("re-seeding moves the demo rows' times to now, so the 30-day screens show them again", async () => {
     const { orgId, again } = await workspace(pack);
     const age = (sql: string) => admin.query(sql, [orgId]);
@@ -253,6 +253,9 @@ describe.each([
     await age(
       `update tasks set due_at = due_at - interval '60 days', completed_at = completed_at - interval '60 days' where org_id = $1`,
     );
+    await age(
+      `update outcomes set occurred_at = occurred_at - interval '60 days' where org_id = $1`,
+    );
     const seen = async () =>
       (
         await admin.query(
@@ -261,15 +264,29 @@ describe.each([
                   (select count(*)::int from messages where org_id = $1 and ts > now() - interval '30 days') messages,
                   (select count(*)::int from contacts where org_id = $1
                      and last_interaction_at > now() - interval '30 days') contacts,
-                  (select count(*)::int from tasks where org_id = $1 and status = 'open' and due_at > now()) open_due`,
+                  (select count(*)::int from tasks where org_id = $1 and status = 'open' and due_at > now()) open_due,
+                  (select count(*)::int from outcomes where org_id = $1 and occurred_at > now() - interval '30 days') outcomes,
+                  -- every time the pack sets, older than the 30-day window
+                  (select count(*)::int from conversations where org_id = $1
+                     and (started_at < now() - interval '30 days' or ended_at < now() - interval '30 days'))
+                  + (select count(*)::int from tasks where org_id = $1
+                     and (due_at < now() - interval '30 days' or completed_at < now() - interval '30 days')) stale,
+                  -- a message or an outcome dated before the conversation it belongs to
+                  (select count(*)::int from messages m join conversations c on c.org_id = m.org_id and c.id = m.conversation_id
+                     where m.org_id = $1 and m.ts < c.started_at)
+                  + (select count(*)::int from outcomes o join conversations c on c.org_id = o.org_id and c.id = o.conversation_id
+                     where o.org_id = $1 and o.occurred_at < c.started_at)
+                  + (select count(*)::int from conversations where org_id = $1 and ended_at < started_at) out_of_order`,
           [orgId],
         )
       ).rows[0];
-    expect(await seen()).toEqual({
+    expect(await seen()).toMatchObject({
       conversations: 0,
       messages: 0,
       contacts: 0,
       open_due: 0,
+      outcomes: 0,
+      out_of_order: 0,
     });
     const ids = await rowIds(orgId);
 
@@ -279,6 +296,9 @@ describe.each([
       messages: 13,
       contacts: 5,
       open_due: 2,
+      outcomes: 3,
+      stale: 0,
+      out_of_order: 0,
     });
     expect(await rowIds(orgId)).toEqual(ids); // the same rows, moved in time
   });
