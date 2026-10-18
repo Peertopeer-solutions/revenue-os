@@ -529,6 +529,7 @@ describe("a run parked on a call names the call job it waits for", () => {
     const [queued] = await jobsFor(`${runId}:c:0`);
     const run = await getRun(runId);
     expect(run.status).toBe("waiting");
+    expect(queued.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
     expect(run.state.callSendId).toBe(queued.data.sendId);
   });
 });

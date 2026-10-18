@@ -298,15 +298,13 @@ describe("call.post hands over a send whose job failed every try before saving t
     const runId = await seedRun(await seedWorkflow(CALL_WF), {
       currentStep: "c",
     });
+    const failed = await savedSend("place_call", runId, "sending");
     const db = flakyPool();
     try {
       db.trip();
-      await expect(
-        handleCallPost(
-          { pool: db.pool },
-          await savedSend("place_call", runId, "sending"),
-        ),
-      ).rejects.toThrow("the database went away");
+      await expect(handleCallPost({ pool: db.pool }, failed)).rejects.toThrow(
+        "the database went away",
+      );
       await expect(
         handleCallPost({ pool: db.pool }, { orgId: "not-a-company", runId }),
       ).resolves.toBeUndefined();
@@ -314,5 +312,13 @@ describe("call.post hands over a send whose job failed every try before saving t
       await db.pool.end();
     }
     expect(await statusOf(runId)).toBe("sending"); // untouched, for the retry to hand over
+    await handleCallPost({ pool: appPool }, failed); // its queue's next try
+    expect(await statusOf(runId)).toBe("unknown");
+    expect(await tasksOf(runId)).toEqual([
+      {
+        contact_id: contactId,
+        title: "Check whether this call went out before calling again",
+      },
+    ]);
   });
 });
