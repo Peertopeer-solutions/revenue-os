@@ -1,5 +1,5 @@
-// R2: server state through TanStack Query hooks in features/*/api.ts, keys from the queryKeys
-// factory. The GET envelope is Zod-parsed here (R6); the mutation body is validated with the shared
+// Server state through TanStack Query hooks in features/*/api.ts, keys from the queryKeys
+// factory (docs/patterns/tanstack-query.md). The GET envelope is Zod-parsed here; the mutation body is validated with the shared
 // GuardrailPolicyInputSchema — the SAME boundary the PUT route parses — before it leaves the browser.
 import { GuardrailPolicyInputSchema } from "@revenue-os/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

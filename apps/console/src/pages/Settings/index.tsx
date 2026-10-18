@@ -1,6 +1,6 @@
-// Settings — org info from the orgs hook (R2), plus the live Guardrails section (task-52): GET for
-// any member, PUT admin-only. quiet_hours + autonomy are EDITABLE (a form / a per-tool <select>);
-// attempt_caps + dnc render READ-ONLY. Every value comes from the server — nothing is fabricated
+// Settings — org info from the orgs hook, plus the live Guardrails section: GET for any member, PUT
+// admin-only. quiet_hours + autonomy are EDITABLE, each its own form with its own save that says what
+// it did (QuietHoursForm.tsx, AutonomyForm.tsx); attempt_caps + dnc render READ-ONLY. Every value comes from the server — nothing is fabricated
 // when there's no data. The mutation validates against the shared GuardrailPolicyInputSchema
 // (the harness reads quiet_hours config FAIL-OPEN, so that Zod is the real safety boundary).
 import { useParams } from "wouter";
