@@ -29,6 +29,7 @@ export function AutonomyForm({
         e.preventDefault();
         const f = new FormData(e.currentTarget);
         const next: Record<string, unknown> = {};
+        // coverage gap: moved unchanged from the Settings page, where no test ran it either; a submit runs only in a browser, and no browser check saves autonomy yet
         for (const tool of Object.keys(config)) next[tool] = asStr(f.get(tool));
         update.mutate({
           key: "autonomy",
