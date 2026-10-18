@@ -1,13 +1,14 @@
-// T5 — voice(Vapi) guarded doorway. MOAT #4: guard() runs BEFORE the sender on every path; a
-// blocking verdict returns the reason and NO send happens. Senders + guard are injected via ports.
+// The voice (Vapi) guarded doorway: guard() runs BEFORE the sender on every path (guardrails run before every
+// send, AGENTS.md hard rail 5); a blocking verdict returns the reason and NO send happens. Senders + guard are
+// injected via ports.
 // Harness types are type-only (tsconfig @harness/* alias, erased at runtime — no runtime harness dep).
 // G1: runtime-agnostic — no bun:* imports, no Bun globals.
-import type { GuardedAction, OrgCtx } from "@harness/types";
-import type { DoorwayResult, VoicePorts, VoiceReq } from "./types";
+import type { GuardedAction } from "@harness/types";
+import type { DoorwayResult, SendCtx, VoicePorts, VoiceReq } from "./types";
 
 export async function place(
   ports: VoicePorts,
-  ctx: OrgCtx,
+  ctx: SendCtx,
   req: VoiceReq,
 ): Promise<DoorwayResult> {
   const action: GuardedAction = {
