@@ -469,6 +469,33 @@ describe("an imported list", () => {
     expect(await nextSends(ours)).toEqual(SENT);
   });
 
+  it("a list the database cuts off leaves nothing half-done, and importing it again blocks its leads once", async () => {
+    const [fresh, known] = [phone(), phone()];
+    const existing = await newLead(orgId, known);
+    const csv = `phone,do_not_call\n${fresh},yes\n${known},yes\n`;
+    // The fresh row is filed and blocked first; the known row's merge then waits on the lead's lock and is cut off.
+    const ended = await cancelledWhileLocked(
+      "select 1 from contacts where id = $1 for update",
+      [existing],
+      async () => {
+        const res = await importCsv(csv);
+        if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+      },
+    );
+    expect(ended).toBe("failed: HTTP 500");
+    expect(await leadByPhone(fresh)).toBe("");
+    expect(await isBlocked(existing)).toBe(false);
+    expect(await audits(existing)).toBe(0);
+
+    const again = await importCsv(csv);
+    expect(await again.json()).toEqual({ created: 1, merged: 1, invalid: 0 });
+    const created = await leadByPhone(fresh);
+    for (const lead of [created, existing]) {
+      expect(await isBlocked(lead)).toBe(true);
+      expect(await audits(lead)).toBe(1);
+    }
+  });
+
   it("the same list imported twice blocks its lead once, with one audit row", async () => {
     const number = phone();
     const csv = `first_name,phone,dnc\nTara,${number},yes\n`;
