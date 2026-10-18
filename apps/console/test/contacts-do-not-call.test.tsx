@@ -1,10 +1,9 @@
-// Finding a lead and marking them do-not-call from the Contacts page, through the real page, its cell
-// (features/contacts/DoNotCallCell.tsx) and the real hooks it calls (features/contacts/api.ts), with only the network
-// and the sign-in session faked: a blocked lead shows its badge and no way to block or lift it, an open lead shows the
-// button, which asks to confirm; a search fetches the leads matching it; the save sends a POST, signed in, to the
-// lead's do-not-call address, then marks the contacts list out of date so the page fetches it again, and a save the
-// worker refuses refreshes nothing and says why. Clicking through it in a real browser is
-// apps/console/e2e/do-not-call.e2e.ts.
+// Finding a lead and marking them do-not-call from the Contacts page, through the real page and the real hooks it
+// calls (features/contacts/api.ts), with only the network and the sign-in session faked: a blocked lead shows its
+// badge and no way to block or lift it, an open lead shows the button; a search fetches the leads matching it; the
+// save sends a POST, signed in, to the lead's do-not-call address, then marks the contacts list out of date so the
+// page fetches it again, and a save the worker refuses refreshes nothing. The cell's confirm step and its messages are
+// do-not-call-cell.test.tsx; clicking through it in a real browser is apps/console/e2e/do-not-call.e2e.ts.
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -14,13 +13,9 @@ import {
   useContactsQuery,
   useMarkDoNotCall,
 } from "../src/features/contacts/api";
-import {
-  DoNotCallCell,
-  saveFailure,
-} from "../src/features/contacts/DoNotCallCell";
 import * as realSupabase from "../src/lib/supabase";
 import { ContactsPage } from "../src/pages/Contacts";
-import { apiErrorFor, buttons, mockModule, visible } from "./test-utils";
+import { buttons, mockModule, visible } from "./test-utils";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const LEAD = "33333333-3333-4333-8333-333333333333";
@@ -116,47 +111,6 @@ describe("the Contacts page's do-not-call column", () => {
     expect(buttons(html)).toEqual(["Search"]);
     expect(html).toMatch(
       /<span class="[^"]*text-danger[^"]*">Do not call<\/span>/,
-    );
-  });
-});
-
-describe("DoNotCallCell", () => {
-  const cell = (props: Partial<Parameters<typeof DoNotCallCell>[0]>) =>
-    renderToStaticMarkup(
-      <DoNotCallCell
-        blocked={false}
-        confirming={true}
-        saving={false}
-        failed={null}
-        onMark={() => {}}
-        onConfirm={() => {}}
-        onCancel={() => {}}
-        {...props}
-      />,
-    );
-
-  it("asks to confirm before it blocks, with a way back", () => {
-    const html = cell({});
-    expect(visible(html)).toContain("Block every call and message?");
-    expect(buttons(html)).toEqual(["Block", "Cancel"]);
-    expect(html).not.toContain('role="alert"');
-  });
-
-  it("while the save runs, its Block button can't be pressed again", () => {
-    expect(cell({ saving: true })).toMatch(
-      /<button[^>]*disabled=""[^>]*>Block<\/button>/,
-    );
-  });
-
-  it("says why a save failed: a person who may not block, or any other failure", async () => {
-    expect(saveFailure(await apiErrorFor(403))).toBe(
-      "Only an operator or admin can block a lead.",
-    );
-    expect(saveFailure(await apiErrorFor(500))).toBe("Not saved. Try again.");
-    expect(saveFailure(new Error("offline"))).toBe("Not saved. Try again.");
-    const html = cell({ failed: "Not saved. Try again." });
-    expect(html).toMatch(
-      /<span role="alert"[^>]*>Not saved. Try again.<\/span>/,
     );
   });
 });
