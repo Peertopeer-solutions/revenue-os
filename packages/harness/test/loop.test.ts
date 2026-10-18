@@ -180,6 +180,102 @@ describe("harness loop", () => {
     expect(tasks.rows[0].n).toBe(1);
   });
 
+  it("an approval-gated tool asks a person through a task for the conversation's lead and run, with its audit row", async () => {
+    const wf = await admin.query(
+      `insert into workflows (org_id, key, version, status, definition)
+       values ($1, $2, 1, 'active', '{"entry":"e","steps":{"e":{"kind":"end"}}}'::jsonb) returning id`,
+      [orgId, `approval-wf-${crypto.randomUUID()}`],
+    );
+    const run = await admin.query(
+      `insert into workflow_runs (org_id, workflow_id, contact_id, status, current_step)
+       values ($1, $2, $3, 'waiting', 'e') returning id`,
+      [orgId, wf.rows[0].id, contactId],
+    );
+    const runId = run.rows[0].id;
+    const convo = await admin.query(
+      `insert into conversations (org_id, contact_id, workflow_run_id, channel, direction, status)
+       values ($1, $2, $3, 'whatsapp', 'outbound', 'active') returning id`,
+      [orgId, contactId, runId],
+    );
+    const convoId = convo.rows[0].id;
+    const provider = fakeLlm([
+      {
+        toolCalls: [{ name: "send_quote", args: { contactId, amount: 99000 } }],
+        usage: { in: 80, out: 15 },
+      },
+      { text: "Quote needs approval.", usage: { in: 90, out: 8 } },
+    ]);
+
+    await withOrg(appService, orgId, async (tx) => {
+      await runTurn(
+        {
+          provider,
+          registry: makeRegistry(),
+          toolsAllowed: ["send_quote"],
+          systemPrompt: "test",
+        },
+        { orgId, db: tx },
+        convoId,
+      );
+    });
+
+    const tasks = await admin.query(
+      `select id, kind, contact_id, workflow_run_id, conversation_id from tasks where org_id = $1 and conversation_id = $2`,
+      [orgId, convoId],
+    );
+    expect(tasks.rows).toEqual([
+      {
+        id: expect.any(String),
+        kind: "approval",
+        contact_id: contactId,
+        workflow_run_id: runId,
+        conversation_id: convoId,
+      },
+    ]);
+    const audits = await admin.query(
+      `select actor_type, action from audit_log where org_id = $1 and resource_id = $2`,
+      [orgId, tasks.rows[0].id],
+    );
+    expect(audits.rows).toEqual([
+      { actor_type: "agent", action: "task.create" },
+    ]);
+  });
+
+  it("an approval in a conversation with no lead fails the turn loudly, leaving no task and no message", async () => {
+    const convo = await admin.query(
+      `insert into conversations (org_id, channel, direction, status)
+       values ($1, 'voice', 'inbound', 'active') returning id`,
+      [orgId],
+    );
+    const convoId = convo.rows[0].id;
+    const provider = fakeLlm([
+      {
+        toolCalls: [{ name: "send_quote", args: { contactId, amount: 1 } }],
+        usage: { in: 1, out: 1 },
+      },
+    ]);
+    await expect(
+      withOrg(appService, orgId, (tx) =>
+        runTurn(
+          {
+            provider,
+            registry: makeRegistry(),
+            toolsAllowed: ["send_quote"],
+            systemPrompt: "test",
+          },
+          { orgId, db: tx },
+          convoId,
+        ),
+      ),
+    ).rejects.toThrow("an approval is a task for the conversation's lead");
+    const left = await admin.query(
+      `select (select count(*)::int from tasks where org_id = $1 and conversation_id = $2) tasks,
+              (select count(*)::int from messages where org_id = $1 and conversation_id = $2) messages`,
+      [orgId, convoId],
+    );
+    expect(left.rows[0]).toEqual({ tasks: 0, messages: 0 });
+  });
+
   it("a tool outside tools_allowed is refused even if registered (the agent's capability boundary)", async () => {
     const provider = fakeLlm([
       {

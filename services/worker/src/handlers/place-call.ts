@@ -18,9 +18,9 @@ import type {
   Verdict,
 } from "@harness/types";
 import { voice } from "@revenue-os/channels";
-import { withOrg } from "@revenue-os/db";
+import { leadNumber, withOrg } from "@revenue-os/db";
 import { runTurn } from "@revenue-os/harness";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 
 /** Voice sender port — a structural superset of channels' VoiceSender (kept local so the type
  *  surface needs no channels dep). The handler passes the injected sender into voice.place. */
@@ -108,7 +108,8 @@ export async function handlePlaceCall(
     if (!agent) return; // no active agent to place the call
 
     // 3. guard BEFORE the send — a blocking verdict returns before any effect.
-    const to = await resolveTo(tx, orgId, action.contactId);
+    const to = await leadNumber(tx, orgId, action.contactId, "voice");
+    if (!to) return; // no number to call: nothing is placed
     const doorway = await voice.place(
       { sender: deps.sender, guard: deps.guard },
       ctx,
@@ -156,19 +157,4 @@ export async function handlePlaceCall(
       ],
     );
   });
-}
-
-/** Resolve an E.164 destination for the company's contact (any phone-bearing identity, primary first). */
-async function resolveTo(
-  tx: PoolClient,
-  orgId: string,
-  contactId: string,
-): Promise<string> {
-  const r = await tx.query(
-    `select value from contact_identities
-      where org_id = $1 and contact_id = $2 and kind in ('phone','whatsapp')
-      order by is_primary desc, created_at asc limit 1`,
-    [orgId, contactId],
-  );
-  return (r.rows[0]?.value as string) ?? "";
 }

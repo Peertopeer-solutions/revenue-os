@@ -358,6 +358,55 @@ export const Empty = (db) => <p>Nobody's here</p> && db.query("select id from ou
   expect(code).toBe(1);
 }, 30_000);
 
+// Tasks, audit rows and memberships each have one writer in packages/db (createTask, audit, the member functions of
+// orgs.ts): their own file may insert into the table, and any other product file that does fails, naming the owner.
+const INSERTS = {
+  tasks:
+    'db.query("insert into tasks (org_id, contact_id, kind, title) values ($1, $2, $3, $4)", [o, c, "review", "t"])',
+  audit_log:
+    'db.query("insert into audit_log (org_id, actor_type, action) values ($1, $2, $3)", [o, "system", "x"])',
+  org_members:
+    'db.query("insert into org_members (org_id, user_id, role) values ($1, $2, $3)", [o, u, "viewer"])',
+};
+const writer = (table: keyof typeof INSERTS) =>
+  `export const write = (db, o, c, u) => ${INSERTS[table]};\n`;
+
+// behaviour already on main: main's guard refuses none of these inserts; this pins that the one-writer rule lets each owner through
+it("lets only each table's own file insert tasks, audit rows and memberships", () => {
+  const { code, own } = guards({
+    "packages/db/src/tasks.ts": writer("tasks"),
+    "packages/db/src/audit.ts": writer("audit_log"),
+    "packages/db/src/orgs.ts": writer("org_members"),
+  });
+  expect(own).toMatch(/\n\s+PASS \(3 queries in 3 files\)/);
+  expect(code).toBe(0);
+}, 30_000);
+
+it("fails any other product file that inserts tasks, audit rows or memberships, naming the file that may", () => {
+  const files = {
+    "services/worker/src/handlers/call-post.ts": writer("tasks"),
+    "packages/harness/src/audit.ts": writer("audit_log"),
+    "packages/db/src/members.ts": writer("org_members"),
+    "apps/console/src/tasks.ts": writer("tasks"),
+  };
+  const { code, own } = guards(files);
+  for (const [file, owner, table] of [
+    [
+      "services/worker/src/handlers/call-post.ts",
+      "packages/db/src/tasks.ts",
+      "tasks",
+    ],
+    ["packages/harness/src/audit.ts", "packages/db/src/audit.ts", "audit_log"],
+    ["packages/db/src/members.ts", "packages/db/src/orgs.ts", "org_members"],
+    ["apps/console/src/tasks.ts", "packages/db/src/tasks.ts", "tasks"],
+  ])
+    expect(own).toContain(
+      `${file}:1: inserts into ${table}, which only ${owner} writes: call its function instead`,
+    );
+  expect(own).toContain("FAIL — company filter");
+  expect(code).toBe(1);
+}, 30_000);
+
 it("fails loudly outside a git checkout, where it can list no files: nothing was checked", () => {
   const { code, own } = guards(
     { "packages/db/src/x.ts": UNFILTERED },

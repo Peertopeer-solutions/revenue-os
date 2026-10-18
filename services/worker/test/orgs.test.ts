@@ -247,6 +247,53 @@ describe("org bootstrap + tenant isolation", () => {
     expect(membership?.role).toBe("viewer");
   });
 
+  it("giving someone access is audited: the admin's member.add row names the member and role, and the membership who granted it", async () => {
+    const audits = await admin.query(
+      `select actor_type, actor_id, resource_type, after from audit_log
+        where org_id = $1 and action = 'member.add' and resource_id = $2`,
+      [orgA, userB.userId],
+    );
+    expect(audits.rows).toEqual([
+      {
+        actor_type: "user",
+        actor_id: userA.userId,
+        resource_type: "member",
+        after: { user_id: userB.userId, role: "viewer" },
+      },
+    ]);
+    const grant = await admin.query(
+      `select granted_by from org_members where org_id = $1 and user_id = $2`,
+      [orgA, userB.userId],
+    );
+    expect(grant.rows).toEqual([{ granted_by: userA.userId }]);
+    // A second add of the same person is refused (409) and writes no second row.
+    await api(`/orgs/${orgA}/members`, userA.token, {
+      method: "POST",
+      body: JSON.stringify({ userId: userB.userId, role: "admin" }),
+    });
+    const again = await admin.query(
+      `select count(*)::int n from audit_log where org_id = $1 and action = 'member.add' and resource_id = $2`,
+      [orgA, userB.userId],
+    );
+    expect(again.rows[0].n).toBe(1);
+  });
+
+  it("a new company's creator becomes its admin through an audited grant too", async () => {
+    const audits = await admin.query(
+      `select actor_type, actor_id, resource_type, after from audit_log
+        where org_id = $1 and action = 'member.add' and resource_id = $2`,
+      [orgA, userA.userId],
+    );
+    expect(audits.rows).toEqual([
+      {
+        actor_type: "user",
+        actor_id: userA.userId,
+        resource_type: "member",
+        after: { user_id: userA.userId, role: "admin" },
+      },
+    ]);
+  });
+
   it("answers an admin who adds a user id that names no one with 404 user_not_found, and writes no row", async () => {
     const nobody = crypto.randomUUID();
     const res = await api(`/orgs/${orgA}/members`, userA.token, {

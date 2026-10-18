@@ -51,7 +51,7 @@ export const orgs = new Hono<AuthEnv>()
     const actor = c.get("actor");
     const callerRole = await memberRole(pool, orgId, actor.userId); // S1.7 — admin gate
     if (callerRole !== "admin") return c.json({ error: "forbidden" }, 403);
-    if (!(await addMember(pool, orgId, body)))
+    if (!(await addMember(pool, orgId, body, actor.userId)))
       return c.json({ error: "user_not_found" }, 404);
     return c.json({ ok: true }, 201);
   });

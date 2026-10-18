@@ -1,7 +1,9 @@
-// The console's task queue: the company's tasks, open ones first.
+// Tasks for people: the one way a task is made (createTask; `bun run guards` fails any other insert into tasks) and
+// the console's task queue (listTasks), the company's tasks, open ones first.
 // G1: runtime-agnostic — no bun:* imports, no Bun globals.
 import type pg from "pg";
-import { withOrg } from "./client";
+import { type ActorType, audit } from "./audit";
+import { type Db, withOrg } from "./client";
 
 export interface TaskRow {
   id: string;
@@ -31,4 +33,62 @@ export async function listTasks(
     );
     return result.rows;
   });
+}
+
+export type TaskKind =
+  | "approval"
+  | "callback"
+  | "review"
+  | "handoff"
+  | "manual";
+
+/**
+ * The one way a task for a person is made (a hand-over, a callback, an approval, a review): always for a lead, inside
+ * the caller's transaction, with its `task.create` audit row, so the task and its record commit or roll back together.
+ * The task's id.
+ */
+export async function createTask(
+  db: Db,
+  orgId: string,
+  task: {
+    contactId: string;
+    kind: TaskKind;
+    title: string;
+    workflowRunId?: string;
+    conversationId?: string;
+    payload?: Record<string, unknown>;
+    actor: { type: ActorType; id?: string };
+  },
+): Promise<string> {
+  if (!task.contactId)
+    throw new Error("a task is always for a lead: its contactId is missing");
+  const made = await db.query(
+    `insert into tasks (org_id, contact_id, workflow_run_id, conversation_id, kind, title, payload)
+     values ($1, $2, $3, $4, $5, $6, $7::jsonb) returning id`,
+    [
+      orgId,
+      task.contactId,
+      task.workflowRunId ?? null,
+      task.conversationId ?? null,
+      task.kind,
+      task.title,
+      JSON.stringify(task.payload ?? {}),
+    ],
+  );
+  const id = String(made.rows[0]?.id);
+  await audit(db, orgId, {
+    actorType: task.actor.type,
+    actorId: task.actor.id,
+    action: "task.create",
+    resourceType: "task",
+    resourceId: id,
+    after: {
+      kind: task.kind,
+      title: task.title,
+      contact_id: task.contactId,
+      workflow_run_id: task.workflowRunId ?? null,
+      conversation_id: task.conversationId ?? null,
+    },
+  });
+  return id;
 }
