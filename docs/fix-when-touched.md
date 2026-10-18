@@ -17,7 +17,7 @@ This list is the clean-up that gets no roadmap slice: stale comments, unused cod
 |---|---|
 | Any file in `packages/`, `services/`, `apps/console/`, `scripts/`, `tests/` or `supabase/` | 1. Comments that point at old codes or say untrue things |
 | `packages/harness/`, `services/worker/src/scheduler.ts`, `apps/console/src/ui/primitives/`, `docs/tech-stack.md` | 2. Unused code that shows agents a second way of doing things |
-| `apps/console/test/pages-adoption-behavior.test.tsx`, `packages/channels/test/channels.test.ts`, `packages/shared/test/api-error.test.ts` | 3. Tests that read source code as text |
+| `packages/channels/test/channels.test.ts`, `packages/shared/test/api-error.test.ts` | 3. Tests that read source code as text |
 | `.claude/skills/`, `.claude/agents/verifier.md`, `lessons.md` | 4. Agent instructions that restate drifting facts |
 | `docs/runbooks/`, `docs/security.md`, `docs/decisions/D36-phased-security-posture.md` | 5. Runbooks that still describe the retired orchestrator |
 | `scripts/demo.ts`, `scripts/dev-login.test.ts` | 9. Imports the lint rule allows only as exceptions |
@@ -50,7 +50,7 @@ This list is the clean-up that gets no roadmap slice: stale comments, unused cod
 **When:** the PR that next touches that package or doc.
 
 **What goes, and where:**
-- Nothing known on main. (The unused text-box component, `apps/console/src/ui/primitives/Textarea.tsx`, was kept with a note saying it is a design-system piece waiting for a screen, by the Browser checks item on 2026-10-18.)
+- No known spot is listed on main; the fix still binds any unused code a PR in these areas finds. (The unused text-box component, `apps/console/src/ui/primitives/Textarea.tsx`, was kept with a note saying it is a design-system piece waiting for a screen, by the Browser checks item on 2026-10-18.)
 
 **From findings:**
 - Dead modules that advertise a second way of doing things: Drizzle schema mirror and dependency, AI-provider registry, a stale demo script, an unused component
@@ -67,7 +67,7 @@ This list is the clean-up that gets no roadmap slice: stale comments, unused cod
 **Why it matters:** the guardrail settings test checked that the Settings save's source said `PUT` and stayed green for about two months while the browser blocked that save.
 
 **What remains** (the rest was done by [#137](https://github.com/devesh911/revenue-os/pull/137): the source halves of the console page, boot and guardrail settings tests went, replaced by render, start-up, hook and browser tests, a lint rule for the Supabase client and guards for the Anthropic SDK and raw HTML; the console tests moved from `tests/` into `apps/console/test/`):
-- "RED today" comments: `apps/console/test/pages-adoption-behavior.test.tsx` (4), and one each in `packages/channels/test/channels.test.ts` and `packages/shared/test/api-error.test.ts`.
+- "RED today" comments: one each in `packages/channels/test/channels.test.ts` and `packages/shared/test/api-error.test.ts`. (The four in `apps/console/test/pages-adoption-behavior.test.tsx` went with the Browser checks item on 2026-10-18.)
 - Acceptable as they are (they check docs or settings, not product code): `apps/console/test/readme-coverage.test.ts`, `apps/console/test/ui-contract.test.tsx`, `scripts/guards.test.ts`, `scripts/verifier-instructions.test.ts`.
 
 **From findings:**
@@ -259,7 +259,7 @@ The September audit's 73 findings, each with where it lives now. "Moved" marks a
 | Dead modules that advertise a second way of doing things: Drizzle schema mirror and dependency, AI-provider registry, a stale demo script, an unused component | Entry 2 |
 | Half the schema has no production code, and a Drizzle 'mirror' covers 3 of 33 tables, is unused, and is labelled the only DB entry | Entry 2 |
 | 16 test files check source code as text instead of what the code does, and the repo teaches this as 'the RED idiom' | Settled by [#137](https://github.com/devesh911/revenue-os/pull/137) (render, start-up, hook and browser tests, a lint rule and guards replace them; the idiom comments are gone) |
-| 38 stale 'RED today' comments on passing tests, tests that only pin a finished file move, and console tests split across two folders | Mostly settled by [#137](https://github.com/devesh911/revenue-os/pull/137) (the console tests are in one folder, the move pins are gone); six 'RED today' comments: entry 3 |
+| 38 stale 'RED today' comments on passing tests, tests that only pin a finished file move, and console tests split across two folders | Mostly settled by [#137](https://github.com/devesh911/revenue-os/pull/137) (the console tests are in one folder, the move pins are gone); of the six 'RED today' comments left, four went with [#187](https://github.com/Peertopeer-solutions/revenue-os/pull/187), and two remain: entry 3 |
 | Skills tell agents that lessons.md outranks them, but lessons.md is 36 KB of mostly resolved history that calls itself 'not law'; its lessons should become checks | Entry 4 |
 | Skills restate facts that have drifted; two of five skills are switched off locally; a stale untracked .agents skill copy remains | Entry 4 (the switched-off skills: Devesh's "Finish clearing the retired orchestrator from your Mac" item in STATE.md → Waiting on Devesh) |
 | The retired orchestrator is still wired into the go-live and incident runbooks, and its watchdog is still installed on Devesh's Mac | Entry 5, at the latest in Slice 6 · "Before go-live, every control in docs/security.md is ticked…" (the watchdog: Devesh's "Finish clearing the retired orchestrator from your Mac" item in STATE.md → Waiting on Devesh) |

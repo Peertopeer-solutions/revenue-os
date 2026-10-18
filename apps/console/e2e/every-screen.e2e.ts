@@ -1,6 +1,7 @@
 // Every screen in the console's route list, opened by the dev login on the seeded workspace against the real local
 // stack. The list is the route manifest itself (src/routes.tsx, read by route-list.ts), so a screen added there is
-// opened here with nothing else to change. Each screen must stay at its address, finish loading and show no error
+// opened here with nothing else to change. Each screen must stay at its address, draw its heading, finish loading
+// (no data block still loading once nothing is fetched) and show no error
 // (a page error, a console error, a failed or refused request, the error screen, a data block in its error state),
 // and show its demo rows: no data block left loading or empty, and every table with at least one row. A screen
 // whose address takes a value (a transcript's conversation) is opened through a link to it on the screens already
@@ -30,13 +31,18 @@ const addressOf = (orgId: string, path: string) =>
 /** What this screen did wrong, as people would see it. */
 async function problemsOn(page: Page, label: string): Promise<string[]> {
   const found: string[] = [];
-  const settled = page.locator('[data-state="loading"]');
-  await expect(settled)
-    .toHaveCount(0, { timeout: 15_000 })
-    .catch(() => found.push(`${label}: still loading after 15 seconds`));
+  // The screen has drawn inside the console's frame (each screen's heading sits in its <main>), before the sign-in and
+  // workspace checks' own "Loading…" gave way to it, so its data blocks exist by now.
+  await expect(page.locator("main h1"))
+    .toBeVisible({ timeout: 10_000 })
+    .catch(() => found.push(`${label}: drew no heading within 10 seconds`));
   await page
     .waitForLoadState("networkidle", { timeout: 10_000 })
     .catch(() => found.push(`${label}: still fetching after 10 seconds`));
+  // Nothing is being fetched now: a data block still loading is stuck.
+  await expect(page.locator('[data-state="loading"]'))
+    .toHaveCount(0, { timeout: 15_000 })
+    .catch(() => found.push(`${label}: still loading after 15 seconds`));
   for (const [what, selector] of [
     ["an error state", '[data-state="error"]'],
     ["an empty state, so its demo rows are missing", '[data-state="empty"]'],
@@ -63,6 +69,8 @@ test("every screen in the console's route list opens with its demo rows and no e
   page,
 }) => {
   const routes = routeList();
+  // Room for every screen's longest waits (above), so a slow screen still ends in the list of problems, not a timeout.
+  test.setTimeout(40_000 * (routes.length + 1));
   let screen = "signing in";
   const problems: string[] = [];
   page.on("pageerror", (e) =>

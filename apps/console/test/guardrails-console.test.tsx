@@ -13,7 +13,8 @@ import { apiErrorFor, mockModule } from "./test-utils";
 const ORG = "11111111-1111-4111-8111-111111111111";
 const orgFixture = { id: ORG, name: "Acme Co", slug: "acme", role: "admin" };
 
-// The four seeded policies (real_estate.sql:45-48) as the query's happy payload.
+// The four policies the real-estate seed inserts (supabase/seeds/real_estate.sql, its guardrail_policies insert) as
+// the query's happy payload.
 const policies = [
   {
     key: "quiet_hours",

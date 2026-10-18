@@ -22,31 +22,44 @@ test("calling hours saved in Settings are kept after a reload, and a save that f
   const orgId = env("E2E_ORG_ID");
   const db = new pg.Client({ connectionString: dbUrl });
   await db.connect();
-  const {
-    rows: [before],
-  } = await db.query<{ config: unknown; active: boolean }>(
-    `select config, active from guardrail_policies where org_id = $1 and key = 'quiet_hours'`,
-    [orgId],
-  );
+  const stored = async () =>
+    (
+      await db.query<{
+        config: { start?: string; end?: string };
+        active: boolean;
+      }>(
+        `select config, active from guardrail_policies where org_id = $1 and key = 'quiet_hours'`,
+        [orgId],
+      )
+    ).rows[0];
+  const before = await stored();
   try {
     if (!before)
       throw new Error(
         "the seeded workspace has no quiet-hours setting: run bun run db:seed real_estate",
       );
+    // Hours unlike the stored ones, so the save has something to change.
+    const start = ["20:30", "20:15"].find((t) => t !== before.config.start);
+    const end = ["09:30", "09:15"].find((t) => t !== before.config.end);
     await signIn(page);
     await page.goto(`/o/${orgId}/settings`);
 
-    // A save: "Saved.", and the hours are still there after a reload.
-    await quietHours(page).getByLabel("Start").fill("20:30");
-    await quietHours(page).getByLabel("End").fill("09:30");
+    // A save: "Saved.", the hours in the database, and still on screen after a reload.
+    await quietHours(page)
+      .getByLabel("Start")
+      .fill(start ?? "");
+    await quietHours(page)
+      .getByLabel("End")
+      .fill(end ?? "");
     await quietHours(page).getByRole("button", { name: "Save" }).click();
     await expect(quietHours(page).getByRole("status")).toHaveText("Saved.");
+    expect((await stored())?.config).toMatchObject({ start, end });
     // Changing a field again clears "Saved.": the hours on screen are no longer the saved ones, and are not kept.
     await quietHours(page).getByLabel("Start").fill("20:45");
     await expect(quietHours(page).getByRole("status")).toHaveCount(0);
     await page.reload();
-    await expect(quietHours(page).getByLabel("Start")).toHaveValue("20:30");
-    await expect(quietHours(page).getByLabel("End")).toHaveValue("09:30");
+    await expect(quietHours(page).getByLabel("Start")).toHaveValue(start ?? "");
+    await expect(quietHours(page).getByLabel("End")).toHaveValue(end ?? "");
 
     // A save the API fails: its error is shown, and after a reload the saved hours are unchanged.
     const policies = `**/orgs/${orgId}/guardrail-policies`;
@@ -62,7 +75,8 @@ test("calling hours saved in Settings are kept after a reload, and a save that f
     );
     await page.unroute(policies);
     await page.reload();
-    await expect(quietHours(page).getByLabel("Start")).toHaveValue("20:30");
+    await expect(quietHours(page).getByLabel("Start")).toHaveValue(start ?? "");
+    expect((await stored())?.config).toMatchObject({ start, end });
   } finally {
     if (before)
       await db.query(
