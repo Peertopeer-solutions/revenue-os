@@ -1,8 +1,9 @@
 // Saving calling hours in Settings (the workspace's quiet-hours window), as the dev login on the seeded workspace
-// against the real local stack: a save says "Saved." and the new hours are still there after a reload; a change
-// made after it clears "Saved." and, unsaved, is not kept; a save the API fails shows its error and changes nothing. The workspace's quiet-hours setting is put back as it was at the
-// end, whatever happened, so the check is safe on a workspace people use. FILENAME: *.e2e.ts, so `bun test` leaves
-// it alone.
+// against the real local stack: a save says "Saved." and the new hours are in the database and still there after a
+// reload; a change made after it clears "Saved." and, unsaved, is not kept; a save the API fails shows its error and
+// changes nothing, and saving again then works; a field left empty is refused before anything is sent. The
+// workspace's quiet-hours setting is put back as it was at the end, whatever happened, so the check is safe on a
+// workspace people use. FILENAME: *.e2e.ts, so `bun test` leaves it alone.
 import { expect, type Page, test } from "@playwright/test";
 import pg from "pg";
 import { isLocalUrl } from "../../../scripts/local-url";
@@ -61,7 +62,7 @@ test("calling hours saved in Settings are kept after a reload, and a save that f
     await expect(quietHours(page).getByLabel("Start")).toHaveValue(start ?? "");
     await expect(quietHours(page).getByLabel("End")).toHaveValue(end ?? "");
 
-    // A save the API fails: its error is shown, and after a reload the saved hours are unchanged.
+    // A save the API fails: its error is shown, and the saved hours are unchanged.
     const policies = `**/orgs/${orgId}/guardrail-policies`;
     await page.route(policies, (route) =>
       route.request().method() === "PUT"
@@ -73,10 +74,29 @@ test("calling hours saved in Settings are kept after a reload, and a save that f
     await expect(quietHours(page).getByRole("alert")).toHaveText(
       "Not saved: the API answered 500. Try again.",
     );
-    await page.unroute(policies);
-    await page.reload();
-    await expect(quietHours(page).getByLabel("Start")).toHaveValue(start ?? "");
     expect((await stored())?.config).toMatchObject({ start, end });
+
+    // Trying again, as the error says, once the API answers: "Saved.", the alert gone, the new hours kept.
+    await page.unroute(policies);
+    await quietHours(page).getByRole("button", { name: "Save" }).click();
+    await expect(quietHours(page).getByRole("status")).toHaveText("Saved.");
+    await expect(quietHours(page).getByRole("alert")).toHaveCount(0);
+    expect((await stored())?.config).toMatchObject({ start: "22:15", end });
+    await page.reload();
+    await expect(quietHours(page).getByLabel("Start")).toHaveValue("22:15");
+
+    // A field left empty: the error says so, nothing is sent, and the saved hours are unchanged.
+    const puts: string[] = [];
+    page.on("request", (r) => {
+      if (r.method() === "PUT") puts.push(r.url());
+    });
+    await quietHours(page).getByLabel("Start").fill("");
+    await quietHours(page).getByRole("button", { name: "Save" }).click();
+    await expect(quietHours(page).getByRole("alert")).toHaveText(
+      "Not saved: fill in every field.",
+    );
+    expect(puts).toEqual([]);
+    expect((await stored())?.config).toMatchObject({ start: "22:15", end });
   } finally {
     if (before)
       await db.query(
