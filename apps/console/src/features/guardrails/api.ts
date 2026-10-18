@@ -20,6 +20,7 @@ const GuardrailPoliciesResponse = z.object({ policies: z.array(Policy) });
 export type GuardrailPoliciesResponse = z.infer<
   typeof GuardrailPoliciesResponse
 >;
+export type GuardrailPolicy = GuardrailPoliciesResponse["policies"][number];
 const PolicyResponse = z.object({ policy: Policy });
 
 export function useGuardrailPoliciesQuery(orgId: string) {
