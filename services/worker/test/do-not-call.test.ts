@@ -104,6 +104,54 @@ const leadByPhone = async (number: string) =>
     )
   ).rows[0]?.contact_id ?? "";
 
+/** The lead's do-not-call audit rows, in any company. */
+const audits = async (contactId: string) =>
+  (
+    await admin.query(
+      `select count(*)::int n from audit_log where action = 'contact.do_not_call' and resource_id = $1`,
+      [contactId],
+    )
+  ).rows[0]?.n;
+
+/**
+ * Runs `work` while another connection holds the row `lock` selects for update, and cancels `work`'s statement as soon
+ * as it waits on that row: a database failure in the middle of a write. Says how `work` ended.
+ */
+async function cancelledWhileLocked(
+  lock: string,
+  values: unknown[],
+  work: () => Promise<unknown>,
+): Promise<string> {
+  const holder = await admin.connect();
+  try {
+    await holder.query("begin");
+    await holder.query(lock, values);
+    const { pid } = (
+      await holder.query<{ pid: number }>("select pg_backend_pid() as pid")
+    ).rows[0] ?? { pid: 0 };
+    const ended = work().then(
+      () => "finished",
+      (err: Error) => `failed: ${err.message}`,
+    );
+    let waiting: number[] = [];
+    for (let i = 0; i < 200 && !waiting.length; i++) {
+      await Bun.sleep(50);
+      waiting = (
+        await admin.query<{ pid: number }>(
+          `select pid from pg_stat_activity where $1 = any (pg_blocking_pids(pid))`,
+          [pid],
+        )
+      ).rows.map((r) => r.pid);
+    }
+    expect(waiting).toHaveLength(1);
+    await admin.query("select pg_cancel_backend($1)", [waiting[0]]);
+    return await ended;
+  } finally {
+    await holder.query("rollback");
+    holder.release();
+  }
+}
+
 const CALL_WF = {
   entry: "c",
   steps: {
@@ -114,7 +162,7 @@ const CALL_WF = {
 const WA_WF = {
   entry: "w",
   steps: {
-    w: { kind: "whatsapp", template: "hello", next: "end" },
+    w: { kind: "whatsapp", template: "hello", then: "end" },
     end: { kind: "end" },
   },
 };
@@ -271,6 +319,24 @@ describe("a person in the console", () => {
     expect((await mark("not-a-lead", owner.token)).status).toBe(400);
   });
 
+  it("a save the database cuts off leaves the lead open with no audit row, and marking again blocks them", async () => {
+    const lead = await newLead();
+    const ended = await cancelledWhileLocked(
+      "select 1 from contacts where id = $1 for update",
+      [lead],
+      async () => {
+        const res = await mark(lead, operator.token);
+        if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+      },
+    );
+    expect(ended).toBe("failed: HTTP 500");
+    expect(await isBlocked(lead)).toBe(false);
+    expect(await audits(lead)).toBe(0);
+    expect((await mark(lead, operator.token)).status).toBe(200);
+    expect(await isBlocked(lead)).toBe(true);
+    expect(await audits(lead)).toBe(1);
+  });
+
   it("a person finds any lead to block by name or number, beyond the latest 100, and none of another company's", async () => {
     const number = phone();
     const old = await newLead(orgId, number);
@@ -389,6 +455,40 @@ describe("an imported list", () => {
     expect(await isBlocked(lead)).toBe(true);
     expect(await nextSends(lead)).toEqual(REFUSED);
   });
+
+  it("a list blocks only its own company's leads: company B's list leaves company A's lead with the same number open", async () => {
+    const number = phone();
+    const ours = await newLead(orgId, number);
+    const theirs = await newLead(orgB, number);
+    const res = await api(`/orgs/${orgB}/contacts/import`, stranger.token, {
+      method: "POST",
+      headers: { "content-type": "text/csv" },
+      body: `phone,do_not_call\n${number},yes\n`,
+    });
+    expect(await res.json()).toEqual({ created: 0, merged: 1, invalid: 0 });
+    expect(await isBlocked(theirs)).toBe(true);
+    expect(await isBlocked(ours)).toBe(false);
+    expect(await audits(ours)).toBe(0);
+    expect(await nextSends(ours)).toEqual(SENT);
+  });
+
+  it("the same list imported twice blocks its lead once, with one audit row", async () => {
+    const number = phone();
+    const csv = `first_name,phone,dnc\nTara,${number},yes\n`;
+    expect(await (await importCsv(csv)).json()).toEqual({
+      created: 1,
+      merged: 0,
+      invalid: 0,
+    });
+    expect(await (await importCsv(csv)).json()).toEqual({
+      created: 0,
+      merged: 1,
+      invalid: 0,
+    });
+    const lead = await leadByPhone(number);
+    expect(await isBlocked(lead)).toBe(true);
+    expect(await audits(lead)).toBe(1);
+  });
 });
 
 describe("a call", () => {
@@ -412,6 +512,17 @@ describe("a call", () => {
     structuredData: unknown,
     extra: Record<string, unknown> = {},
   ) {
+    await report(callId, structuredData, extra);
+    await processVapiEvents(pool, orgId);
+    expect(await events(callId)).toEqual([{ status: "processed" }]);
+  }
+
+  /** The report received and stored, as the provider sends it, but not yet filed. */
+  async function report(
+    callId: string,
+    structuredData: unknown,
+    extra: Record<string, unknown> = {},
+  ) {
     const res = await api(`/webhooks/vapi/${orgId}`, null, {
       method: "POST",
       headers: { "content-type": "application/json", "x-vapi-secret": SECRET },
@@ -428,13 +539,15 @@ describe("a call", () => {
       }),
     });
     expect(res.status).toBe(202);
-    await processVapiEvents(pool, orgId);
-    const filed = await admin.query(
-      `select status from webhook_events where org_id = $1 and payload -> 'message' -> 'call' ->> 'id' = $2`,
-      [orgId, callId],
-    );
-    expect(filed.rows).toEqual([{ status: "processed" }]);
   }
+
+  const events = async (callId: string) =>
+    (
+      await admin.query(
+        `select status from webhook_events where org_id = $1 and payload -> 'message' -> 'call' ->> 'id' = $2`,
+        [orgId, callId],
+      )
+    ).rows;
 
   it("the AI's reading that the lead asked not to be contacted blocks the call's lead, and their next send is refused", async () => {
     const lead = await newLead();
@@ -565,5 +678,23 @@ describe("a call", () => {
       { customer: { number: phone() } },
     );
     expect(await blocks()).toBe(before);
+  });
+
+  it("a call's block that the database cuts off is kept for the next run, which blocks the lead once", async () => {
+    const lead = await newLead();
+    const callId = await call(lead);
+    await report(callId, { doNotCall: true });
+    const ended = await cancelledWhileLocked(
+      "select 1 from conversations where org_id = $1 and provider_ref = $2 for update",
+      [orgId, callId],
+      () => processVapiEvents(pool, orgId),
+    );
+    expect(ended).toStartWith("failed: ");
+    expect(await events(callId)).toEqual([{ status: "received" }]);
+    expect(await isBlocked(lead)).toBe(false);
+    await processVapiEvents(pool, orgId);
+    expect(await events(callId)).toEqual([{ status: "processed" }]);
+    expect(await isBlocked(lead)).toBe(true);
+    expect(await audits(lead)).toBe(1);
   });
 });
