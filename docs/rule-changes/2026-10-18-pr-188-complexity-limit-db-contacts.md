@@ -1,0 +1,1 @@
+- 2026-10-18 · [#188](https://github.com/Peertopeer-solutions/revenue-os/pull/188) · biome.json: packages/db/src/contacts.ts is held to the complexity limit of 20 again, its exemption removed, as importContacts is split into small functions under it (docs/fix-when-touched.md, entry 11) · tighter
