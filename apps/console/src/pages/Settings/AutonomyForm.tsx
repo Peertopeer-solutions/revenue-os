@@ -1,11 +1,12 @@
 // The autonomy form of the Settings page's Guardrails section: for each AI tool, whether it runs by itself, waits for
-// a person's approval or is forbidden, with its own save call.
+// a person's approval or is forbidden, with its own save call, and under it what that save did (SaveStatus).
 import {
   type GuardrailPolicy,
   useUpdateGuardrailPolicy,
 } from "../../features/guardrails/api";
 import { Button } from "../../ui/primitives";
 import { asStr, Field } from "./Field";
+import { SaveStatus } from "./SaveStatus";
 
 const AUTONOMY_TIERS = ["auto", "approval", "forbidden"] as const;
 const SELECT_CLASS =
@@ -22,6 +23,7 @@ export function AutonomyForm({
   const config = policy.config;
   return (
     <form
+      aria-label="Autonomy"
       className="grid gap-4"
       onSubmit={(e) => {
         e.preventDefault();
@@ -54,10 +56,16 @@ export function AutonomyForm({
         ))}
       </div>
       <div>
-        <Button type="submit" variant="secondary" size="sm">
+        <Button
+          type="submit"
+          variant="secondary"
+          size="sm"
+          disabled={update.isPending}
+        >
           Save
         </Button>
       </div>
+      <SaveStatus save={update} />
     </form>
   );
 }

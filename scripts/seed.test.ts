@@ -235,6 +235,54 @@ describe.each([
     expect(otherBefore).toHaveLength(5);
   });
 
+  // The console's screens count the last 30 days (Analytics' trends, the browser check that opens every screen),
+  // so a local database seeded weeks ago showed no demo activity. Re-running the pack, as the browser checks do,
+  // moves its demo rows' times back to the run's own time; outcomes, which are never edited, keep theirs.
+  it("re-seeding moves the demo rows' times to now, so the 30-day screens show them again", async () => {
+    const { orgId, again } = await workspace(pack);
+    const age = (sql: string) => admin.query(sql, [orgId]);
+    await age(
+      `update conversations set started_at = started_at - interval '60 days', ended_at = ended_at - interval '60 days' where org_id = $1`,
+    );
+    await age(
+      `update messages set ts = ts - interval '60 days' where org_id = $1`,
+    );
+    await age(
+      `update contacts set last_interaction_at = last_interaction_at - interval '60 days' where org_id = $1`,
+    );
+    await age(
+      `update tasks set due_at = due_at - interval '60 days', completed_at = completed_at - interval '60 days' where org_id = $1`,
+    );
+    const seen = async () =>
+      (
+        await admin.query(
+          `select (select count(*)::int from conversations where org_id = $1
+                     and started_at::date between current_date - 29 and current_date) conversations,
+                  (select count(*)::int from messages where org_id = $1 and ts > now() - interval '30 days') messages,
+                  (select count(*)::int from contacts where org_id = $1
+                     and last_interaction_at > now() - interval '30 days') contacts,
+                  (select count(*)::int from tasks where org_id = $1 and status = 'open' and due_at > now()) open_due`,
+          [orgId],
+        )
+      ).rows[0];
+    expect(await seen()).toEqual({
+      conversations: 0,
+      messages: 0,
+      contacts: 0,
+      open_due: 0,
+    });
+    const ids = await rowIds(orgId);
+
+    await again();
+    expect(await seen()).toEqual({
+      conversations: 4,
+      messages: 13,
+      contacts: 5,
+      open_due: 2,
+    });
+    expect(await rowIds(orgId)).toEqual(ids); // the same rows, moved in time
+  });
+
   // The console and the worker parse ids with the shared uuid schema, and one bad id fails a whole
   // list: an id that is 32 hex digits but not an RFC 9562 UUID broke every demo screen.
   it("gives every demo row an id the console and the worker accept", async () => {

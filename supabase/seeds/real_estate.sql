@@ -102,7 +102,9 @@ on conflict (org_id, key) do nothing;
 -- Console demo data: contacts and their conversations, messages, tasks and outcomes. These tables
 -- have no natural key, so every seeded row gets a fixed id made from the workspace id and a short
 -- key (pg_temp.seed_id): re-running the pack inserts nothing twice. The md5 gets the version (3,
--- name-based) and variant digits of a real UUID, which the app's id checks require.
+-- name-based) and variant digits of a real UUID, which the app's id checks require. Re-running it also moves
+-- the demo rows' times to its own run ("a day ago" stays a day ago), so the console's 30-day screens keep
+-- showing them on a database seeded weeks ago; outcomes, which are never edited, keep their first times.
 create or replace function pg_temp.seed_id(key text) returns uuid language sql stable
   return overlay(overlay(md5(current_setting('seed.org_id') || ':' || key) placing '3' from 13)
                  placing '8' from 17)::uuid;
@@ -168,7 +170,7 @@ end $$;
 insert into contacts (id, org_id, first_name, last_name, lifecycle_stage, source, score, last_interaction_at)
 select id, current_setting('seed.org_id')::uuid, first_name, last_name, lifecycle_stage, source, score, last_interaction_at
 from seed_people
-on conflict (id) do nothing;
+on conflict (id) do update set last_interaction_at = excluded.last_interaction_at;
 
 insert into conversations (id, org_id, contact_id, channel, direction, status, started_at, ended_at, summary)
 select pg_temp.seed_id('conversation:' || who), current_setting('seed.org_id')::uuid, pg_temp.seed_id('contact:' || who),
@@ -182,7 +184,7 @@ from (values
   ('vikram', 'whatsapp', 'outbound', 'completed', now() - interval '2 days',     now() - interval '2 days' + interval '3 minutes',
    'Confirmed site visit for Saturday')
 ) as v(who, channel, direction, status, started_at, ended_at, summary)
-on conflict (id) do nothing;
+on conflict (id) do update set started_at = excluded.started_at, ended_at = excluded.ended_at;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:asha'), s.seq, s.role, s.content,
@@ -195,7 +197,7 @@ from (values
   (5, 'agent',   'Perfect, that fits our Whitefield project. Can we schedule a site visit this weekend?'),
   (6, 'contact', 'Yes, Saturday works.')
 ) as s(seq, role, content)
-on conflict (org_id, conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do update set ts = excluded.ts;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:rohan'), s.seq, s.role, s.content,
@@ -204,7 +206,7 @@ from (values
   (1, 'contact', 'Hi, I saw your ad for plots near Sarjapur. Is it still available?'),
   (2, 'agent',   'Hello! Yes, we have a few plots left. Could you share your budget and preferred size?')
 ) as s(seq, role, content)
-on conflict (org_id, conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do update set ts = excluded.ts;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:priya'), s.seq, s.role, s.content,
@@ -214,7 +216,7 @@ from (values
   (2, 'contact', 'Not really, can you call me back next week?'),
   (3, 'agent',   'Of course, I will note that down and call back next Monday.')
 ) as s(seq, role, content)
-on conflict (org_id, conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do update set ts = excluded.ts;
 
 insert into messages (org_id, conversation_id, seq, role, content, ts)
 select current_setting('seed.org_id')::uuid, pg_temp.seed_id('conversation:vikram'), s.seq, s.role, s.content,
@@ -223,7 +225,7 @@ from (values
   (1, 'agent',   'Hi Vikram, confirming your site visit for the Whitefield project this Saturday at 11am.'),
   (2, 'contact', 'Yes, that works for me. See you then.')
 ) as s(seq, role, content)
-on conflict (org_id, conversation_id, seq) do nothing;
+on conflict (org_id, conversation_id, seq) do update set ts = excluded.ts;
 
 insert into tasks (id, org_id, contact_id, conversation_id, kind, status, priority, title, due_at, completed_at)
 select pg_temp.seed_id('task:' || who), current_setting('seed.org_id')::uuid, pg_temp.seed_id('contact:' || who),
@@ -233,7 +235,7 @@ from (values
   ('vikram', 'approval', 'open', 1.0, 'Approve site-visit slot for Vikram',  now() + interval '1 day',  null),
   ('asha',   'review',   'done', 3.0, 'Review qualification notes for Asha', now() - interval '1 day',  now() - interval '12 hours')
 ) as t(who, kind, status, priority, title, due_at, completed_at)
-on conflict (id) do nothing;
+on conflict (id) do update set due_at = excluded.due_at, completed_at = excluded.completed_at;
 
 insert into outcomes (id, org_id, contact_id, conversation_id, kind, source, occurred_at)
 select pg_temp.seed_id('outcome:' || who || ':' || kind), current_setting('seed.org_id')::uuid,

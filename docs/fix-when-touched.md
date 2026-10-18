@@ -50,7 +50,7 @@ This list is the clean-up that gets no roadmap slice: stale comments, unused cod
 **When:** the PR that next touches that package or doc.
 
 **What goes, and where:**
-- The unused text-box component `apps/console/src/ui/primitives/Textarea.tsx`, or keep it with a note saying it is a design-system piece waiting for a screen.
+- Nothing known on main. (The unused text-box component, `apps/console/src/ui/primitives/Textarea.tsx`, was kept with a note saying it is a design-system piece waiting for a screen, by the Browser checks item on 2026-10-18.)
 
 **From findings:**
 - Dead modules that advertise a second way of doing things: Drizzle schema mirror and dependency, AI-provider registry, a stale demo script, an unused component

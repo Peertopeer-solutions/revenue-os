@@ -2,11 +2,13 @@
 // the server with its two data hooks faked through mockModule (process-wide, so afterAll restores the real modules).
 // What the hooks themselves send, and what they refresh, is guardrails-save.test.tsx.
 import { afterAll, describe, expect, it } from "bun:test";
+import { ApiError, GuardrailPolicyInputSchema } from "@revenue-os/shared";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Route, Router } from "wouter";
 import * as realGuardrailsApi from "../src/features/guardrails/api";
 import * as realOrgsApi from "../src/features/orgs/api";
-import { mockModule } from "./test-utils";
+import { notSaved } from "../src/pages/Settings/SaveStatus";
+import { apiErrorFor, mockModule } from "./test-utils";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const orgFixture = { id: ORG, name: "Acme Co", slug: "acme", role: "admin" };
@@ -52,13 +54,24 @@ let guardrailsResult: unknown = loadingState;
 const restoreOrgs = mockModule("../src/features/orgs/api", realOrgsApi, {
   useOrgsQuery: () => ok([orgFixture]),
 });
-// The two hooks SettingsPage calls, faked over the real module.
+// The hooks SettingsPage and its two forms call, faked over the real module. `saveResult` is what each form's
+// save call reports; a fresh form has made none.
+const idle = {
+  isPending: false,
+  isSuccess: false,
+  isError: false,
+  error: null,
+};
+let saveResult: unknown = idle;
 const restoreGuardrails = mockModule(
   "../src/features/guardrails/api",
   realGuardrailsApi,
   {
     useGuardrailPoliciesQuery: () => guardrailsResult,
-    useUpdateGuardrailPolicy: () => ({ mutate: () => {}, isPending: false }),
+    useUpdateGuardrailPolicy: () => ({
+      mutate: () => {},
+      ...(saveResult as object),
+    }),
   },
 );
 
@@ -147,5 +160,64 @@ describe("Settings Guardrails section — renders each policy, editable vs read-
     expect(t).toContain("whatsapp");
     expect(html).not.toContain('value="72"'); // not an editable per_hours input
     expect(html).not.toContain('value="24"');
+  });
+});
+
+describe("Settings Guardrails section — what each form says about its save", () => {
+  it("each editable policy is its own form, named for it", async () => {
+    guardrailsResult = ok({ policies });
+    saveResult = idle;
+    const html = await renderSettings();
+    expect(html).toContain('<form aria-label="Quiet hours"');
+    expect(html).toContain('<form aria-label="Autonomy"');
+    expect(html).not.toContain('role="status"'); // nothing said before the first save
+    expect(html).not.toContain('role="alert"');
+  });
+
+  it("while a save runs, its form says 'Saving…' and its Save button waits", async () => {
+    guardrailsResult = ok({ policies });
+    saveResult = { ...idle, isPending: true };
+    const html = await renderSettings();
+    expect(text(html)).toContain("Saving…");
+    expect(
+      (html.match(/<button[^>]*type="submit"[^>]*disabled=""/g) ?? []).length,
+    ).toBe(2);
+  });
+
+  it("a save the API took says 'Saved.'", async () => {
+    guardrailsResult = ok({ policies });
+    saveResult = { ...idle, isSuccess: true };
+    expect(text(await renderSettings())).toContain("Saved.");
+  });
+
+  it("a save that failed says why, as an alert", async () => {
+    guardrailsResult = ok({ policies });
+    saveResult = { ...idle, isError: true, error: await apiErrorFor(500) };
+    const html = await renderSettings();
+    expect(html).toContain('role="alert"');
+    expect(text(html)).toContain("Not saved: the API answered 500. Try again.");
+    expect(text(html)).not.toContain("Saved.");
+  });
+
+  it("each kind of failure is told in a person's words", async () => {
+    expect(notSaved(await apiErrorFor(0))).toBe(
+      "Not saved: the API can't be reached. Try again.",
+    );
+    expect(
+      notSaved(new ApiError(0, "PUT", "/orgs/x/guardrail-policies", "timeout")),
+    ).toBe("Not saved: the API took too long to answer. Try again.");
+    expect(notSaved(await apiErrorFor(403))).toBe(
+      "Not saved: only an admin can change guardrails.",
+    );
+    expect(notSaved(await apiErrorFor(400))).toBe(
+      "Not saved: the API answered 400. Try again.",
+    );
+    // The shared schema refuses a field left empty before anything is sent: its error, not an API error.
+    const emptyStart = GuardrailPolicyInputSchema.safeParse({
+      key: "quiet_hours",
+      config: { start: "", end: "09:00", tz: "contact" },
+    }).error;
+    expect(emptyStart).toBeDefined();
+    expect(notSaved(emptyStart)).toBe("Not saved: fill in every field.");
   });
 });

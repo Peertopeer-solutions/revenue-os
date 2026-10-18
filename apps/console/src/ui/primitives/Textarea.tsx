@@ -1,4 +1,5 @@
-// Multi-line input — same skin as Input, comfortable min height.
+// Multi-line input — same skin as Input, comfortable min height. A design-system piece waiting for its first screen
+// (one that takes long text, such as an agent's prompt): nothing renders it yet.
 import type { ComponentProps } from "react";
 import { cx } from "../cx";
 

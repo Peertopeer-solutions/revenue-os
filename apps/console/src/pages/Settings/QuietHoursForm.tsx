@@ -1,11 +1,12 @@
 // The quiet-hours form of the Settings page's Guardrails section: the window (start, end, time zone) in which no call
-// or message goes out, with its own save call.
+// or message goes out, with its own save call, and under it what that save did (SaveStatus).
 import {
   type GuardrailPolicy,
   useUpdateGuardrailPolicy,
 } from "../../features/guardrails/api";
 import { Button, Input } from "../../ui/primitives";
 import { asStr, Field } from "./Field";
+import { SaveStatus } from "./SaveStatus";
 
 export function QuietHoursForm({
   orgId,
@@ -18,7 +19,8 @@ export function QuietHoursForm({
   const config = policy.config;
   return (
     <form
-      className="grid gap-4 sm:grid-cols-[repeat(3,minmax(0,1fr))_auto] sm:items-end"
+      aria-label="Quiet hours"
+      className="grid gap-3"
       onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
@@ -33,28 +35,36 @@ export function QuietHoursForm({
         });
       }}
     >
-      <Field id="qh-start" label="Start">
-        <Input
-          id="qh-start"
-          name="start"
-          type="time"
-          defaultValue={asStr(config.start)}
-        />
-      </Field>
-      <Field id="qh-end" label="End">
-        <Input
-          id="qh-end"
-          name="end"
-          type="time"
-          defaultValue={asStr(config.end)}
-        />
-      </Field>
-      <Field id="qh-tz" label="Timezone">
-        <Input id="qh-tz" name="tz" defaultValue={asStr(config.tz)} />
-      </Field>
-      <Button type="submit" variant="secondary" size="sm">
-        Save
-      </Button>
+      <div className="grid gap-4 sm:grid-cols-[repeat(3,minmax(0,1fr))_auto] sm:items-end">
+        <Field id="qh-start" label="Start">
+          <Input
+            id="qh-start"
+            name="start"
+            type="time"
+            defaultValue={asStr(config.start)}
+          />
+        </Field>
+        <Field id="qh-end" label="End">
+          <Input
+            id="qh-end"
+            name="end"
+            type="time"
+            defaultValue={asStr(config.end)}
+          />
+        </Field>
+        <Field id="qh-tz" label="Timezone">
+          <Input id="qh-tz" name="tz" defaultValue={asStr(config.tz)} />
+        </Field>
+        <Button
+          type="submit"
+          variant="secondary"
+          size="sm"
+          disabled={update.isPending}
+        >
+          Save
+        </Button>
+      </div>
+      <SaveStatus save={update} />
     </form>
   );
 }
