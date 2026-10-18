@@ -293,10 +293,12 @@ describe("an imported list", () => {
     expect(await nextSends(existing)).toEqual(REFUSED);
     expect(await isBlocked(await leadByPhone(open))).toBe(false);
     const audited = await admin.query(
-      `select meta from audit_log where org_id = $1 and action = 'contact.do_not_call' and resource_id = $2`,
+      `select actor_id, meta from audit_log where org_id = $1 and action = 'contact.do_not_call' and resource_id = $2`,
       [orgId, blocked],
     );
-    expect(audited.rows).toEqual([{ meta: { from: "import" } }]);
+    expect(audited.rows).toEqual([
+      { actor_id: operator.userId, meta: { from: "import" } },
+    ]);
   });
 
   it("reads the column by any of its usual names, and keeps it out of the lead's other details", async () => {

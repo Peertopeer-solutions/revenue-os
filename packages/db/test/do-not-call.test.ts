@@ -38,7 +38,7 @@ const audits = async (org: string, id: string) =>
   (
     await admin.query(
       `select actor_type, actor_id, meta from audit_log
-        where org_id = $1 and action = 'contact.do_not_call' and resource_id = $2`,
+        where org_id = $1 and action = 'contact.do_not_call' and resource_type = 'contact' and resource_id = $2`,
       [org, id],
     )
   ).rows;
