@@ -312,9 +312,13 @@ describe("send_wa never sends the same message twice", () => {
     const runId = await seed();
     const db = flakyPool();
     let sent = 0;
+    let checks = 0;
     const deps: SendWaDeps = {
       pool: db.pool,
-      guard: async () => ({ ok: true }),
+      guard: async () => {
+        checks += 1;
+        return { ok: true };
+      },
       sender: {
         send: async () => {
           sent += 1;
@@ -342,6 +346,7 @@ describe("send_wa never sends the same message twice", () => {
     expect(after.tasks[0].payload.reason).toContain(
       "saved the message but not the provider's answer",
     );
+    expect(checks).toBe(1); // the next run stopped at the saved message, before the guardrails
     expect(after.conversations).toBe(0);
   });
 
@@ -385,6 +390,86 @@ describe("send_wa never sends the same message twice", () => {
         tool_call: { providerRef: `wamid.ok-${REF}` },
       },
     ]); // the outbound message, carrying the provider's id for it
+  });
+
+  it("a guardrail check that fails before the send saves and sends nothing, so the job's next run sends once", async () => {
+    const runId = await seed();
+    let sent = 0;
+    let checks = 0;
+    const deps: SendWaDeps = {
+      pool: appPool,
+      guard: async () => {
+        checks += 1;
+        if (checks === 1) throw new Error("guardrails unreachable");
+        return { ok: true };
+      },
+      sender: {
+        send: async () => {
+          sent += 1;
+          return { providerRef: `wamid.after-guard-${REF}` };
+        },
+      },
+    };
+    const once = job(runId);
+
+    await expect(handleSendWa(deps, once)).rejects.toThrow(
+      "guardrails unreachable",
+    );
+    expect(await sendOf(runId)).toEqual([]); // nothing saved: the provider was never called
+    expect((await leftBehind(runId)).tasks).toHaveLength(0);
+    await handleSendWa(deps, once); // the job's next run
+
+    expect(sent).toBe(1);
+    expect((await sendOf(runId))[0]?.status).toBe("sent");
+    expect((await leftBehind(runId)).tasks).toHaveLength(0);
+  });
+
+  it("the message's record fails after the provider's answer was saved: the job's next run records it once and sends nothing", async () => {
+    const runId = await seed();
+    const db = flakyPool();
+    let sent = 0;
+    const deps: SendWaDeps = {
+      pool: db.pool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        send: async () => {
+          sent += 1;
+          db.trip(1); // the answer is saved; the connection after it, the one that records the message, fails
+          return { providerRef: `wamid.record-${REF}` };
+        },
+      },
+    };
+    const once = job(runId);
+
+    try {
+      await expect(handleSendWa(deps, once)).rejects.toThrow(
+        "the database went away",
+      );
+      expect((await sendOf(runId))[0]?.status).toBe("sent"); // the provider's answer outlived the failure
+      expect((await leftBehind(runId)).conversations).toBe(0);
+      await handleSendWa(deps, once); // the job's next run records it
+      await handleSendWa(deps, once); // and a further run records nothing more
+    } finally {
+      await db.pool.end();
+    }
+
+    expect(sent).toBe(1);
+    const after = await leftBehind(runId);
+    expect(after.conversations).toBe(1);
+    expect(after.tasks).toHaveLength(0);
+    const usage = await admin.query(
+      `select meta from usage_events u join conversations c on c.id = u.conversation_id
+        where c.workflow_run_id = $1 and u.kind = 'wa_message'`,
+      [runId],
+    );
+    expect(usage.rows).toEqual([
+      {
+        meta: {
+          sendKey: `send_wa:${runId}:${once.sendId}`,
+          template: "welcome",
+        },
+      },
+    ]); // metered once, naming the send it records
   });
 
   it("a message the guardrails refuse is saved as blocked with the reason, and nothing is sent", async () => {

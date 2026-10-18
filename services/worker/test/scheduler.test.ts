@@ -516,3 +516,19 @@ describe("every job the scheduler queues keeps its queue's retry and failure set
     expect(again?.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
+
+describe("a run parked on a call names the call job it waits for", () => {
+  it("the parked run's state holds the send id of the call job the tick queued, so a late run of an older job can be told apart", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+      state: { contactId },
+    });
+
+    await tick(appPool, orgId, { now: new Date() });
+
+    const [queued] = await jobsFor(`${runId}:c:0`);
+    const run = await getRun(runId);
+    expect(run.status).toBe("waiting");
+    expect(run.state.callSendId).toBe(queued.data.sendId);
+  });
+});

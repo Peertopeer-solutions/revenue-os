@@ -266,3 +266,72 @@ describe("the worker's job runner never sends the same call or message twice", (
     expect(await conversations(runId)).toBe(1);
   }, 40_000);
 });
+
+describe("the worker's job runner hands every failed send to a person, and runs AI turns with the same ports", () => {
+  it("a call job that fails every try its queue allows reaches the dead letter, which gives a person a review task", async () => {
+    const { runId } = await leadWithRun("c");
+    // a lead that doesn't exist: the call can't even be saved, so every try fails before anything is dialled
+    const id = await queue.send("place_call", {
+      orgId,
+      runId,
+      sendId: randomUUID(),
+      step: "c",
+      idx: 0,
+      action: {
+        kind: "place_call",
+        contactId: randomUUID(),
+        agentKey: "closer",
+      },
+    });
+
+    const [job] = await ended([id]);
+    expect(job?.state).toBe("failed");
+    const deadline = Date.now() + 30_000;
+    let tasks: { title: string }[] = [];
+    while (!tasks.length && Date.now() < deadline) {
+      await new Promise((res) => setTimeout(res, 200));
+      tasks = (
+        await admin.query(
+          `select title from tasks where org_id = $1 and workflow_run_id = $2 and kind = 'review'`,
+          [orgId, runId],
+        )
+      ).rows;
+    }
+    expect(tasks).toEqual([{ title: "Call failed — needs review" }]);
+    expect(await sendsOf(runId)).toEqual([]); // nothing saved, nothing dialled
+  }, 60_000);
+
+  it("an AI turn job gets its answer from the runner's model", async () => {
+    const { contactId, runId } = await leadWithRun("end");
+    const agentId = (
+      await admin.query(
+        `select id from agents where org_id = $1 and key = 'closer'`,
+        [orgId],
+      )
+    ).rows[0].id;
+    const conversationId = (
+      await admin.query(
+        `insert into conversations (org_id, contact_id, workflow_run_id, agent_id, channel, direction, status)
+         values ($1, $2, $3, $4, 'whatsapp', 'inbound', 'active') returning id`,
+        [orgId, contactId, runId, agentId],
+      )
+    ).rows[0].id;
+    await admin.query(
+      `insert into messages (org_id, conversation_id, seq, role, content) values ($1, $2, 1, 'contact', 'Is Sunday free?')`,
+      [orgId, conversationId],
+    );
+
+    const id = await queue.send("run_agent_turn", {
+      orgId,
+      runId,
+      action: { kind: "run_agent_turn", conversationId },
+    });
+
+    expect((await ended([id]))[0]?.state).toBe("completed");
+    const said = await admin.query(
+      `select content from messages where conversation_id = $1 and role = 'agent'`,
+      [conversationId],
+    );
+    expect(said.rows).toEqual([{ content: "Namaste." }]);
+  }, 40_000);
+});

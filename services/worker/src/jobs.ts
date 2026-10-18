@@ -141,38 +141,41 @@ export async function startJobs(
   });
 
   // --- the external-action queues and their handlers (src/handlers/) -------------------------
-  // The call.post dead-letter SINK first so place_call can reference it as its deadLetter. Each
-  // action queue is policy 'short': the scheduler's singleton_key dedup rides pgboss.job's job_i1 index
-  // (state='created' AND policy='short'), and scheduler.enqueueJob refuses a queue on any other policy. Each
-  // job the scheduler queues takes its queue's settings below: its retries, their delay and its dead letter.
-  // A retry runs the handler again, which never sends twice: it finds the send it saved (src/sends.ts).
+  // The call.post dead-letter SINK first so the send queues can reference it as their deadLetter: a call or
+  // WhatsApp job that keeps failing reaches a person there. Each action queue is policy 'short': the scheduler's
+  // singleton_key dedup rides pgboss.job's job_i1 index (state='created' AND policy='short'), and
+  // scheduler.enqueueJob refuses a queue on any other policy. Each job the scheduler queues takes its queue's
+  // settings below: its retries, their delay and its dead letter. pg-boss's createQueue leaves a queue that already
+  // exists as it was, so updateQueue gives an existing queue these settings too. A retry runs the handler again,
+  // which never sends twice: it finds the send it saved (src/sends.ts).
   await b.createQueue(CALL_POST_QUEUE);
   for (const q of ACTION_QUEUES) {
-    await b.createQueue(
-      q,
-      q === "place_call"
-        ? { policy: "short", deadLetter: CALL_POST_QUEUE }
-        : { policy: "short" },
-    );
+    await b.createQueue(q, { policy: "short" });
+    if (q !== "run_agent_turn")
+      await b.updateQueue(q, { deadLetter: CALL_POST_QUEUE });
   }
 
   // Shared handler deps. The guard pipeline is the real one (guardrails run before every send). Each work loop
   // parses the payload's org id as a boundary.
   const registry = buildCatalog({ send: UNWIRED_SEND });
 
+  // A send job without the scheduler's send id takes pg-boss's own id for its job, which every retry keeps.
   await b.work<PlaceCallJob>("place_call", async (jobs) => {
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
       await handlePlaceCall(
         { pool: db, guard, sender: voice, provider, registry, outcome },
-        job.data,
+        { ...job.data, sendId: job.data.sendId ?? job.id },
       );
     }
   });
   await b.work<SendWaJob>("send_wa", async (jobs) => {
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
-      await handleSendWa({ pool: db, guard, sender: wa }, job.data);
+      await handleSendWa(
+        { pool: db, guard, sender: wa },
+        { ...job.data, sendId: job.data.sendId ?? job.id },
+      );
     }
   });
   await b.work<AgentTurnJob>("run_agent_turn", async (jobs) => {

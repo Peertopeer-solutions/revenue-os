@@ -1,17 +1,19 @@
 // The place_call job handler. A call is never blindly repeated: the job may run twice (delivered twice, or run again
 // after it failed), but it dials at most once, and no database transaction is open while the dialer answers. Every
 // query also filters by the job's company (the run's sequence and the call's agent may be shared templates).
-//   1. In one short transaction: reload the run FOR UPDATE and NO-OP if stale (it no longer waits for this call: an
-//      outcome is folded, status != 'waiting', or current_step is no longer a call step), load the active agent and
-//      the lead's number, and save the call about to be placed (src/sends.ts). A send saved before means this job ran
-//      before: never dial again — go on from its saved answer, or hand the lead to a person when none was saved.
-//   2. guard() BEFORE the dial, through the channels voice doorway (voice.place), with the guard in a short
-//      transaction of its own. A blocking verdict => no dial; the send is saved as blocked.
-//   3. Save the dialer's answer with the call's conversation (provider vapi, provider_ref). A dial that throws may
-//      still have placed the call, so the lead is handed to a person and the run parked as failed instead.
-//   4. Drive the call's conversation via runTurn(injected provider) so messages + usage land, resolve the call
-//      OUTCOME via the injected `outcome` port, FOLD it into state.lastDisposition, and RE-ARM (status waiting,
-//      wake_at now, current_step UNCHANGED) so the next tick routes it.
+//   1. In one short transaction: reload the run FOR UPDATE and NO-OP if stale (it no longer waits for this job's
+//      call: an outcome is folded, status != 'waiting', current_step is no longer a call step, or the run waits for a
+//      newer call job's call), load the active agent and the lead's number, and look up this job's saved call. A call
+//      saved before means this job ran before: never dial again — go on from its saved answer, or hand the lead to a
+//      person when none was saved.
+//   2. Send the call at most once (src/sends.ts sendOnce): guard() BEFORE the dial, through the channels voice
+//      doorway (voice.place), the call saved with the guard's verdict; the dial with no transaction open; its answer
+//      saved. A blocking verdict => no dial. A dial that throws may still have placed the call, so the lead is handed
+//      to a person and the run parked as failed instead.
+//   3. Record the call's conversation (provider vapi, provider_ref), drive it via runTurn(injected provider) so
+//      messages + usage land, resolve the call OUTCOME via the injected `outcome` port, FOLD it into
+//      state.lastDisposition, and RE-ARM (status waiting, wake_at now, current_step UNCHANGED) so the next tick
+//      routes it.
 // @revenue-os/channels is an internal workspace dep (no BOM row, like @revenue-os/harness).
 
 import type { ToolRegistry } from "@harness/registry";
@@ -21,17 +23,17 @@ import type {
   OrgCtx,
   Verdict,
 } from "@harness/types";
-import { type DoorwayResult, voice } from "@revenue-os/channels";
+import { voice } from "@revenue-os/channels";
 import { withOrg } from "@revenue-os/db";
 import { runTurn } from "@revenue-os/harness";
 import type { Pool, PoolClient } from "pg";
 import {
+  findSend,
   handOver,
   type Send,
   type SendJob,
-  saveSend,
   sendKey,
-  settleSend,
+  sendOnce,
 } from "../sends";
 
 /** Voice sender port — a structural superset of channels' VoiceSender (kept local so the type
@@ -74,7 +76,11 @@ export type PlaceCallJob = SendJob & {
   action: { kind: "place_call"; contactId: string; agentKey: string };
 };
 
-type RunState = { lastDisposition?: string } & Record<string, unknown>;
+/** The run's state; callSendId names the call job whose call it waits for (src/scheduler.ts). */
+type RunState = { lastDisposition?: string; callSendId?: string } & Record<
+  string,
+  unknown
+>;
 type Agent = {
   id: string;
   system_prompt: string | null;
@@ -86,17 +92,10 @@ export async function handlePlaceCall(
   job: PlaceCallJob,
 ): Promise<void> {
   const { orgId, runId, action } = job;
-  const send: Send = {
-    key: sendKey("place_call", job),
-    channel: "voice",
-    contactId: action.contactId,
-    runId,
-    payload: {},
-  };
 
-  // 1. reload (the stale checks NO-OP before the guard) and save the call about to be placed.
+  // 1. reload (the stale checks NO-OP before the guard) and look up this job's saved call.
   const claim = await withOrg(deps.pool, orgId, async (tx) => {
-    if (!(await waitingForCall(tx, orgId, runId))) return;
+    if (!(await waitingForCall(tx, job))) return;
     const agent = (
       await tx.query(
         `select id, system_prompt, tools_allowed from agents
@@ -106,92 +105,77 @@ export async function handlePlaceCall(
       )
     ).rows[0] as Agent | undefined;
     if (!agent) return; // no active agent to place the call
-    const payload = { to: await resolveTo(tx, orgId, action.contactId) };
-    send.payload = payload;
-    return { agent, payload, earlier: await saveSend(tx, orgId, send) };
+    const to = await resolveTo(tx, orgId, action.contactId);
+    const send: Send = {
+      key: sendKey("place_call", job),
+      channel: "voice",
+      contactId: action.contactId,
+      runId,
+      payload: { to },
+    };
+    return { agent, to, send, earlier: await findSend(tx, orgId, send.key) };
   });
   if (!claim) return;
-  const { agent, earlier } = claim;
+  const { agent, to, send, earlier } = claim;
   if (earlier?.status === "sent" && earlier.providerRef)
     return fold(deps, job, agent, earlier.providerRef); // dialled before; its outcome is still to fold
   if (earlier) {
     // dialled before with no answer saved: hand over (once); blocked or already handed over: nothing to do
     if (earlier.status === "sending")
       await withOrg(deps.pool, orgId, (tx) =>
-        parkForAPerson(tx, orgId, send, new Error(UNANSWERED)),
+        handOver(tx, orgId, send, new Error(UNANSWERED)),
       );
     return;
   }
 
-  // 2. guard BEFORE the dial, the guard in a short transaction of its own; no transaction is open while it dials.
-  let placed: DoorwayResult;
-  try {
-    placed = await voice.place(
-      {
-        sender: deps.sender,
-        guard: (_ctx, a) =>
-          withOrg(deps.pool, orgId, (tx) => deps.guard({ orgId, db: tx }, a)),
-      },
+  // 2. guard BEFORE the dial; the call is saved with the guard's verdict, then dialled with no transaction open.
+  const placed = await sendOnce(deps.pool, orgId, send, deps.guard, (guard) =>
+    voice.place(
+      { sender: deps.sender, guard },
       { orgId },
       {
         contactId: action.contactId,
         autonomy: "auto",
         toolName: "place_call",
-        payload: claim.payload,
+        payload: { to },
       },
-    );
-  } catch (err) {
-    // the dialer may have placed the call: never dial again; a person checks.
-    await withOrg(deps.pool, orgId, (tx) =>
-      parkForAPerson(tx, orgId, send, err),
-    );
-    return;
-  }
-  if (!placed.ok) {
-    const { reason } = placed;
-    await withOrg(deps.pool, orgId, (tx) =>
-      settleSend(tx, orgId, send.key, { blocked: reason }),
-    );
-    return; // blocked → no dial, no conversation, no fold
-  }
-
-  // 3. save the dialer's answer with the voice conversation carrying the provider ref.
-  const { providerRef } = placed.result;
-  await withOrg(deps.pool, orgId, async (tx) => {
-    await settleSend(tx, orgId, send.key, { sent: providerRef });
-    await tx.query(
-      `insert into conversations
-         (org_id, contact_id, workflow_run_id, agent_id, channel, direction, status, provider, provider_ref)
-       values ($1, $2, $3, $4, 'voice', 'outbound', 'active', 'vapi', $5)`,
-      [orgId, action.contactId, runId, agent.id, providerRef],
-    );
-  });
-  await fold(deps, job, agent, providerRef);
+    ),
+  );
+  if (placed && "sent" in placed) await fold(deps, job, agent, placed.sent);
+  // blocked → no dial, no conversation, no fold; handed over, or another run of the job dials: nothing more
 }
 
 /** Why a run of the job hands the lead over when an earlier run saved the call but not the dialer's answer. */
 const UNANSWERED =
   "an earlier run of this job saved the call but not the dialer's answer";
 
-/** 4. drive the call's turn, then FOLD its outcome and RE-ARM (current_step UNCHANGED — the next tick routes). */
+/** 3. record the call's conversation, drive its turn, then FOLD the outcome and RE-ARM (the next tick routes). */
 async function fold(
   deps: PlaceCallDeps,
   job: PlaceCallJob,
   agent: Agent,
   providerRef: string,
 ): Promise<void> {
-  const { orgId, runId } = job;
+  const { orgId, runId, action } = job;
   const now = deps.now?.() ?? new Date();
   await withOrg(deps.pool, orgId, async (tx) => {
-    const state = await waitingForCall(tx, orgId, runId);
-    if (!state) return; // folded by an earlier run of this job, or handed to a person
-    const ctx: OrgCtx = { orgId, db: tx };
+    // The call's conversation, keyed by the dialer's call id as the call's own events file it (src/vapi/process.ts),
+    // so whichever of the two comes first makes it, and this fills in its lead, run and agent.
     const conversationId = (
       await tx.query(
-        `select id from conversations where org_id = $1 and provider = 'vapi' and provider_ref = $2`,
-        [orgId, providerRef],
+        `insert into conversations
+           (org_id, contact_id, workflow_run_id, agent_id, channel, direction, status, provider, provider_ref)
+         values ($1, $2, $3, $4, 'voice', 'outbound', 'active', 'vapi', $5)
+         on conflict (org_id, provider, provider_ref) where provider_ref is not null
+         do update set contact_id = excluded.contact_id, workflow_run_id = excluded.workflow_run_id,
+                       agent_id = excluded.agent_id, direction = excluded.direction
+         returning id`,
+        [orgId, action.contactId, runId, agent.id, providerRef],
       )
     ).rows[0]?.id as string;
+    const state = await waitingForCall(tx, job);
+    if (!state) return; // folded by an earlier run of this job, or handed to a person
+    const ctx: OrgCtx = { orgId, db: tx };
     await runTurn(
       {
         provider: deps.provider,
@@ -217,11 +201,14 @@ async function fold(
   });
 }
 
-/** The run, locked, while it still waits for this call (status waiting, no outcome folded, on a call step): its state. */
+/**
+ * The run, locked, while it still waits for this job's call: status waiting, no outcome folded, on a call step, and
+ * not waiting for a newer call job's call (a late run of an older job must not fold that call's outcome into it). Its
+ * state, or nothing.
+ */
 async function waitingForCall(
   tx: PoolClient,
-  orgId: string,
-  runId: string,
+  { orgId, runId, sendId }: PlaceCallJob,
 ): Promise<RunState | undefined> {
   const run = (
     await tx.query(
@@ -231,7 +218,8 @@ async function waitingForCall(
     )
   ).rows[0];
   const state = (run?.state ?? {}) as RunState;
-  if (!run || run.status !== "waiting" || state.lastDisposition != null) return; // RLS-hidden (cross-tenant) or gone, already advanced, or the outcome is folded (re-delivery)
+  if (run?.status !== "waiting" || state.lastDisposition != null) return; // RLS-hidden (cross-tenant) or gone, already advanced, or the outcome is folded (re-delivery)
+  if (sendId && state.callSendId && state.callSendId !== sendId) return; // the run waits for another job's call
   const def = (
     await tx.query(
       `select definition from workflows where id = $1 and (org_id = $2 or org_id is null)`,
@@ -243,22 +231,6 @@ async function waitingForCall(
   return def?.steps?.[run.current_step as string]?.kind === "call"
     ? state
     : undefined;
-}
-
-/** Hands the lead to a person (src/sends.ts) and parks the run as failed with the reason: it can't route a call
- *  whose result is unknown, and must not dial it again. */
-async function parkForAPerson(
-  tx: PoolClient,
-  orgId: string,
-  send: Send,
-  why: unknown,
-): Promise<void> {
-  const reason = await handOver(tx, orgId, send, why);
-  await tx.query(
-    `update workflow_runs set status = 'failed', last_error = $2, updated_at = now()
-      where id = $1 and org_id = $3 and status = 'waiting'`,
-    [send.runId, reason, orgId],
-  );
 }
 
 /** Resolve an E.164 destination for the company's contact (any phone-bearing identity, primary first). */

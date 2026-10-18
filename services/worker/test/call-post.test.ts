@@ -2,6 +2,7 @@
 // through withOrg), so it runs with the local stack's settings (`bun run gate`, CI). The handler is invoked DIRECTLY
 // with a job payload (no pg-boss here): it records a failed call for a person and never throws.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { createPool } from "@revenue-os/db";
 import pg from "pg";
 import { testCompanies } from "../../../tests/test-companies";
@@ -122,5 +123,124 @@ describe("call.post dead-letter handler", () => {
     await expect(
       handleCallPost({ pool: appPool }, { orgId }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("call.post hands over a send whose job failed every try before saving the provider's answer", () => {
+  /** A send saved as `status` for a job of `kind` on `runId`, as the job handlers save it (src/sends.ts). */
+  async function savedSend(
+    kind: "place_call" | "send_wa",
+    runId: string,
+    status: string,
+  ) {
+    const sendId = randomUUID();
+    await admin.query(
+      `insert into sends (org_id, send_key, channel, contact_id, workflow_run_id, status)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [
+        orgId,
+        `${kind}:${runId}:${sendId}`,
+        kind === "send_wa" ? "whatsapp" : "voice",
+        contactId,
+        runId,
+        status,
+      ],
+    );
+    return {
+      orgId,
+      runId,
+      sendId,
+      step: "s",
+      idx: 0,
+      action: { kind, contactId },
+      error: "failed every try",
+    };
+  }
+  const tasksOf = async (runId: string) =>
+    (
+      await admin.query(
+        `select contact_id, title from tasks where workflow_run_id = $1 and kind = 'review' order by created_at`,
+        [runId],
+      )
+    ).rows;
+  const statusOf = async (runId: string) =>
+    (
+      await admin.query(`select status from sends where workflow_run_id = $1`, [
+        runId,
+      ])
+    ).rows[0]?.status;
+
+  it("a WhatsApp job left 'sending' is handed to a person as unknown: one task to check, never sent again", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "end",
+    });
+
+    await handleCallPost(
+      { pool: appPool },
+      await savedSend("send_wa", runId, "sending"),
+    );
+
+    expect(await statusOf(runId)).toBe("unknown");
+    expect(await tasksOf(runId)).toEqual([
+      {
+        contact_id: contactId,
+        title:
+          "Check whether this WhatsApp message went out before sending again",
+      },
+    ]);
+  });
+
+  it("a call job left 'sending' is handed to a person and its run parked as failed", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+
+    await handleCallPost(
+      { pool: appPool },
+      await savedSend("place_call", runId, "sending"),
+    );
+
+    expect(await statusOf(runId)).toBe("unknown");
+    expect(await tasksOf(runId)).toEqual([
+      {
+        contact_id: contactId,
+        title: "Check whether this call went out before calling again",
+      },
+    ]);
+    const run = await admin.query(
+      `select status, last_error from workflow_runs where id = $1`,
+      [runId],
+    );
+    expect(run.rows[0].status).toBe("failed");
+    expect(run.rows[0].last_error).toContain("failed every try");
+  });
+
+  it("a WhatsApp job whose send was saved as sent, or never saved, gets the failure review named for WhatsApp, and its send is left as it is", async () => {
+    const sentRun = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "end",
+    });
+    const neverRun = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "end",
+    });
+
+    await handleCallPost(
+      { pool: appPool },
+      await savedSend("send_wa", sentRun, "sent"),
+    );
+    await handleCallPost(
+      { pool: appPool },
+      {
+        orgId,
+        runId: neverRun,
+        sendId: randomUUID(),
+        action: { kind: "send_wa", contactId },
+      },
+    );
+
+    expect(await statusOf(sentRun)).toBe("sent");
+    for (const runId of [sentRun, neverRun])
+      expect(await tasksOf(runId)).toEqual([
+        { contact_id: null, title: "WhatsApp message failed — needs review" },
+      ]);
   });
 });

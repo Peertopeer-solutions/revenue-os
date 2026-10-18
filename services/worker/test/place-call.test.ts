@@ -448,9 +448,13 @@ describe("place_call never dials the same call twice", () => {
     });
     const db = flakyPool();
     let dialled = 0;
+    let checks = 0;
     const deps: PlaceCallDeps = {
       pool: db.pool,
-      guard: async () => ({ ok: true }),
+      guard: async () => {
+        checks += 1;
+        return { ok: true };
+      },
       sender: {
         place: async () => {
           dialled += 1;
@@ -482,6 +486,7 @@ describe("place_call never dials the same call twice", () => {
     expect(tasks[0].payload.reason).toContain(
       "saved the call but not the dialer's answer",
     );
+    expect(checks).toBe(1); // the next run stopped at the saved call, before the guardrails
     expect((await getRun(runId)).status).toBe("failed");
   });
 
@@ -491,6 +496,7 @@ describe("place_call never dials the same call twice", () => {
     });
     let dialled = 0;
     let outcomes = 0;
+    const prompts: string[] = [];
     const deps: PlaceCallDeps = {
       pool: appPool,
       guard: async () => ({ ok: true }),
@@ -500,7 +506,12 @@ describe("place_call never dials the same call twice", () => {
           return { providerRef: `vapi-fold-${REF}` };
         },
       },
-      provider: fakeLlm([{ text: "Hello", usage: { in: 2, out: 1 } }]),
+      provider: {
+        complete: async ({ system }) => {
+          prompts.push(system);
+          return { text: "Hello", usage: { in: 2, out: 1 } };
+        },
+      },
       registry: new ToolRegistry(),
       outcome: async () => {
         outcomes += 1;
@@ -527,6 +538,117 @@ describe("place_call never dials the same call twice", () => {
     expect(run.state.lastDisposition).toBe("no_answer");
     expect(run.status).toBe("waiting");
     expect(await reviewTasks(runId)).toHaveLength(0); // nothing for a person: the call's answer was saved
+    expect(prompts.length).toBeGreaterThan(0);
+    for (const system of prompts)
+      expect(system).toContain("You are a scheduler."); // the agent's own prompt
+  });
+
+  it("a guardrail check that fails before the dial saves and dials nothing, so the job's next run dials once", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+    let dialled = 0;
+    let checks = 0;
+    const deps: PlaceCallDeps = {
+      pool: appPool,
+      guard: async () => {
+        checks += 1;
+        if (checks === 1) throw new Error("guardrails unreachable");
+        return { ok: true };
+      },
+      sender: {
+        place: async () => {
+          dialled += 1;
+          return { providerRef: `vapi-after-guard-${REF}` };
+        },
+      },
+      provider: fakeLlm([{ text: "x", usage: { in: 1, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => "completed",
+    };
+    const once = job(runId);
+
+    await expect(handlePlaceCall(deps, once)).rejects.toThrow(
+      "guardrails unreachable",
+    );
+    expect(await sendOf(runId)).toEqual([]); // nothing saved: the provider was never called
+    expect(await reviewTasks(runId)).toHaveLength(0);
+    expect((await getRun(runId)).status).toBe("waiting"); // not parked: the job may simply run again
+    await handlePlaceCall(deps, once); // the job's next run
+
+    expect(dialled).toBe(1);
+    expect((await sendOf(runId))[0]?.status).toBe("sent");
+    expect(await reviewTasks(runId)).toHaveLength(0);
+  });
+
+  it("a late run of an older call job does nothing while the run waits for a newer call job's call", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+      state: { contactId, callSendId: randomUUID() }, // the scheduler parked the run on a newer call
+    });
+    let dialled = 0;
+    const deps: PlaceCallDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        place: async () => {
+          dialled += 1;
+          return { providerRef: `vapi-old-${REF}` };
+        },
+      },
+      provider: fakeLlm([{ text: "x", usage: { in: 1, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => "completed",
+    };
+
+    await handlePlaceCall(deps, job(runId)); // an older job, with a send id of its own
+
+    expect(dialled).toBe(0);
+    expect(await sendOf(runId)).toEqual([]);
+    const run = await getRun(runId);
+    expect(run.status).toBe("waiting");
+    expect(run.state.lastDisposition ?? null).toBeNull();
+  });
+
+  it("the same call job delivered twice at the same moment dials once", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+    let dialled = 0;
+    let atGuard = 0;
+    const deps: PlaceCallDeps = {
+      pool: appPool,
+      // both deliveries reach the guardrail check before either saves the call
+      guard: async () => {
+        atGuard += 1;
+        for (let i = 0; atGuard < 2 && i < 200; i++)
+          await new Promise((r) => setTimeout(r, 10));
+        return { ok: true };
+      },
+      sender: {
+        place: async () => {
+          dialled += 1;
+          return { providerRef: `vapi-twice-${REF}` };
+        },
+      },
+      provider: fakeLlm([{ text: "x", usage: { in: 1, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => "completed",
+    };
+    const once = job(runId);
+
+    await Promise.all([
+      handlePlaceCall(deps, once),
+      handlePlaceCall(deps, once),
+    ]);
+
+    expect(atGuard).toBe(2);
+    expect(dialled).toBe(1);
+    expect(await sendOf(runId)).toEqual([
+      expect.objectContaining({ status: "sent" }),
+    ]);
+    expect(await countConversations(runId)).toBe(1);
+    expect(await reviewTasks(runId)).toHaveLength(0);
   });
 
   it("a run handed to a person while the dialer was answering is left as the person has it: the call is saved, but no turn runs and no outcome is folded", async () => {

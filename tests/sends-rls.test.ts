@@ -71,20 +71,37 @@ describe("sends tenant isolation", () => {
   });
 
   // behaviour already on main: migration 021 is applied to the one local database both copies of the code run against; it is the table's own row-level security and links that this checks
-  it("withOrg(B) cannot mark company A's send as unknown, nor sent", async () => {
+  it("withOrg(B) cannot change company A's send, nor move a send of its own into company A", async () => {
+    // an update that reads no column: only the update policy stands between company B and every company's sends
     const changed = await withOrg(appService, orgB, (tx) =>
+      tx.query(`update sends set status = 'unknown'`).then((r) => r.rowCount),
+    );
+    expect(changed).toBe(0); // company B holds no send yet
+    // and one that names A's send by id
+    const named = await withOrg(appService, orgB, (tx) =>
       tx
-        .query(
-          `update sends set status = 'unknown' where id = $1 and org_id = $2`,
-          [sendA, orgA],
-        )
+        .query(`update sends set status = 'unknown' where id = $1`, [sendA])
         .then((r) => r.rowCount),
     );
-    expect(changed).toBe(0);
-    const still = await admin.query(`select status from sends where id = $1`, [
-      sendA,
-    ]);
-    expect(still.rows[0].status).toBe("sent");
+    expect(named).toBe(0);
+    const still = await admin.query(
+      `select status, provider_ref from sends where id = $1`,
+      [sendA],
+    );
+    expect(still.rows[0]).toEqual({ status: "sent", provider_ref: "wamid.a" });
+    // company B's own send can't be moved into company A
+    const own =
+      (
+        await admin.query<{ id: string }>(
+          `insert into sends (org_id, send_key, channel, contact_id) values ($1, $2, 'voice', $3) returning id`,
+          [orgB, `place_call:${randomUUID()}`, leadB],
+        )
+      ).rows[0]?.id ?? "";
+    await expect(
+      withOrg(appService, orgB, (tx) =>
+        tx.query(`update sends set org_id = $1 where id = $2`, [orgA, own]),
+      ),
+    ).rejects.toThrow(/row-level security/);
   });
 
   // behaviour already on main: migration 021 is applied to the one local database both copies of the code run against; it is the table's own row-level security and links that this checks

@@ -282,15 +282,23 @@ async function applyTransitions(
   delete attempts[APPLY_ERRORS]; // this apply commits — an earlier transient failure is spent
 
   let final: Transition | undefined;
+  let callSendId: string | undefined; // the call job this run will wait for, when the walk queues one
   for (const { step, transition } of steps) {
     final = transition;
     for (const [idx, action] of transition.actions.entries()) {
       if (EXTERNAL.has(action.kind)) {
         // Record the channel attempt only when the job is actually enqueued (singleton_key may
         // dedupe a re-tick of a still-parked run — no new job means no new attempt).
-        const enqueued = await enqueueJob(tx, orgId, run.id, step, idx, action);
+        const sendId = randomUUID();
+        const enqueued = await enqueueJob(
+          tx,
+          orgId,
+          { runId: run.id, step, idx, sendId },
+          action,
+        );
         if (enqueued && action.kind === "place_call") {
           pushAttempt(attempts, "voice", iso);
+          callSendId = sendId;
         } else if (enqueued && action.kind === "send_wa") {
           pushAttempt(attempts, "whatsapp", iso);
         }
@@ -318,7 +326,7 @@ async function applyTransitions(
       run.id,
       final.runStatus,
       nextStep,
-      JSON.stringify({ ...finalState, currentStep: undefined }),
+      JSON.stringify({ ...finalState, currentStep: undefined, callSendId }),
       final.wakeAt,
       JSON.stringify(attempts),
       final.runStatus === "completed" ? iso : null,
@@ -349,11 +357,10 @@ async function applyTransitions(
 async function enqueueJob(
   tx: PoolClient,
   orgId: string,
-  runId: string,
-  step: string,
-  idx: number,
+  job: { runId: string; step: string; idx: number; sendId: string },
   action: Action,
 ): Promise<boolean> {
+  const { runId, step, idx, sendId } = job;
   const singletonKey = `${runId}:${step}:${idx}`;
   const r = await tx.query<{ queue: string | null; queued: number }>(
     `with q as (select * from pgboss.queue where name = $1),
@@ -376,17 +383,16 @@ async function enqueueJob(
         runId,
         step,
         idx,
-        sendId: randomUUID(),
+        sendId,
         action,
       }),
       singletonKey,
     ],
   );
   const { queue, queued } = r.rows[0] ?? { queue: null, queued: 0 };
-  if (queue !== "short in job_common")
-    // coverage gap: every database the tests use has the action queues, policy 'short', so none meets a missing one
-    throw new Error(`queue ${action.kind}: ${queue ?? "missing"}`);
-  return queued > 0;
+  if (queue === "short in job_common") return queued > 0;
+  // coverage gap: every database the tests use has the action queues, policy 'short', so none meets a missing one
+  throw new Error(`queue ${action.kind}: ${queue ?? "missing"}`);
 }
 
 /** Apply an inline (no job hop) action in the same tx: outcomes / tasks writes. */

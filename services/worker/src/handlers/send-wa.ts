@@ -4,24 +4,26 @@
 // step, so what makes a run of this job stale is its saved send (src/sends.ts), never the run's step.
 //   1. In one short transaction: lock the run (serializes runs of this job), MERGE run/contact vars into the step's
 //      template vars (the doorway forwards vars as given, so send_wa must not go out empty; run/contact vars
-//      OVERRIDE step vars on key collision) and save the message about to be sent. A send saved before means this
-//      job ran before: never send again; when no answer was saved, hand the lead to a person.
-//   2. guard() BEFORE the send (guardrails run before every send) via the channels wa doorway (wa.send), with the
-//      guard in a short transaction of its own. A blocking verdict => no send; the send is saved as blocked.
-//   3. Save the provider's answer with the outbound message + usage. A send that throws may still have reached the
-//      provider, so the lead is handed to a person instead; the run's sequence goes on.
+//      OVERRIDE step vars on key collision) and look up this job's saved message. A message saved before means this
+//      job ran before: never send again — complete its record when its answer was saved, or hand the lead to a person
+//      when none was.
+//   2. Send the message at most once (src/sends.ts sendOnce): guard() BEFORE the send (guardrails run before every
+//      send) via the channels wa doorway (wa.send), the message saved with the guard's verdict; the send with no
+//      transaction open; its answer saved. A blocking verdict => no send. A send that throws may still have reached
+//      the provider, so the lead is handed to a person instead; the run's sequence goes on.
+//   3. Record the outbound message + usage, once.
 import type { GuardedAction, OrgCtx, Verdict } from "@harness/types";
-import { type DoorwayResult, type WaPayload, wa } from "@revenue-os/channels";
+import { type WaPayload, wa } from "@revenue-os/channels";
 import { withOrg } from "@revenue-os/db";
 import { emitUsage } from "@revenue-os/harness";
 import type { Pool, PoolClient } from "pg";
 import {
+  findSend,
   handOver,
   type Send,
   type SendJob,
-  saveSend,
   sendKey,
-  settleSend,
+  sendOnce,
 } from "../sends";
 
 /** WhatsApp sender port — structural superset of channels' WaSender (local, no channels dep). */
@@ -60,16 +62,8 @@ export async function handleSendWa(
   job: SendWaJob,
 ): Promise<void> {
   const { orgId, runId, action } = job;
-  const send: Send = {
-    key: sendKey("send_wa", job),
-    channel: "whatsapp",
-    contactId: action.contactId,
-    runId,
-    payload: {},
-  };
 
-  // 1. lock the run (serializes runs of this job) + read run/contact vars, MERGE them (run/contact vars WIN), and
-  //    save the message about to be sent. A send saved before means this job ran before: never send again.
+  // 1. lock the run + read run/contact vars, MERGE them (run/contact vars WIN), and look up this job's saved message.
   const claim = await withOrg(deps.pool, orgId, async (tx) => {
     const reload = await tx.query(
       `select state from workflow_runs where id = $1 and org_id = $2 for update`,
@@ -83,55 +77,69 @@ export async function handleSendWa(
       template: action.template,
       vars: { ...action.vars, ...(state.vars ?? {}) },
     };
-    send.payload = payload;
-    return { payload, earlier: await saveSend(tx, orgId, send) };
+    const send: Send = {
+      key: sendKey("send_wa", job),
+      channel: "whatsapp",
+      contactId: action.contactId,
+      runId,
+      payload,
+    };
+    return { payload, send, earlier: await findSend(tx, orgId, send.key) };
   });
   if (!claim) return;
-  if (claim.earlier) {
-    // sent before: done; saved before with no answer: hand over (once); blocked or handed over: nothing to do
-    if (claim.earlier.status === "sending")
+  const { payload, send, earlier } = claim;
+  if (earlier?.status === "sent" && earlier.providerRef)
+    return record(deps, job, send, earlier.providerRef); // sent before; its record may still be missing
+  if (earlier) {
+    // saved before with no answer: hand over (once); blocked or handed over: nothing to do
+    if (earlier.status === "sending")
       await withOrg(deps.pool, orgId, (tx) =>
         handOver(tx, orgId, send, new Error(UNANSWERED)),
       );
     return;
   }
 
-  // 2. guard BEFORE the send, the guard in a short transaction of its own; no transaction is open while it sends.
-  let sent: DoorwayResult;
-  try {
-    sent = await wa.send(
-      {
-        sender: deps.sender,
-        guard: (_ctx, a) =>
-          withOrg(deps.pool, orgId, (tx) => deps.guard({ orgId, db: tx }, a)),
-      },
+  // 2. guard BEFORE the send; the message is saved with the guard's verdict, then sent with no transaction open.
+  const sent = await sendOnce(deps.pool, orgId, send, deps.guard, (guard) =>
+    wa.send(
+      { sender: deps.sender, guard },
       { orgId },
       {
         contactId: action.contactId,
         autonomy: "auto",
         toolName: "send_wa",
-        payload: claim.payload,
+        payload,
       },
-    );
-  } catch (err) {
-    // the provider may have taken the message: never send again; a person checks.
-    await withOrg(deps.pool, orgId, (tx) => handOver(tx, orgId, send, err));
-    return;
-  }
-  if (!sent.ok) {
-    const { reason } = sent;
-    await withOrg(deps.pool, orgId, (tx) =>
-      settleSend(tx, orgId, send.key, { blocked: reason }),
-    );
-    return; // blocked → no send
-  }
+    ),
+  );
+  if (sent && "sent" in sent) await record(deps, job, send, sent.sent);
+  // blocked → no send; handed over, or another run of the job sends: nothing more
+}
 
-  // 3. save the provider's answer with the outbound message + usage. The wamid is the outbound MESSAGE id, not a wa
-  // THREAD id — provider_ref (unique per thread) stays NULL and the wamid rides the message's tool_call, so distinct
-  // sends never collide on convo_provider_ref_uq.
-  const { providerRef } = sent.result;
+/** Why a run of the job hands the lead over when an earlier run saved the message but not the provider's answer. */
+const UNANSWERED =
+  "an earlier run of this job saved the message but not the provider's answer";
+
+/**
+ * 3. record the outbound message + usage, once: the usage row names the send (meta.sendKey), so a later run of the
+ * job finds it and records nothing more. The wamid is the outbound MESSAGE id, not a wa THREAD id — provider_ref
+ * (unique per thread) stays NULL and the wamid rides the message's tool_call, so distinct sends never collide on
+ * convo_provider_ref_uq.
+ */
+async function record(
+  deps: SendWaDeps,
+  job: SendWaJob,
+  send: Send,
+  providerRef: string,
+): Promise<void> {
+  const { orgId, runId, action } = job;
   await withOrg(deps.pool, orgId, async (tx) => {
-    await settleSend(tx, orgId, send.key, { sent: providerRef });
+    const recorded = await tx.query(
+      `select 1 from usage_events
+        where org_id = $1 and kind = 'wa_message' and meta ->> 'sendKey' = $2 limit 1`,
+      [orgId, send.key],
+    );
+    if (recorded.rowCount) return;
     const convo = await tx.query(
       `insert into conversations
          (org_id, contact_id, workflow_run_id, channel, direction, status, provider)
@@ -159,10 +167,6 @@ export async function handleSendWa(
     });
   });
 }
-
-/** Why a run of the job hands the lead over when an earlier run saved the message but not the provider's answer. */
-const UNANSWERED =
-  "an earlier run of this job saved the message but not the provider's answer";
 
 /** Resolve the company's contact's WhatsApp destination (E.164), primary first. */
 async function resolveTo(
