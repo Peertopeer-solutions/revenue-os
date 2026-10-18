@@ -18,7 +18,7 @@ import type {
   Verdict,
 } from "@harness/types";
 import { voice } from "@revenue-os/channels";
-import { leadNumber, withOrg } from "@revenue-os/db";
+import { createTask, leadNumber, withOrg } from "@revenue-os/db";
 import { runTurn } from "@revenue-os/harness";
 import type { Pool } from "pg";
 
@@ -109,7 +109,23 @@ export async function handlePlaceCall(
 
     // 3. guard BEFORE the send — a blocking verdict returns before any effect.
     const to = await leadNumber(tx, orgId, action.contactId, "voice");
-    if (!to) return; // no number to call: nothing is placed
+    if (!to) {
+      // No number to call (none on file, or the lead was deleted or merged): nothing is placed, the reason is saved
+      // and a person is handed the lead, never a silent stop.
+      await tx.query(
+        `update workflow_runs set last_error = $2, updated_at = now() where id = $1 and org_id = $3`,
+        [runId, "no number to call", orgId],
+      );
+      await createTask(tx, orgId, {
+        contactId: action.contactId,
+        workflowRunId: runId,
+        kind: "review",
+        title: "Call not placed — no number to call",
+        payload: { reason: "no_number" },
+        actor: { type: "system" },
+      });
+      return;
+    }
     const doorway = await voice.place(
       { sender: deps.sender, guard: deps.guard },
       ctx,

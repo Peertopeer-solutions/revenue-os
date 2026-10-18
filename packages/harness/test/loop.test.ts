@@ -220,7 +220,7 @@ describe("harness loop", () => {
     });
 
     const tasks = await admin.query(
-      `select id, kind, contact_id, workflow_run_id, conversation_id from tasks where org_id = $1 and conversation_id = $2`,
+      `select id, kind, contact_id, workflow_run_id, conversation_id, payload from tasks where org_id = $1 and conversation_id = $2`,
       [orgId, convoId],
     );
     expect(tasks.rows).toEqual([
@@ -230,6 +230,7 @@ describe("harness loop", () => {
         contact_id: contactId,
         workflow_run_id: runId,
         conversation_id: convoId,
+        payload: { tool: "send_quote", args: { contactId, amount: 99000 } },
       },
     ]);
     const audits = await admin.query(

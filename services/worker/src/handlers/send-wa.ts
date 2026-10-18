@@ -10,7 +10,7 @@
 //      send; record the outbound message + usage (the usage row is the durable exactly-once marker).
 import type { GuardedAction, OrgCtx, Verdict } from "@harness/types";
 import { wa } from "@revenue-os/channels";
-import { leadNumber, withOrg } from "@revenue-os/db";
+import { createTask, leadNumber, withOrg } from "@revenue-os/db";
 import { emitUsage } from "@revenue-os/harness";
 import type { Pool } from "pg";
 
@@ -84,7 +84,19 @@ export async function handleSendWa(
     // 2 + 3. MERGE (run/contact vars WIN) then guard BEFORE the send.
     const vars = { ...action.vars, ...(state.vars ?? {}) };
     const to = await leadNumber(tx, orgId, action.contactId, "whatsapp");
-    if (!to) return; // no WhatsApp number: nothing is sent
+    if (!to) {
+      // No WhatsApp number (none on file, or the lead was deleted or merged): nothing is sent, and a person is handed
+      // the lead with the reason, never a silent drop.
+      await createTask(tx, orgId, {
+        contactId: action.contactId,
+        workflowRunId: runId,
+        kind: "review",
+        title: "WhatsApp message not sent — no WhatsApp number",
+        payload: { reason: "no_whatsapp_number", template: action.template },
+        actor: { type: "system" },
+      });
+      return;
+    }
     const doorway = await wa.send(
       { sender: deps.sender, guard: deps.guard },
       ctx,

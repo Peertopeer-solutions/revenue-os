@@ -57,7 +57,7 @@ export async function createTask(
     workflowRunId?: string;
     conversationId?: string;
     payload?: Record<string, unknown>;
-    actor: { type: ActorType; id?: string };
+    actor: { type: ActorType };
   },
 ): Promise<string> {
   if (!task.contactId)
@@ -78,7 +78,6 @@ export async function createTask(
   const id = String(made.rows[0]?.id);
   await audit(db, orgId, {
     actorType: task.actor.type,
-    actorId: task.actor.id,
     action: "task.create",
     resourceType: "task",
     resourceId: id,

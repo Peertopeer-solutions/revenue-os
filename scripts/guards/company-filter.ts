@@ -315,6 +315,12 @@ function problemsIn(sql: string, file: string): { at: number; what: string }[] {
         at: t.at,
         what: `a \${…} piece in the SQL, which can add tables or conditions this guard can't see: write the whole SQL at the call, values as $n parameters`,
       });
+  const merge = T.find((t) => t.t === "merge" && t.name && !t.quoted);
+  if (merge)
+    out.push({
+      at: merge.at,
+      what: "a merge statement, which this guard can't check: use select, insert, update or delete with the company filter",
+    });
   const is = (i: number | undefined, v: string) =>
     i !== undefined && T[i]?.t === v;
   const kw = (i: number | undefined, ...words: string[]) =>
@@ -496,8 +502,8 @@ function problemsIn(sql: string, file: string): { at: number; what: string }[] {
               at: t.at,
               what: `${table}, a table in a schema this guard doesn't know: use a public table, or an app.* function`,
             });
-        } else if (t.t.includes(".") || !cte(table, i))
-          ref = { table, q: table, at: t.at, verb };
+        } else if (t.t.includes(".") || verb !== "read" || !cte(table, i))
+          ref = { table, q: table, at: t.at, verb }; // a write's target is the real table, whatever a CTE is named
         const after = T[A[m] as number];
         if (kw(A[m], "as")) {
           if (ref) ref.q = T[A[m + 1] as number]?.t ?? table;

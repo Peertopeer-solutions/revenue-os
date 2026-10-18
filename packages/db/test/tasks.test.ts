@@ -65,7 +65,7 @@ const make = (contactId: string, actor = { type: "system" as const }) =>
 it("makes the task for the lead and its task.create audit row in one go", async () => {
   const id = await make(leadA);
   const rows = await admin.query(
-    `select t.contact_id, t.kind, t.title, t.payload, a.actor_type, a.after
+    `select t.contact_id, t.kind, t.title, t.payload, a.actor_type, a.resource_type, a.after
        from tasks t join audit_log a on a.org_id = t.org_id and a.resource_id = t.id::text
       where t.org_id = $1 and t.id = $2`,
     [orgA, id],
@@ -77,6 +77,7 @@ it("makes the task for the lead and its task.create audit row in one go", async 
       title: "Call back",
       payload: { reason: "asked for a call" },
       actor_type: "system",
+      resource_type: "task",
       after: {
         kind: "callback",
         title: "Call back",

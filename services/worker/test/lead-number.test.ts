@@ -1,7 +1,7 @@
 // The one way the worker finds the number a lead is reached on (packages/db/src/lead-numbers.ts leadNumber), at the
 // call and WhatsApp jobs' own entry points on the real local database: a lead with no number for the channel, or one
-// deleted, is never called or messaged (the sender is never handed an empty address), and a lead with numbers is
-// reached on their primary one.
+// deleted, is never called or messaged (the sender is never handed an empty address) and is handed to a person with
+// the reason, and a lead with numbers is reached on their primary one.
 import { afterAll, beforeAll, expect, it } from "bun:test";
 import { createPool } from "@revenue-os/db";
 import { ToolRegistry } from "@revenue-os/harness";
@@ -141,14 +141,42 @@ async function messaged(l: {
   return to;
 }
 
-it("a lead with no number is never called, and the sender is never handed an empty address", async () => {
-  expect(await dialled(await lead([]))).toEqual([]);
+/** What a person is handed for the run: its saved reason and its review tasks (with their audit rows). */
+async function handedOver(runId: string) {
+  const run = await admin.query(
+    `select last_error from workflow_runs where org_id = $1 and id = $2`,
+    [orgId, runId],
+  );
+  const tasks = await admin.query(
+    `select t.kind, t.title, a.action from tasks t
+       left join audit_log a on a.org_id = t.org_id and a.resource_id = t.id::text
+      where t.org_id = $1 and t.workflow_run_id = $2`,
+    [orgId, runId],
+  );
+  return { reason: run.rows[0]?.last_error, tasks: tasks.rows };
+}
+
+const NOT_CALLED = {
+  reason: "no number to call",
+  tasks: [
+    {
+      kind: "review",
+      title: "Call not placed — no number to call",
+      action: "task.create",
+    },
+  ],
+};
+
+it("a lead with no number is never called, and is handed to a person with the reason", async () => {
+  const l = await lead([]);
+  expect(await dialled(l)).toEqual([]);
+  expect(await handedOver(l.runId)).toEqual(NOT_CALLED);
 });
 
-it("a deleted lead is never called", async () => {
-  expect(
-    await dialled(await lead([["phone", "+919800000001", true]], true)),
-  ).toEqual([]);
+it("a deleted lead is never called, and is handed to a person with the reason", async () => {
+  const l = await lead([["phone", "+919800000001", true]], true);
+  expect(await dialled(l)).toEqual([]);
+  expect(await handedOver(l.runId)).toEqual(NOT_CALLED);
 });
 
 // behaviour already on main: main dials the primary number too; this pins that the one lookup still finds and orders them
@@ -160,8 +188,14 @@ it("a lead is called on their primary number, over an older one", async () => {
   expect(await dialled(l)).toEqual(["+919800000003"]);
 });
 
-it("a lead with no WhatsApp number is never messaged, even with a phone number", async () => {
-  expect(
-    await messaged(await lead([["phone", "+919800000004", true]])),
-  ).toEqual([]);
+it("a lead with no WhatsApp number is never messaged, even with a phone number, and is handed to a person", async () => {
+  const l = await lead([["phone", "+919800000004", true]]);
+  expect(await messaged(l)).toEqual([]);
+  expect((await handedOver(l.runId)).tasks).toEqual([
+    {
+      kind: "review",
+      title: "WhatsApp message not sent — no WhatsApp number",
+      action: "task.create",
+    },
+  ]);
 });

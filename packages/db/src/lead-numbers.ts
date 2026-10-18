@@ -1,7 +1,7 @@
-// The one way to find the number a lead is reached on, read inside the caller's transaction: for a call, their phone
-// number or, when it is all they gave, their WhatsApp number; for WhatsApp, their WhatsApp number. Their primary number
-// first, then the oldest, then by id, so the same number always wins. A lead who was deleted, or merged into another
-// lead, is reached on none: null, and the caller sends nothing.
+// The one way to find the number a lead is reached on, read inside the caller's transaction: for a call, any phone or
+// WhatsApp number they gave; for WhatsApp, only a WhatsApp number. Of those, their primary number first, then the
+// oldest, then by id, so the same number always wins. A lead who was deleted, or merged into another lead, is reached
+// on none: null, and the caller sends nothing (it hands the lead to a person instead).
 // G1: runtime-agnostic — no bun:* imports, no Bun globals.
 import type { Db } from "./client";
 

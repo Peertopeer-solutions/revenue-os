@@ -25,12 +25,12 @@ export const orgs = new Hono<AuthEnv>()
     // taken slug (409).
     if (!(await isPlatformOperator(pool, actor.userId)))
       return c.json({ error: "not_an_operator" }, 403);
-    const body = CreateOrgSchema.parse(await jsonBody(c)); // S5.1: before any other logic
+    const body = CreateOrgSchema.parse(await jsonBody(c)); // docs/security.md S5.1: before any other logic
     const org = await createOrgWithAdmin(pool, {
       ...body,
       userId: actor.userId,
     });
-    return c.json({ id: org.id, role: "admin" }, 201); // S5.8 — no internals
+    return c.json({ id: org.id, role: "admin" }, 201); // docs/security.md S5.8 — no internals
   })
   .get("/orgs", async (c) => {
     const actor = c.get("actor");
@@ -40,7 +40,7 @@ export const orgs = new Hono<AuthEnv>()
     const orgId = OrgIdSchema.parse(c.req.param("orgId"));
     const body = UpdateOrgSchema.parse(await jsonBody(c));
     const actor = c.get("actor");
-    const callerRole = await memberRole(pool, orgId, actor.userId); // S1.7 — admin gate
+    const callerRole = await memberRole(pool, orgId, actor.userId); // docs/security.md S1.7 — admin gate
     if (callerRole !== "admin") return c.json({ error: "forbidden" }, 403);
     const updated = await updateOrg(pool, orgId, body, actor.userId);
     return c.json({ id: orgId, name: updated.name });
@@ -49,7 +49,7 @@ export const orgs = new Hono<AuthEnv>()
     const orgId = OrgIdSchema.parse(c.req.param("orgId"));
     const body = AddMemberSchema.parse(await jsonBody(c));
     const actor = c.get("actor");
-    const callerRole = await memberRole(pool, orgId, actor.userId); // S1.7 — admin gate
+    const callerRole = await memberRole(pool, orgId, actor.userId); // docs/security.md S1.7 — admin gate
     if (callerRole !== "admin") return c.json({ error: "forbidden" }, 403);
     if (!(await addMember(pool, orgId, body, actor.userId)))
       return c.json({ error: "user_not_found" }, 404);
