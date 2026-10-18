@@ -45,7 +45,9 @@ export type TaskKind =
 /**
  * The one way a task for a person is made (a hand-over, a callback, an approval, a review): always for a lead, inside
  * the caller's transaction, with its `task.create` audit row, so the task and its record commit or roll back together.
- * The task's id.
+ * A job that can be delivered twice passes `once`, a key naming what it asks for: a task already made under that key
+ * in the company is returned and nothing new is written, even when two deliveries ask at the same moment (the second
+ * waits for the first's transaction). The task's id.
  */
 export async function createTask(
   db: Db,
@@ -58,10 +60,21 @@ export async function createTask(
     conversationId?: string;
     payload?: Record<string, unknown>;
     actor: { type: ActorType };
+    once?: string;
   },
 ): Promise<string> {
   if (!task.contactId)
     throw new Error("a task is always for a lead: its contactId is missing");
+  if (task.once) {
+    await db.query(`select pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+      `task:${orgId}:${task.once}`,
+    ]);
+    const made = await db.query(
+      `select id from tasks where org_id = $1 and payload ->> 'once' = $2 limit 1`,
+      [orgId, task.once],
+    );
+    if (made.rows[0]) return String(made.rows[0].id);
+  }
   const made = await db.query(
     `insert into tasks (org_id, contact_id, workflow_run_id, conversation_id, kind, title, payload)
      values ($1, $2, $3, $4, $5, $6, $7::jsonb) returning id`,
@@ -72,7 +85,10 @@ export async function createTask(
       task.conversationId ?? null,
       task.kind,
       task.title,
-      JSON.stringify(task.payload ?? {}),
+      JSON.stringify({
+        ...task.payload,
+        ...(task.once && { once: task.once }),
+      }),
     ],
   );
   const id = String(made.rows[0]?.id);

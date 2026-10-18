@@ -374,24 +374,15 @@ const INSERTS = {
 const writer = (table: keyof typeof INSERTS) =>
   `export const write = (db, o, c, u) => ${INSERTS[table]};\n`;
 
-// behaviour already on main: main's guard refuses none of these inserts; this pins that the one-writer rule lets each owner through
-it("lets only each table's own file insert tasks, audit rows and memberships", () => {
-  const { code, own } = guards({
+it("lets each table's own file insert into it, and fails any other product file that does, naming the file that may", () => {
+  const files = {
     "packages/db/src/tasks.ts": writer("tasks"),
     "packages/db/src/audit.ts": writer("audit_log"),
-    "packages/db/src/orgs.ts": writer("org_members"),
-  });
-  expect(own).toMatch(/\n\s+PASS \(3 queries in 3 files\)/);
-  expect(code).toBe(0);
-}, 30_000);
-
-it("fails any other product file that inserts tasks, audit rows or memberships, naming the file that may", () => {
-  const files = {
+    "packages/db/src/orgs.ts": `${writer("org_members")}${writer("audit_log").replace("write", "writeAudit")}`,
     "services/worker/src/handlers/call-post.ts": writer("tasks"),
     "packages/harness/src/audit.ts": writer("audit_log"),
     "packages/db/src/members.ts": writer("org_members"),
     "apps/console/src/tasks.ts": writer("tasks"),
-    "packages/db/src/orgs.ts": writer("audit_log"),
   };
   const { code, own } = guards(files);
   for (const [file, owner, table] of [
@@ -403,11 +394,18 @@ it("fails any other product file that inserts tasks, audit rows or memberships, 
     ["packages/harness/src/audit.ts", "packages/db/src/audit.ts", "audit_log"],
     ["packages/db/src/members.ts", "packages/db/src/orgs.ts", "org_members"],
     ["apps/console/src/tasks.ts", "packages/db/src/tasks.ts", "tasks"],
-    ["packages/db/src/orgs.ts", "packages/db/src/audit.ts", "audit_log"],
+    ["packages/db/src/orgs.ts:2", "packages/db/src/audit.ts", "audit_log"],
   ])
     expect(own).toContain(
-      `${file}:1: inserts into ${table}, which only ${owner} writes: call its function instead`,
+      `${file.includes(":") ? file : `${file}:1`}: inserts into ${table}, which only ${owner} writes: call its function instead`,
     );
+  // Each owner's own insert is never named: only orgs.ts's second line, an audit row it may not write.
+  for (const owner of [
+    "packages/db/src/tasks.ts:",
+    "packages/db/src/audit.ts:",
+    "packages/db/src/orgs.ts:1:",
+  ])
+    expect(own).not.toContain(owner);
   expect(own).toContain("FAIL — company filter");
   expect(code).toBe(1);
 }, 30_000);

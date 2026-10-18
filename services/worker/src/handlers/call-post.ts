@@ -18,6 +18,9 @@ export type CallPostDeps = {
 export type CallPostJob = {
   orgId: string;
   runId?: string;
+  /** The failed call's step and its place in it, copied from the call job: they name which call failed. */
+  step?: string;
+  idx?: number;
   action?: { kind: string };
   error?: string;
 };
@@ -27,6 +30,8 @@ export async function handleCallPost(
   job: CallPostJob,
 ): Promise<void> {
   const { orgId, runId, error, action } = job;
+  // The same failed call delivered again asks for the same task: once per call, not per delivery.
+  const once = `call.post:${runId}:${job.step ?? ""}:${job.idx ?? 0}`;
   if (!orgId || !runId) return; // malformed payload — resolve without throwing (the sink can't crash)
 
   try {
@@ -45,6 +50,7 @@ export async function handleCallPost(
         title: "Call failed — needs review",
         payload: { error: error ?? null, action: action ?? null },
         actor: { type: "system" },
+        once,
       });
     });
   } catch (err) {

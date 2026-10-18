@@ -106,3 +106,73 @@ it("leaves no task when its audit row can't be written", async () => {
   await expect(make(leadA, { type: "robot" } as never)).rejects.toThrow();
   expect(await written(orgA)).toEqual(before);
 });
+
+it("asked twice under the same once key, makes one task and one audit row", async () => {
+  const before = await written(orgA);
+  const ask = () =>
+    withOrg(appService, orgA, (tx) =>
+      createTask(tx, orgA, {
+        contactId: leadA,
+        kind: "review",
+        title: "Asked twice",
+        actor: { type: "system" },
+        once: `twice:${crypto.randomUUID()}`,
+      }),
+    );
+  const key = `twice:${crypto.randomUUID()}`;
+  const again = () =>
+    withOrg(appService, orgA, (tx) =>
+      createTask(tx, orgA, {
+        contactId: leadA,
+        kind: "review",
+        title: "Asked twice",
+        actor: { type: "system" },
+        once: key,
+      }),
+    );
+  const first = await again();
+  expect(await again()).toBe(first);
+  expect(await written(orgA)).toEqual({
+    tasks: before.tasks + 1,
+    audits: before.audits + 1,
+  });
+  // A different key is a different task.
+  await ask();
+  expect((await written(orgA)).tasks).toBe(before.tasks + 2);
+});
+
+it("two asks under one once key at the same moment make one task: the second waits for the first", async () => {
+  const before = await written(orgA);
+  const key = `race:${crypto.randomUUID()}`;
+  let release = () => {};
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  let firstMade = () => {};
+  const made = new Promise<void>((r) => {
+    firstMade = r;
+  });
+  const ask = (wait?: Promise<void>) =>
+    withOrg(appService, orgA, async (tx) => {
+      const id = await createTask(tx, orgA, {
+        contactId: leadA,
+        kind: "review",
+        title: "Asked at once",
+        actor: { type: "system" },
+        once: key,
+      });
+      if (wait) {
+        firstMade();
+        await wait; // the first holds its transaction open while the second asks
+      }
+      return id;
+    });
+  const first = ask(held);
+  await made;
+  const second = ask();
+  await new Promise((r) => setTimeout(r, 300)); // the second is now waiting on the first's lock
+  release();
+  const [a, b] = await Promise.all([first, second]);
+  expect(b).toBe(a);
+  expect((await written(orgA)).tasks).toBe(before.tasks + 1);
+});

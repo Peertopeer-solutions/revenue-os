@@ -199,3 +199,58 @@ it("a lead with no WhatsApp number is never messaged, even with a phone number, 
     },
   ]);
 });
+
+it("a call job delivered twice for a lead with no number hands the lead to a person once", async () => {
+  const l = await lead([]);
+  await dialled(l);
+  await dialled(l);
+  expect(await handedOver(l.runId)).toEqual(NOT_CALLED);
+});
+
+it("a WhatsApp job delivered twice for a lead with no WhatsApp number hands the lead to a person once", async () => {
+  const l = await lead([["phone", "+919800000005", true]]);
+  await messaged(l);
+  await messaged(l);
+  expect((await handedOver(l.runId)).tasks).toHaveLength(1);
+});
+
+it("a merged lead is never called, and is handed to a person with the reason", async () => {
+  const kept = await lead([["phone", "+919800000006", true]]);
+  const l = await lead([["phone", "+919800000007", true]]);
+  await admin.query(
+    `update contacts set merged_into_id = $3 where org_id = $1 and id = $2`,
+    [orgId, l.contactId, kept.contactId],
+  );
+  expect(await dialled(l)).toEqual([]);
+  expect(await handedOver(l.runId)).toEqual(NOT_CALLED);
+});
+
+// behaviour already on main: main's WhatsApp lookup took only WhatsApp numbers too; this pins that the one lookup does
+it("a WhatsApp message goes to the lead's WhatsApp number, never their primary phone number", async () => {
+  const l = await lead([
+    ["phone", "+919800000008", true],
+    ["whatsapp", "+919800000009", false],
+  ]);
+  expect(await messaged(l)).toEqual(["+919800000009"]);
+});
+
+it("a job naming another company's lead never reaches that lead's numbers, and leaves no task", async () => {
+  const other = (await companies.add("Lead numbers, the other company")).id;
+  const theirs = (
+    await admin.query(
+      `insert into contacts (org_id, first_name) values ($1, 'Theirs') returning id`,
+      [other],
+    )
+  ).rows[0].id as string;
+  await admin.query(
+    `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
+     values ($1, $2, 'phone', '+919800000010', true), ($1, $2, 'whatsapp', '+919800000011', false)`,
+    [other, theirs],
+  );
+  const mine = await lead([]);
+  const job = { contactId: theirs, runId: mine.runId };
+  const refused = (e: { code?: string }) => [`refused ${e.code}`];
+  expect(await dialled(job).catch(refused)).toEqual(["refused 23503"]);
+  expect(await messaged(job).catch(refused)).toEqual(["refused 23503"]);
+  expect((await handedOver(mine.runId)).tasks).toEqual([]);
+});

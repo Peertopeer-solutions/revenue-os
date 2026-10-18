@@ -120,3 +120,20 @@ it("a sequence's hand-over step makes a task for the run's lead, with its audit 
     },
   ]);
 });
+
+it("the same failed call delivered twice makes one review task; another failed call of the run makes its own", async () => {
+  const runId = await run(
+    { entry: "c", steps: { c: { kind: "call", agent: "closer", on: {} } } },
+    "c",
+  );
+  const failed = (idx: number) =>
+    handleCallPost(
+      { pool: appPool },
+      { orgId, runId, step: "c", idx, action: { kind: "place_call" } },
+    );
+  await failed(0);
+  await failed(0);
+  expect(await taskOf(runId)).toHaveLength(1);
+  await failed(1);
+  expect(await taskOf(runId)).toHaveLength(2);
+});

@@ -60,6 +60,9 @@ export type PlaceCallDeps = {
 export type PlaceCallJob = {
   orgId: string;
   runId: string;
+  /** The call's step and its place in it, as the scheduler queues them (they name this call). */
+  step?: string;
+  idx?: number;
   action: { kind: "place_call"; contactId: string; agentKey: string };
 };
 
@@ -123,6 +126,7 @@ export async function handlePlaceCall(
         title: "Call not placed — no number to call",
         payload: { reason: "no_number" },
         actor: { type: "system" },
+        once: `place_call:${runId}:${job.step ?? ""}:${job.idx ?? 0}:no-number`,
       });
       return;
     }

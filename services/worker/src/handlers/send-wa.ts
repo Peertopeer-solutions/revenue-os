@@ -94,6 +94,7 @@ export async function handleSendWa(
         title: "WhatsApp message not sent — no WhatsApp number",
         payload: { reason: "no_whatsapp_number", template: action.template },
         actor: { type: "system" },
+        once: `${dedupeKey}:no-number`,
       });
       return;
     }
