@@ -68,7 +68,6 @@ export function ContactsPage() {
         title="Contacts"
         actions={
           <form
-            role="search"
             className="flex items-center gap-2"
             // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
             onSubmit={(e) => {
