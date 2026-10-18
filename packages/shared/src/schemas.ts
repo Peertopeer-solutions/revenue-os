@@ -5,6 +5,8 @@ import { z } from "zod";
 export const OrgIdSchema = z.string().uuid();
 export const ConversationIdSchema = z.string().uuid();
 export const ContactIdSchema = z.string().uuid();
+// What the console's contacts list is searched by: a lead's name, or digits of their number.
+export const ContactSearchSchema = z.string().max(100).optional();
 
 export const OrgRoleSchema = z.enum(["admin", "operator", "viewer"]);
 export type OrgRole = z.infer<typeof OrgRoleSchema>;
@@ -99,7 +101,8 @@ export const VapiWebhookSchema = z
       .object({
         type: z.string(),
         id: z.string().optional(),
-        timestamp: z.string().optional(),
+        // Vapi sends epoch milliseconds (its API reference types it a double); a string is taken as Postgres reads it.
+        timestamp: z.union([z.number(), z.string()]).optional(),
         call: z.object({ id: z.string() }).passthrough().optional(),
         role: z.enum(["assistant", "user"]).optional(),
         transcript: z.string().optional(),
@@ -117,6 +120,11 @@ export const VapiReadingSaysDoNotCallSchema = z.object({
   analysis: z.object({
     structuredData: z.object({ doNotCall: z.literal(true) }),
   }),
+});
+// The number a call's lead called from or was called on: the message's customer, or its call's (Vapi's
+// CreateCustomerDTO). Read on its own, so a report with another shape there is still filed.
+export const VapiCustomerSchema = z.object({
+  customer: z.object({ number: z.string() }),
 });
 
 // ── Eval scenarios — the three JSONB columns of eval_scenarios. A row that fails ANY

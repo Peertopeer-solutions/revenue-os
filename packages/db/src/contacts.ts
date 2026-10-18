@@ -8,10 +8,12 @@ import { withOrg } from "./client";
 import { recordDoNotCall } from "./consent";
 
 const CORE_COLUMNS = new Set(["first_name", "last_name", "phone"]);
-// The column a list marks a lead do-not-call in, by any of its usual names (letter case, spaces and hyphens aside).
+// The column a list marks a lead do-not-call in, by any of its usual names, read by its letters and digits alone
+// (so "Do Not Call", "do-not-call", "DoNotCall" and "Do Not Call?" all match), a "(Y/N)" after it aside.
 const DO_NOT_CALL_COLUMNS = new Set([
-  "do_not_call",
-  "do_not_contact",
+  "donotcall",
+  "donotcontact",
+  "donotdisturb",
   "dnc",
   "dnd",
 ]);
@@ -28,9 +30,9 @@ export interface ImportSummary {
 const doNotCallColumn = (column: string) =>
   DO_NOT_CALL_COLUMNS.has(
     column
-      .trim()
       .toLowerCase()
-      .replace(/[\s-]+/g, "_"),
+      .replace(/\(y\/n\)/g, "")
+      .replace(/[^a-z0-9]/g, ""),
   );
 
 /** Whether the row's list marks its lead do-not-call. */
@@ -132,6 +134,20 @@ export async function importContacts(
   });
 }
 
+/** The company's leads with this E.164 number, as their phone or their WhatsApp number. */
+export async function leadsWithNumber(
+  tx: pg.PoolClient,
+  orgId: string,
+  number: string,
+): Promise<string[]> {
+  const r = await tx.query<{ contact_id: string }>(
+    `select distinct contact_id from contact_identities
+      where org_id = $1 and kind in ('phone', 'whatsapp') and value = $2`,
+    [orgId, number],
+  );
+  return r.rows.map((row) => row.contact_id);
+}
+
 export interface ContactRow {
   id: string;
   first_name: string | null;
@@ -144,10 +160,17 @@ export interface ContactRow {
   do_not_call: boolean;
 }
 
+/**
+ * The company's leads for the console's list: the 100 with the latest interaction or, given `search`, those whose name
+ * holds it or whose phone or WhatsApp number holds its digits (four or more), so a person can find any lead.
+ */
 export async function listContacts(
   pool: pg.Pool,
   orgId: string,
+  search = "",
 ): Promise<ContactRow[]> {
+  const words = search.trim();
+  const digits = search.replace(/\D/g, "");
   return withOrg(pool, orgId, async (tx) => {
     // latest_conversation_id, which the contacts screen links to the transcript: the contact's newest conversation,
     // from a lateral sub-select. Both the contacts and the sub-select's conversations filter by company themselves,
@@ -169,9 +192,18 @@ export async function listContacts(
                       limit 1
                    ) latest on true
         where c.org_id = $1 and c.deleted_at is null and c.merged_into_id is null
+          and ($2 = '' or concat_ws(' ', c.first_name, c.last_name) ilike '%' || $2 || '%'
+               or ($3 <> '' and exists (
+                     select 1 from contact_identities i
+                      where i.org_id = $1 and i.contact_id = c.id and i.kind in ('phone', 'whatsapp')
+                        and i.value like '%' || $3 || '%')))
         order by c.last_interaction_at desc nulls last, c.created_at desc
         limit 100`,
-      [orgId],
+      [
+        orgId,
+        words.replace(/[\\%_]/g, "\\$&"),
+        digits.length >= 4 ? digits : "",
+      ],
     );
     return result.rows;
   });

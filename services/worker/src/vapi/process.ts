@@ -3,8 +3,10 @@
 // timestamps give, onto the company's conversation for that call id, each message taking the next seq. Each event
 // is filed on its own: one that fails is marked failed with its reason, and the company's other events still go
 // through (ROADMAP.md, Slice 1).
-import { recordDoNotCall, withOrg } from "@revenue-os/db";
+import { leadsWithNumber, recordDoNotCall, withOrg } from "@revenue-os/db";
 import {
+  normalizePhoneE164,
+  VapiCustomerSchema,
   VapiReadingSaysDoNotCallSchema,
   type VapiWebhook,
   VapiWebhookSchema,
@@ -16,6 +18,10 @@ type Tx = pg.PoolClient;
 type Message = VapiWebhook["message"];
 
 const ROLE_MAP = { assistant: "agent", user: "contact" } as const;
+
+/** A message's time as Postgres takes it: Vapi's epoch milliseconds become an ISO time; a string goes as it came. */
+const callTime = (t: Message["timestamp"]) =>
+  typeof t === "number" ? new Date(t).toISOString() : (t ?? null);
 
 /** The company's conversation for this call id, made on its first event. Another company's call id is its own. */
 async function ensureConversation(
@@ -49,7 +55,7 @@ async function fileTranscript(
     tx,
     orgId,
     callId,
-    m.timestamp ?? null,
+    callTime(m.timestamp),
   );
   await tx.query(
     `insert into messages (org_id, conversation_id, seq, role, content)
@@ -74,21 +80,16 @@ async function fileEndOfCall(
   const done = await tx.query<{ contact_id: string | null }>(
     `update conversations set status = 'completed', ended_at = $3, summary = $4
 		 where org_id = $1 and id = $2 returning contact_id`,
-    [orgId, conversationId, m.timestamp ?? new Date().toISOString(), summary],
+    [
+      orgId,
+      conversationId,
+      callTime(m.timestamp) ?? new Date().toISOString(),
+      summary,
+    ],
   );
   const contactId = done.rows[0]?.contact_id;
-  if (VapiReadingSaysDoNotCallSchema.safeParse(m).success) {
-    if (contactId)
-      await recordDoNotCall(tx, orgId, contactId, {
-        from: "call",
-        conversationId,
-      });
-    else
-      logger.warn(
-        { org_id: orgId, conversation_id: conversationId },
-        "a do-not-call request was heard on a call linked to no lead",
-      );
-  }
+  if (VapiReadingSaysDoNotCallSchema.safeParse(m).success)
+    await blockCallsLead(tx, orgId, conversationId, contactId ?? null, m);
   // Fold the summary into long-term memory (verbatim, no embedding yet): insert the new live row, then point the
   // contact's previous live summary at it. Scoped by CONTACT, as an org-wide supersede would bury every other
   // contact's memory. An unknown caller (no contact) or a report with nothing to say makes no memory.
@@ -106,6 +107,35 @@ async function fileEndOfCall(
 		   and contact_memories.id <> new_memory.id`,
     [orgId, contactId, summary, conversationId],
   );
+}
+
+/**
+ * The AI's reading of the call asked not to be contacted: block the call's lead, the conversation's own or, on a call
+ * no lead is linked to (one that came in), the company's leads with the number the call came from.
+ */
+async function blockCallsLead(
+  tx: Tx,
+  orgId: string,
+  conversationId: string,
+  contactId: string | null,
+  m: Message,
+) {
+  const customer =
+    VapiCustomerSchema.safeParse(m).data ??
+    VapiCustomerSchema.safeParse(m.call).data;
+  const number = normalizePhoneE164(customer?.customer.number ?? "");
+  const leads = contactId
+    ? [contactId]
+    : number
+      ? await leadsWithNumber(tx, orgId, number)
+      : [];
+  for (const lead of leads)
+    await recordDoNotCall(tx, orgId, lead, { from: "call", conversationId });
+  if (!leads.length)
+    logger.warn(
+      { org_id: orgId, conversation_id: conversationId },
+      "a do-not-call request was heard on a call no lead of the company is linked to or called from",
+    );
 }
 
 /** Files one stored event. Anything not understood is stored and skipped, never guessed at (docs/security.md S6.5). */
@@ -127,7 +157,7 @@ async function fileEvent(
   else if (m.type === "end-of-call-report")
     await fileEndOfCall(tx, orgId, callId, m);
   else if (m.type === "status-update")
-    await ensureConversation(tx, orgId, callId, m.timestamp ?? null);
+    await ensureConversation(tx, orgId, callId, callTime(m.timestamp));
   else return "skipped";
   return "processed";
 }

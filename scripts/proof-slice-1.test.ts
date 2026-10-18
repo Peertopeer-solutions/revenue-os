@@ -5,7 +5,7 @@
 // database with a job schema of the test's own (services/worker/test/ready.test.ts); ci.yml's image build checks the
 // image's label. Who the worker and the sign-in server refuse is tested in services/worker/test/orgs.test.ts,
 // services/worker/test/sign-in.test.ts and tests/sign-up.test.ts. The links step runs one test of
-// tests/company-links.test.ts by name, and the do-not-call step five of services/worker/test/do-not-call.test.ts.
+// tests/company-links.test.ts by name, and the do-not-call step six of services/worker/test/do-not-call.test.ts.
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -270,6 +270,46 @@ describe("a person in the console", () => {
     expect((await mark(randomUUID(), owner.token)).status).toBe(404);
     expect((await mark("not-a-lead", owner.token)).status).toBe(400);
   });
+
+  it("a person finds any lead to block by name or number, beyond the latest 100, and none of another company's", async () => {
+    const number = phone();
+    const old = await newLead(orgId, number);
+    await admin.query(
+      `update contacts set first_name = 'Zubin', last_name = 'Oldlead', created_at = now() - interval '1 day' where id = $1`,
+      [old],
+    );
+    const theirs = await newLead(orgB);
+    await admin.query(
+      `update contacts set first_name = 'Zubin', last_name = 'Oldlead' where id = $1`,
+      [theirs],
+    );
+    await admin.query(
+      `insert into contacts (org_id, first_name) select $1, 'Newer ' || g from generate_series(1, 101) g`,
+      [orgId],
+    );
+    const found = async (q?: string) => {
+      const res = await api(
+        `/orgs/${orgId}/contacts${q === undefined ? "" : `?q=${encodeURIComponent(q)}`}`,
+        viewer.token,
+      );
+      expect(res.status).toBe(200);
+      const { contacts } = (await res.json()) as { contacts: { id: string }[] };
+      return contacts.map((c) => c.id);
+    };
+    expect(await found()).not.toContain(old);
+    expect(await found("zubin OLDLEAD")).toEqual([old]);
+    expect(await found(number.slice(-6))).toEqual([old]);
+    expect(await found("%")).toEqual([]);
+    expect(await found("_")).toEqual([]);
+    expect(await found("980")).toEqual([]); // every number here holds 980, but under four digits searches no number
+    expect((await mark(old, operator.token)).status).toBe(200);
+    expect(await isBlocked(old)).toBe(true);
+    const long = await api(
+      `/orgs/${orgId}/contacts?q=${"a".repeat(101)}`,
+      viewer.token,
+    );
+    expect(long.status).toBe(400);
+  });
 });
 
 describe("an imported list", () => {
@@ -302,13 +342,18 @@ describe("an imported list", () => {
   });
 
   it("reads the column by any of its usual names, and keeps it out of the lead's other details", async () => {
-    const numbers = [phone(), phone(), phone(), phone()];
-    for (const [i, header] of [
+    const headers = [
       "dnc",
       "DND",
       "do_not_contact",
       "do-not-call",
-    ].entries())
+      "DoNotCall",
+      '"Do Not Call?"',
+      '"DNC (Y/N)"',
+      "Do Not Disturb",
+    ];
+    const numbers = headers.map(() => phone());
+    for (const [i, header] of headers.entries())
       expect(
         (await importCsv(`phone,${header}\n${numbers[i]},true\n`)).status,
       ).toBe(200);
@@ -358,8 +403,15 @@ describe("a call", () => {
     return callId;
   }
 
-  /** The call's end-of-call report, with the AI's reading of the call, received and filed as the worker does it. */
-  async function endOfCall(callId: string, structuredData: unknown) {
+  /**
+   * The call's end-of-call report, with the AI's reading of the call, received and filed as the worker does it.
+   * `extra` adds to the report what Vapi sends beside it (its time as epoch milliseconds, the caller's number).
+   */
+  async function endOfCall(
+    callId: string,
+    structuredData: unknown,
+    extra: Record<string, unknown> = {},
+  ) {
     const res = await api(`/webhooks/vapi/${orgId}`, null, {
       method: "POST",
       headers: { "content-type": "application/json", "x-vapi-secret": SECRET },
@@ -371,6 +423,7 @@ describe("a call", () => {
           call: { id: callId },
           summary: "The lead asked us to stop calling.",
           analysis: { summary: "Asked not to be contacted.", structuredData },
+          ...extra,
         },
       }),
     });
@@ -442,6 +495,75 @@ describe("a call", () => {
       ).rows[0]?.n;
     const before = await blocks();
     await endOfCall(await call(null), { doNotCall: true });
+    expect(await blocks()).toBe(before);
+  });
+
+  it("a report as Vapi sends it, its time in epoch milliseconds, is received and filed, and its reading blocks the lead", async () => {
+    const lead = await newLead();
+    const callId = await call(lead);
+    const at = Date.parse("2026-10-18T09:30:00Z");
+    await endOfCall(callId, { doNotCall: true }, { timestamp: at });
+    expect(await isBlocked(lead)).toBe(true);
+    const ended = await admin.query(
+      `select ended_at from conversations where org_id = $1 and provider_ref = $2`,
+      [orgId, callId],
+    );
+    expect(ended.rows[0]?.ended_at.toISOString()).toBe(
+      "2026-10-18T09:30:00.000Z",
+    );
+  });
+
+  it("a known lead who calls in is blocked by the number they call from, and their next send is refused", async () => {
+    const number = phone();
+    const lead = await newLead(orgId, number);
+    const theirs = await newLead(orgB, number); // the same number, another company's lead
+    await endOfCall(
+      `call-in-${randomUUID()}`,
+      { doNotCall: true },
+      { customer: { number } },
+    );
+    expect(await isBlocked(lead)).toBe(true);
+    expect(await nextSends(lead)).toEqual(REFUSED);
+    expect(await isBlocked(theirs)).toBe(false);
+  });
+
+  it("a caller is matched by their WhatsApp number too, and by the number on the report's call", async () => {
+    const number = phone();
+    const c = await admin.query<{ id: string }>(
+      `insert into contacts (org_id, first_name) values ($1, 'Kabir') returning id`,
+      [orgId],
+    );
+    const lead = c.rows[0]?.id ?? "";
+    await admin.query(
+      `insert into contact_identities (org_id, contact_id, kind, value) values ($1, $2, 'whatsapp', $3)`,
+      [orgId, lead, number],
+    );
+    const callId = `call-in-${randomUUID()}`;
+    await endOfCall(
+      callId,
+      { doNotCall: true },
+      {
+        call: { id: callId, customer: { number: number.replace("+91", "0") } },
+      },
+    );
+    expect(await isBlocked(lead)).toBe(true);
+  });
+
+  // behaviour already on main: main blocks nobody from any call; this pins that a caller no lead has blocks nobody
+  it("a caller whose number no lead of the company has blocks nobody", async () => {
+    const blocks = async () =>
+      (
+        await admin.query(
+          `select count(*)::int n from audit_log where org_id = $1 and action = 'contact.do_not_call'`,
+          [orgId],
+        )
+      ).rows[0]?.n;
+    const before = await blocks();
+    await endOfCall(
+      `call-in-${randomUUID()}`,
+      { doNotCall: true },
+      { customer: { number: phone() } },
+    );
     expect(await blocks()).toBe(before);
   });
 });

@@ -1,7 +1,8 @@
 // A person marks a lead do-not-call in the console, against the real local stack (console, worker API, local
-// Supabase): the dev login signs in, imports a lead of its own through the worker's CSV import, opens Contacts,
-// clicks "Mark do not call", "Cancel" (nothing is blocked), "Mark do not call" again and "Block", and the lead's row shows the "Do not call" badge, still there after a
-// reload, with no button left to block or lift it. That the lead's next message and call are then refused is
+// Supabase): the dev login signs in, imports a lead of its own through the worker's CSV import, opens Contacts, finds
+// it by name, clicks "Mark do not call", "Cancel" (nothing is blocked), "Mark do not call" again and "Block" while the
+// worker's answer is made a refusal (the row says only an operator or admin may block), then "Block" again, and the
+// row shows the "Do not call" badge, found again by number after a reload, with no button left to block or lift it. That the lead's next message and call are then refused is
 // services/worker/test/do-not-call.test.ts. The lead is deleted afterwards, so the dev login's workspace keeps only
 // its seeded rows. Runtime inputs, read inside the test: E2E_ORG_ID (global-setup.ts), SUPABASE_URL,
 // SUPABASE_ANON_KEY, VITE_API_URL and LOCAL_DB_URL (`bun run local`). FILENAME: *.e2e.ts, so `bun test` leaves it.
@@ -66,21 +67,52 @@ test("a person marks a lead do-not-call on the Contacts screen, and the block st
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/o/${orgId}/home$`));
 
+    const find = async (q: string) => {
+      await page.getByLabel("Search leads by name or phone number").fill(q);
+      await page.getByRole("button", { name: "Search", exact: true }).click();
+    };
     await page.goto(`/o/${orgId}/contacts`);
-    const row = page.getByRole("row").filter({ hasText: `${name} Lead` });
+    await find(name);
+    const rows = page.locator("tbody").getByRole("row");
+    await expect(rows).toHaveCount(1);
+    const row = rows.filter({ hasText: `${name} Lead` });
     const mark = row.getByRole("button", { name: "Mark do not call" });
+    const block = row.getByRole("button", { name: "Block", exact: true });
     const asked = row.getByText("Block every call and message?");
+    const badge = row.getByText("Do not call", { exact: true });
     await mark.click();
     await expect(asked).toBeVisible();
     await row.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(asked).toHaveCount(0);
-    await expect(row.getByText("Do not call", { exact: true })).toHaveCount(0);
+    await expect(badge).toHaveCount(0);
+
+    // A save the worker refuses says why, and blocks nothing.
+    const refuse = "**/contacts/*/do-not-call";
+    await page.route(refuse, (r) =>
+      r.request().method() === "POST"
+        ? r.fulfill({
+            status: 403,
+            json: { error: "forbidden" },
+            headers: {
+              "access-control-allow-origin":
+                r.request().headers().origin ?? "*",
+            },
+          })
+        : r.continue(),
+    );
     await mark.click();
-    await row.getByRole("button", { name: "Block", exact: true }).click();
-    await expect(row.getByText("Do not call", { exact: true })).toBeVisible();
+    await block.click();
+    await expect(row.getByRole("alert")).toHaveText(
+      "Only an operator or admin can block a lead.",
+    );
+    await page.unroute(refuse);
+    await block.click();
+    await expect(badge).toBeVisible();
 
     await page.reload();
-    await expect(row.getByText("Do not call", { exact: true })).toBeVisible();
+    await find(phone.slice(-6));
+    await expect(rows).toHaveCount(1);
+    await expect(badge).toBeVisible();
     await expect(row.getByRole("button")).toHaveCount(0);
   } finally {
     await db.query(

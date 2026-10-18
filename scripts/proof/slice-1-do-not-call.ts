@@ -16,6 +16,7 @@ const TESTS = [
   "an operator marks a lead do-not-call, and that lead's next WhatsApp message and call are refused in every sequence",
   "a lead the list marks do-not-call is blocked, whether new or already the company's, and their next send is refused",
   "the AI's reading that the lead asked not to be contacted blocks the call's lead, and their next send is refused",
+  "a known lead who calls in is blocked by the number they call from, and their next send is refused",
   "a reading may never lift a block or grant consent, whatever it says",
 ];
 

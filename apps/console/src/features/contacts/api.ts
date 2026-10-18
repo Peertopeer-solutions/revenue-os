@@ -1,4 +1,5 @@
-// The company's leads, as the console reads and changes them: the contacts list (GET /orgs/:orgId/contacts) and a
+// The company's leads, as the console reads and changes them: the contacts list (GET /orgs/:orgId/contacts, searched
+// with ?q=) and a
 // person marking a lead do-not-call (POST /orgs/:orgId/contacts/:contactId/do-not-call). Server state goes through
 // TanStack Query hooks with keys from the queryKeys factory, and each response is Zod-parsed here, so a hook's data
 // type is z.infer of its schema (apps/console/src/features/README.md).
@@ -6,8 +7,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { api } from "../../lib/api";
 
+// A search's key extends the company's, so marking a lead refreshes every list of the company's leads.
 export const queryKeys = {
-  contacts: (orgId: string) => ["contacts", orgId] as const,
+  contacts: (orgId: string, search = "") =>
+    search
+      ? (["contacts", orgId, search] as const)
+      : (["contacts", orgId] as const),
 };
 
 const ContactsResponse = z.object({
@@ -29,10 +34,12 @@ const ContactsResponse = z.object({
 });
 export type ContactsResponse = z.infer<typeof ContactsResponse>;
 
-export function useContactsQuery(orgId: string) {
+/** The company's leads: the latest 100, or those matching `search` (a name, or digits of a number). */
+export function useContactsQuery(orgId: string, search = "") {
+  const query = search ? `?q=${encodeURIComponent(search)}` : "";
   return useQuery({
-    queryKey: queryKeys.contacts(orgId),
-    queryFn: () => api(`/orgs/${orgId}/contacts`, ContactsResponse),
+    queryKey: queryKeys.contacts(orgId, search),
+    queryFn: () => api(`/orgs/${orgId}/contacts${query}`, ContactsResponse),
   });
 }
 

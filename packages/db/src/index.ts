@@ -13,6 +13,7 @@ export {
   type ContactRow,
   type ImportSummary,
   importContacts,
+  leadsWithNumber,
   listContacts,
 } from "./contacts";
 export {

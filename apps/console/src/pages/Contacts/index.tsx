@@ -1,8 +1,9 @@
 // Contacts — the /o/:orgId/contacts route surface, composed from ui/ primitives. Data via useContactsQuery
 // (features/contacts/api.ts); loading / error / empty handled where the data lands. Names deep-link to the contact's
 // latest conversation through the shared <ConversationLink> (features/conversations — null renders plain text, no
-// anchor); all cells render inert text nodes only (docs/security.md S7.1). A person marks a lead do-not-call here,
-// after a second click to confirm, since nothing in the console lifts a block: only the lead's own written YES does.
+// anchor); all cells render inert text nodes only (docs/security.md S7.1). A person finds any lead by name or number
+// and marks them do-not-call here, after a second click to confirm, since nothing in the console lifts a block: only
+// the lead's own written YES does.
 import { useState } from "react";
 import { useParams } from "wouter";
 import {
@@ -10,6 +11,10 @@ import {
   useContactsQuery,
   useMarkDoNotCall,
 } from "../../features/contacts/api";
+import {
+  DoNotCallCell,
+  saveFailure,
+} from "../../features/contacts/DoNotCallCell";
 import { ConversationLink } from "../../features/conversations/ConversationLink";
 import { PageHeader } from "../../ui/layout";
 import {
@@ -17,6 +22,7 @@ import {
   Button,
   Card,
   DataShell,
+  Input,
   Row,
   Table,
   TD,
@@ -32,59 +38,57 @@ function contactName(contact: ContactRow): string {
   );
 }
 
-/** A blocked lead's badge, or the button that blocks them, then asks to confirm. */
+/** One lead's do-not-call cell: its save, and whether the person is confirming it. */
 function DoNotCall({ orgId, contact }: { orgId: string; contact: ContactRow }) {
   const mark = useMarkDoNotCall(orgId);
   const [confirming, setConfirming] = useState(false);
-  if (contact.do_not_call) return <Badge tone="danger">Do not call</Badge>;
-  if (!confirming)
-    return (
-      <Button
-        variant="ghost"
-        size="sm"
-        // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
-        onClick={() => setConfirming(true)}
-      >
-        Mark do not call
-      </Button>
-    );
   return (
-    <span className="flex flex-wrap items-center gap-2">
-      <span className="text-sm text-ink-soft">
-        Block every call and message?
-      </span>
-      <Button
-        variant="secondary"
-        size="sm"
-        disabled={mark.isPending}
-        // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
-        onClick={() => mark.mutate(contact.id)}
-      >
-        Block
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
-        onClick={() => setConfirming(false)}
-      >
-        Cancel
-      </Button>
-      {mark.isError ? (
-        <span role="alert" className="text-sm text-danger">
-          Not saved. Try again.
-        </span>
-      ) : null}
-    </span>
+    <DoNotCallCell
+      blocked={contact.do_not_call}
+      confirming={confirming}
+      saving={mark.isPending}
+      failed={mark.isError ? saveFailure(mark.error) : null}
+      // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
+      onMark={() => setConfirming(true)}
+      // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
+      onConfirm={() => mark.mutate(contact.id)}
+      // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
+      onCancel={() => setConfirming(false)}
+    />
   );
 }
 
 export function ContactsPage() {
   const { orgId } = useParams<{ orgId: string }>();
-  const { data, isLoading, isError } = useContactsQuery(orgId);
+  const [search, setSearch] = useState("");
+  const { data, isLoading, isError } = useContactsQuery(orgId, search);
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <PageHeader title="Contacts" />
+      <PageHeader
+        title="Contacts"
+        actions={
+          <form
+            role="search"
+            className="flex items-center gap-2"
+            // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
+            onSubmit={(e) => {
+              e.preventDefault(); // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
+              setSearch(String(new FormData(e.currentTarget).get("q")).trim()); // coverage: browser-only (apps/console/e2e/do-not-call.e2e.ts)
+            }}
+          >
+            <Input
+              name="q"
+              maxLength={100}
+              aria-label="Search leads by name or phone number"
+              placeholder="Name or phone number"
+              className="w-64"
+            />
+            <Button type="submit" variant="secondary" size="sm">
+              Search
+            </Button>
+          </form>
+        }
+      />
       <DataShell
         isLoading={isLoading}
         isError={isError || !data}
