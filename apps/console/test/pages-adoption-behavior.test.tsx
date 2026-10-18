@@ -313,6 +313,7 @@ describe("task-33 tone flip: Conversations + Contacts name cells adopt tone=ink 
     return cls.split(/\s+/).filter(Boolean);
   };
 
+  // behaviour already on main: only its stale "RED today" comment changed (docs/fix-when-touched.md entry 3)
   it("Conversations name cell carries text-ink and NOT text-ink-soft", () => {
     convState = {
       data: {
@@ -336,6 +337,7 @@ describe("task-33 tone flip: Conversations + Contacts name cells adopt tone=ink 
     expect(tokens).not.toContain("text-ink-soft"); // never the soft default beside it
   });
 
+  // behaviour already on main: only its stale "RED today" comment changed (docs/fix-when-touched.md entry 3)
   it("Contacts name cell carries text-ink and NOT text-ink-soft", () => {
     contactsState = {
       data: { contacts: [CONTACT_ROW] },
