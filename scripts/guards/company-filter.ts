@@ -22,7 +22,8 @@
 //
 // It also holds three tables to one writer each (ONE_WRITER): an insert into tasks, audit_log or org_members fails
 // anywhere but the file that owns the table in packages/db (createTask; audit; the audited member grant), so every task
-// is for a lead and every audit row and access grant is written one way.
+// is for a lead and every audit row and access grant is written one way. A write's target is always the real table,
+// whatever a common table expression is named, and a merge statement fails anywhere in the SQL.
 //
 // Known limits: it proves the SQL names a company parameter, not that $n holds the request's company (the tests that
 // run with the database's rules off cover that); SQL in database functions is not read; a `query` reached by

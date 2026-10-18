@@ -1,0 +1,1 @@
+- 2026-10-18 · [#190](https://github.com/Peertopeer-solutions/revenue-os/pull/190) · packages/harness/package.json: @revenue-os/db moves from the engine's development dependencies to its dependencies, because the turn loop now calls the database package's audit and createTask when it runs; no check changes · neutral
