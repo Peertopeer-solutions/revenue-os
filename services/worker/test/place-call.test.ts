@@ -17,6 +17,7 @@ import {
   handlePlaceCall,
   type PlaceCallDeps,
 } from "../src/handlers/place-call";
+import { flakyPool } from "./fixtures/flaky-pool";
 
 // admin = superuser (BYPASSRLS): seeds + assertions. appPool = app_service (RLS-bound): the
 // role the handlers connect as through withOrg — exactly what production runs.
@@ -371,5 +372,190 @@ describe("place_call handler", () => {
     const run = await getRun(runA);
     expect(run.status).toBe("waiting"); // untouched
     expect(run.state.lastDisposition ?? null).toBeNull(); // no fold
+  });
+});
+
+/** The call a run's job saved before dialling (services/worker/src/sends.ts), as the database holds it. */
+async function sendOf(runId: string) {
+  const r = await admin.query(
+    `select status, provider_ref, reason, payload from sends where workflow_run_id = $1`,
+    [runId],
+  );
+  return r.rows;
+}
+
+/** The review tasks handed to a person for a run, with the lead they are on. */
+async function reviewTasks(runId: string) {
+  const r = await admin.query(
+    `select contact_id, title, payload from tasks where workflow_run_id = $1 and kind = 'review'`,
+    [runId],
+  );
+  return r.rows;
+}
+
+describe("place_call never dials the same call twice", () => {
+  const job = (runId: string) => ({
+    orgId,
+    runId,
+    sendId: randomUUID(),
+    action: { kind: "place_call" as const, contactId, agentKey: "closer" },
+  });
+
+  it("the dialer takes the call but its answer is lost: the job never dials again, a person is handed the lead, the run is parked", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+    let dialled = 0;
+    const deps: PlaceCallDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        place: async () => {
+          dialled += 1; // the dialer placed the call …
+          throw new Error("dialer timed out"); // … and its answer never arrived
+        },
+      },
+      provider: fakeLlm([{ text: "x", usage: { in: 1, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => "completed",
+    };
+    const once = job(runId);
+
+    await handlePlaceCall(deps, once);
+    await handlePlaceCall(deps, once); // the same job delivered again
+
+    expect(dialled).toBe(1);
+    expect(await countConversations(runId)).toBe(0);
+    const [send] = await sendOf(runId);
+    expect(send).toMatchObject({ status: "unknown", provider_ref: null });
+    expect(send.reason).toContain("dialer timed out");
+    expect(send.payload).toEqual({ to: "+919876500000" }); // what was about to be dialled, saved first
+    const tasks = await reviewTasks(runId);
+    expect(tasks).toHaveLength(1); // handed over once, not once per delivery
+    expect(tasks[0]).toMatchObject({
+      contact_id: contactId,
+      title: "Check whether this call went out before calling again",
+    });
+    expect(tasks[0].payload.reason).toContain("dialer timed out");
+    const run = await getRun(runId);
+    expect(run.status).toBe("failed"); // parked for the person: a call whose result is unknown can't route
+    expect(run.last_error).toContain("dialer timed out");
+  });
+
+  it("the database goes away right after the dialer took the call: the job fails, and its next run hands the lead over without dialling again", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+    const db = flakyPool();
+    let dialled = 0;
+    const deps: PlaceCallDeps = {
+      pool: db.pool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        place: async () => {
+          dialled += 1;
+          db.trip(); // the next connection, the one that saves the dialer's answer, fails
+          return { providerRef: `vapi-lost-${REF}` };
+        },
+      },
+      provider: fakeLlm([{ text: "x", usage: { in: 1, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => "completed",
+    };
+    const once = job(runId);
+
+    try {
+      await expect(handlePlaceCall(deps, once)).rejects.toThrow(
+        "the database went away",
+      );
+      expect((await sendOf(runId))[0]?.status).toBe("sending"); // saved before dialling, answer not saved
+      await handlePlaceCall(deps, once); // the job's next run (pg-boss retries a failed job)
+    } finally {
+      await db.pool.end();
+    }
+
+    expect(dialled).toBe(1);
+    expect(await countConversations(runId)).toBe(0);
+    expect((await sendOf(runId))[0]?.status).toBe("unknown");
+    const tasks = await reviewTasks(runId);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].payload.reason).toContain(
+      "saved the call but not the dialer's answer",
+    );
+    expect((await getRun(runId)).status).toBe("failed");
+  });
+
+  it("the call's outcome fails after its answer was saved: the job's next run folds that same call, dialling nothing", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+    let dialled = 0;
+    let outcomes = 0;
+    const deps: PlaceCallDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        place: async () => {
+          dialled += 1;
+          return { providerRef: `vapi-fold-${REF}` };
+        },
+      },
+      provider: fakeLlm([{ text: "Hello", usage: { in: 2, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => {
+        outcomes += 1;
+        if (outcomes === 1) throw new Error("outcome not ready");
+        return "no_answer";
+      },
+    };
+    const once = job(runId);
+
+    await expect(handlePlaceCall(deps, once)).rejects.toThrow(
+      "outcome not ready",
+    );
+    await handlePlaceCall(deps, once); // the job's next run
+
+    expect(dialled).toBe(1);
+    expect((await sendOf(runId))[0]).toMatchObject({
+      status: "sent",
+      provider_ref: `vapi-fold-${REF}`,
+    });
+    const convo = await getConversation(runId);
+    expect(convo.provider_ref).toBe(`vapi-fold-${REF}`); // one conversation, the call that was placed
+    expect(await countConversations(runId)).toBe(1);
+    const run = await getRun(runId);
+    expect(run.state.lastDisposition).toBe("no_answer");
+    expect(run.status).toBe("waiting");
+    expect(await reviewTasks(runId)).toHaveLength(0); // nothing for a person: the call's answer was saved
+  });
+
+  it("a call the guardrails refuse is saved as blocked with the reason, and its job delivered again dials nothing", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+    let dialled = 0;
+    const deps: PlaceCallDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: false, reason: "quiet_hours" }) as const,
+      sender: {
+        place: async () => {
+          dialled += 1;
+          return { providerRef: `nope-${REF}` };
+        },
+      },
+      provider: fakeLlm([{ text: "x", usage: { in: 1, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => "completed",
+    };
+    const once = job(runId);
+
+    await handlePlaceCall(deps, once);
+    await handlePlaceCall(deps, once);
+
+    expect(dialled).toBe(0);
+    expect(await sendOf(runId)).toEqual([
+      expect.objectContaining({ status: "blocked", reason: "quiet_hours" }),
+    ]);
+    expect(await reviewTasks(runId)).toHaveLength(0);
   });
 });

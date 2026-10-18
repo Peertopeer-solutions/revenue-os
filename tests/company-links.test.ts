@@ -90,6 +90,15 @@ async function oneOfEach(org_id: string): Promise<Rows> {
       contact_id: r.contacts,
     }),
   );
+  r.sends = await add(
+    "sends",
+    on({
+      send_key: `place_call:${randomUUID()}`,
+      channel: "voice",
+      contact_id: r.contacts,
+      workflow_run_id: r.workflow_runs,
+    }),
+  );
   r.conversations = await add(
     "conversations",
     on({

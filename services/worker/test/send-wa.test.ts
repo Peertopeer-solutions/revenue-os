@@ -8,6 +8,7 @@ import { createPool } from "@revenue-os/db";
 import pg from "pg";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleSendWa, type SendWaDeps } from "../src/handlers/send-wa";
+import { flakyPool } from "./fixtures/flaky-pool";
 
 // admin = superuser (BYPASSRLS): seeds + assertions. appPool = app_service (RLS-bound): the
 // role the handlers connect as through withOrg — exactly what production runs.
@@ -216,5 +217,183 @@ describe("send_wa handler", () => {
 
     expect(log).toContain("guard");
     expect(log).not.toContain("send"); // no send on a blocking verdict
+  });
+});
+
+/** The message a run's job saved before sending (services/worker/src/sends.ts), as the database holds it. */
+async function sendOf(runId: string) {
+  const r = await admin.query(
+    `select status, provider_ref, reason, payload from sends where workflow_run_id = $1`,
+    [runId],
+  );
+  return r.rows;
+}
+
+/** What a run's sends left behind: its review tasks, its WhatsApp conversations and the run's own status. */
+async function leftBehind(runId: string) {
+  const tasks = await admin.query(
+    `select contact_id, title, payload from tasks where workflow_run_id = $1 and kind = 'review'`,
+    [runId],
+  );
+  const convos = await admin.query(
+    `select count(*)::int n from conversations where workflow_run_id = $1 and channel = 'whatsapp'`,
+    [runId],
+  );
+  const run = await admin.query(
+    `select status from workflow_runs where id = $1`,
+    [runId],
+  );
+  return {
+    tasks: tasks.rows,
+    conversations: convos.rows[0].n,
+    status: run.rows[0].status,
+  };
+}
+
+describe("send_wa never sends the same message twice", () => {
+  const job = (runId: string) => ({
+    orgId,
+    runId,
+    sendId: randomUUID(),
+    step: "w",
+    idx: 0,
+    action: {
+      kind: "send_wa" as const,
+      contactId,
+      template: "welcome",
+      vars: {},
+    },
+  });
+  const seed = async () =>
+    seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "end",
+      state: { contactId, vars: { name: "Asha" } },
+    });
+
+  it("the provider takes the message but its answer is lost: the job never sends again and a person is handed the lead; the sequence goes on", async () => {
+    const runId = await seed();
+    let sent = 0;
+    const deps: SendWaDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        send: async () => {
+          sent += 1; // Meta took the message …
+          throw new Error("socket hang up"); // … and its answer never arrived
+        },
+      },
+    };
+    const once = job(runId);
+
+    await handleSendWa(deps, once);
+    await handleSendWa(deps, once); // the same job delivered again
+
+    expect(sent).toBe(1);
+    const [send] = await sendOf(runId);
+    expect(send).toMatchObject({ status: "unknown", provider_ref: null });
+    expect(send.reason).toContain("socket hang up");
+    expect(send.payload).toEqual({
+      to: "+919876500000",
+      template: "welcome",
+      vars: { name: "Asha" },
+    }); // what was about to be sent, saved first
+    const after = await leftBehind(runId);
+    expect(after.tasks).toHaveLength(1);
+    expect(after.tasks[0]).toMatchObject({
+      contact_id: contactId,
+      title:
+        "Check whether this WhatsApp message went out before sending again",
+    });
+    expect(after.conversations).toBe(0);
+    expect(after.status).toBe("waiting"); // a message's sequence doesn't wait on it, so it isn't parked
+  });
+
+  it("the database goes away right after the provider took the message: the job fails, and its next run hands the lead over without sending again", async () => {
+    const runId = await seed();
+    const db = flakyPool();
+    let sent = 0;
+    const deps: SendWaDeps = {
+      pool: db.pool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        send: async () => {
+          sent += 1;
+          db.trip(); // the next connection, the one that saves the provider's answer, fails
+          return { providerRef: `wamid.lost-${REF}` };
+        },
+      },
+    };
+    const once = job(runId);
+
+    try {
+      await expect(handleSendWa(deps, once)).rejects.toThrow(
+        "the database went away",
+      );
+      expect((await sendOf(runId))[0]?.status).toBe("sending");
+      await handleSendWa(deps, once); // the job's next run (pg-boss retries a failed job)
+    } finally {
+      await db.pool.end();
+    }
+
+    expect(sent).toBe(1);
+    expect((await sendOf(runId))[0]?.status).toBe("unknown");
+    const after = await leftBehind(runId);
+    expect(after.tasks).toHaveLength(1);
+    expect(after.tasks[0].payload.reason).toContain(
+      "saved the message but not the provider's answer",
+    );
+    expect(after.conversations).toBe(0);
+  });
+
+  it("a sent message is saved as sent with the provider's id, and its job delivered again sends nothing more", async () => {
+    const runId = await seed();
+    let sent = 0;
+    const deps: SendWaDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        send: async () => {
+          sent += 1;
+          return { providerRef: `wamid.ok-${REF}` };
+        },
+      },
+    };
+    const once = job(runId);
+
+    await handleSendWa(deps, once);
+    await handleSendWa(deps, once);
+
+    expect(sent).toBe(1);
+    expect(await sendOf(runId)).toEqual([
+      expect.objectContaining({
+        status: "sent",
+        provider_ref: `wamid.ok-${REF}`,
+      }),
+    ]);
+    const after = await leftBehind(runId);
+    expect(after.conversations).toBe(1);
+    expect(after.tasks).toHaveLength(0);
+  });
+
+  it("a message the guardrails refuse is saved as blocked with the reason, and nothing is sent", async () => {
+    const runId = await seed();
+    let sent = 0;
+    const deps: SendWaDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: false, reason: "dnc" }) as const,
+      sender: {
+        send: async () => {
+          sent += 1;
+          return { providerRef: `nope-${REF}` };
+        },
+      },
+    };
+
+    await handleSendWa(deps, job(runId));
+
+    expect(sent).toBe(0);
+    expect(await sendOf(runId)).toEqual([
+      expect.objectContaining({ status: "blocked", reason: "dnc" }),
+    ]);
   });
 });

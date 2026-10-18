@@ -454,3 +454,63 @@ describe("scheduler tick + run writer", () => {
     expect(run.attempts.voice.length).toBe(1); // one place_call attempt, for call_2
   });
 });
+
+// What pg-boss reads from a queued job when it runs, retries or fails it: the settings a job takes from its queue.
+const JOB_SETTINGS = `policy, retry_limit, retry_delay, retry_backoff, retry_delay_max, expire_seconds,
+  deletion_seconds, extract(epoch from keep_until - created_on)::int as kept_seconds, dead_letter, heartbeat_seconds`;
+
+describe("every job the scheduler queues keeps its queue's retry and failure settings", () => {
+  it("a scheduled call job has exactly the settings pg-boss's own send gives a job on its queue, the worker's dead letter included", async () => {
+    // The dead letter the worker gives place_call (services/worker/src/jobs.ts), so a call job that keeps failing
+    // reaches a person through call.post.
+    await boss.createQueue("call.post");
+    await boss.updateQueue("place_call", { deadLetter: "call.post" });
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+      state: { contactId },
+    });
+
+    await tick(appPool, orgId, { now: new Date() });
+    const reference = await boss.send(
+      "place_call",
+      { orgId, runId },
+      { singletonKey: `reference:${runId}` },
+    );
+
+    const scheduled = await appPool.query(
+      `select ${JOB_SETTINGS} from pgboss.job where singleton_key = $1`,
+      [`${runId}:c:0`],
+    );
+    const sent = await appPool.query(
+      `select ${JOB_SETTINGS} from pgboss.job where id = $1`,
+      [reference],
+    );
+    expect(scheduled.rows).toHaveLength(1);
+    expect(scheduled.rows).toEqual(sent.rows);
+    expect(scheduled.rows[0].dead_letter).toBe("call.post");
+  });
+
+  it("each queued job carries a send id of its own, which a later visit to the same step does not share", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+      state: { contactId },
+    });
+
+    await tick(appPool, orgId, { now: new Date() });
+    const [first] = await jobsFor(`${runId}:c:0`);
+    // the job ran and the call's outcome routed the run back onto the same call step: the next tick queues again
+    await appPool.query(`delete from pgboss.job where singleton_key = $1`, [
+      `${runId}:c:0`,
+    ]);
+    await admin.query(
+      `update workflow_runs set status = 'waiting', wake_at = now() - interval '1 minute' where id = $1`,
+      [runId],
+    );
+    await tick(appPool, orgId, { now: new Date() });
+    const [again] = await jobsFor(`${runId}:c:0`);
+
+    expect(first.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(again.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(again.data.sendId).not.toBe(first.data.sendId);
+  });
+});
