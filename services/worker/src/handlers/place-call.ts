@@ -2,10 +2,10 @@
 // after it failed), but it dials at most once, and no database transaction is open while the dialer answers. Every
 // query also filters by the job's company (the run's sequence and the call's agent may be shared templates).
 //   1. In one short transaction: reload the run FOR UPDATE and NO-OP if stale (it no longer waits for this job's
-//      call: an outcome is folded, status != 'waiting', current_step is no longer a call step, or the run waits for a
-//      newer call job's call), load the active agent and the lead's number, and look up this job's saved call. A call
-//      saved before means this job ran before: never dial again — go on from its saved answer, or hand the lead to a
-//      person when none was saved.
+//      call: an outcome is folded, status != 'waiting', current_step is no longer a call step, or the run is not the
+//      one this job's call was queued for), look up this job's saved call, and load the active agent and the lead's
+//      number. A call saved before means this job ran before: never dial again — go on from its saved answer, or hand
+//      the lead to a person when none was saved.
 //   2. Send the call at most once (src/sends.ts sendOnce): guard() BEFORE the dial, through the channels voice
 //      doorway (voice.place), the call saved with the guard's verdict; the dial with no transaction open; its answer
 //      saved. A blocking verdict => no dial. A dial that throws may still have placed the call, so the lead is handed
@@ -96,15 +96,6 @@ export async function handlePlaceCall(
   // 1. reload (the stale checks NO-OP before the guard) and look up this job's saved call.
   const claim = await withOrg(deps.pool, orgId, async (tx) => {
     if (!(await waitingForCall(tx, job))) return;
-    const agent = (
-      await tx.query(
-        `select id, system_prompt, tools_allowed from agents
-          where key = $1 and status = 'active' and (org_id = $2 or org_id is null)
-          order by version desc limit 1`,
-        [action.agentKey, orgId],
-      )
-    ).rows[0] as Agent | undefined;
-    if (!agent) return; // no active agent to place the call
     const to = await resolveTo(tx, orgId, action.contactId);
     const send: Send = {
       key: sendKey("place_call", job),
@@ -113,20 +104,28 @@ export async function handlePlaceCall(
       runId,
       payload: { to },
     };
-    return { agent, to, send, earlier: await findSend(tx, orgId, send.key) };
+    const earlier = await findSend(tx, orgId, send.key);
+    // dialled before with no answer saved: hand over (once), whatever has happened to the agent since
+    if (earlier?.status === "sending")
+      return {
+        handedOver: await handOver(tx, orgId, send, new Error(UNANSWERED)),
+      };
+    const agent = (
+      await tx.query(
+        `select id, system_prompt, tools_allowed from agents
+          where key = $1 and status = 'active' and (org_id = $2 or org_id is null)
+          order by version desc limit 1`,
+        [action.agentKey, orgId],
+      )
+    ).rows[0] as Agent | undefined;
+    if (!agent) return; // no active agent to place the call, or to drive its turn
+    return { agent, to, send, earlier };
   });
-  if (!claim) return;
+  if (!claim || "handedOver" in claim) return;
   const { agent, to, send, earlier } = claim;
   if (earlier?.status === "sent" && earlier.providerRef)
     return fold(deps, job, agent, earlier.providerRef); // dialled before; its outcome is still to fold
-  if (earlier) {
-    // dialled before with no answer saved: hand over (once); blocked or already handed over: nothing to do
-    if (earlier.status === "sending")
-      await withOrg(deps.pool, orgId, (tx) =>
-        handOver(tx, orgId, send, new Error(UNANSWERED)),
-      );
-    return;
-  }
+  if (earlier) return; // blocked, or already handed over: nothing to do
 
   // 2. guard BEFORE the dial; the call is saved with the guard's verdict, then dialled with no transaction open.
   const placed = await sendOnce(deps.pool, orgId, send, deps.guard, (guard) =>
@@ -202,13 +201,14 @@ async function fold(
 }
 
 /**
- * The run, locked, while it still waits for this job's call: status waiting, no outcome folded, on a call step, and
- * not waiting for a newer call job's call (a late run of an older job must not fold that call's outcome into it). Its
- * state, or nothing.
+ * The run, locked, while it still waits for this job's call: status waiting, no outcome folded, on a call step, and,
+ * for a job the scheduler queued, on the step it was queued for, with the run's state naming its send id (the
+ * scheduler writes it as it parks the run, src/scheduler.ts). So a late run of an older call job never folds its old
+ * outcome into a later wait, a later call or the same step visited again. Its state, or nothing.
  */
 async function waitingForCall(
   tx: PoolClient,
-  { orgId, runId, sendId }: PlaceCallJob,
+  { orgId, runId, sendId, step }: PlaceCallJob,
 ): Promise<RunState | undefined> {
   const run = (
     await tx.query(
@@ -219,7 +219,8 @@ async function waitingForCall(
   ).rows[0];
   const state = (run?.state ?? {}) as RunState;
   if (run?.status !== "waiting" || state.lastDisposition != null) return; // RLS-hidden (cross-tenant) or gone, already advanced, or the outcome is folded (re-delivery)
-  if (sendId && state.callSendId && state.callSendId !== sendId) return; // the run waits for another job's call
+  if (sendId && state.callSendId !== sendId) return; // the run waits for another call job's call, or none
+  if (step !== undefined && step !== run.current_step) return; // the run has moved on to another step
   const def = (
     await tx.query(
       `select definition from workflows where id = $1 and (org_id = $2 or org_id is null)`,

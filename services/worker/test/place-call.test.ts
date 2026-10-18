@@ -1,3 +1,6 @@
+// biome-ignore-all lint/suspicious/noThenProperty: `then` is a workflow step field (data, not a thenable) in the
+// workflow definition JSON, e.g. { kind:"wait", for:"P1D", then:"c2" } — the same suppression scheduler.test.ts
+// carries. The interpreter reads step.then.
 // The place_call job handler against the real local database (workflow_runs, conversations, messages, usage_events
 // and row-level security through withOrg), so it runs with the local stack's settings (`bun run gate`, CI). The
 // handler is invoked DIRECTLY with a job payload (no pg-boss here). Correctness-critical and idempotency-critical:
@@ -394,17 +397,26 @@ async function reviewTasks(runId: string) {
 }
 
 describe("place_call never dials the same call twice", () => {
-  const job = (runId: string) => ({
-    orgId,
-    runId,
-    sendId: randomUUID(),
-    action: { kind: "place_call" as const, contactId, agentKey: "closer" },
-  });
-
-  it("the dialer takes the call but its answer is lost: the job never dials again, a person is handed the lead, the run is parked", async () => {
+  /** A call job as the scheduler queues it, and its run parked on the call step naming that job's send id. */
+  async function callRun() {
+    const sendId = randomUUID();
     const runId = await seedRun(await seedWorkflow(CALL_WF), {
       currentStep: "c",
+      state: { contactId, callSendId: sendId },
     });
+    const once = {
+      orgId,
+      runId,
+      sendId,
+      step: "c",
+      idx: 0,
+      action: { kind: "place_call" as const, contactId, agentKey: "closer" },
+    };
+    return { runId, once };
+  }
+
+  it("the dialer takes the call but its answer is lost: the job never dials again, a person is handed the lead, the run is parked", async () => {
+    const { runId, once } = await callRun();
     let dialled = 0;
     const deps: PlaceCallDeps = {
       pool: appPool,
@@ -419,7 +431,6 @@ describe("place_call never dials the same call twice", () => {
       registry: new ToolRegistry(),
       outcome: async () => "completed",
     };
-    const once = job(runId);
 
     await handlePlaceCall(deps, once);
     await handlePlaceCall(deps, once); // the same job delivered again
@@ -443,9 +454,7 @@ describe("place_call never dials the same call twice", () => {
   });
 
   it("the database goes away right after the dialer took the call: the job fails, and its next run hands the lead over without dialling again", async () => {
-    const runId = await seedRun(await seedWorkflow(CALL_WF), {
-      currentStep: "c",
-    });
+    const { runId, once } = await callRun();
     const db = flakyPool();
     let dialled = 0;
     let checks = 0;
@@ -466,7 +475,6 @@ describe("place_call never dials the same call twice", () => {
       registry: new ToolRegistry(),
       outcome: async () => "completed",
     };
-    const once = job(runId);
 
     try {
       await expect(handlePlaceCall(deps, once)).rejects.toThrow(
@@ -491,9 +499,7 @@ describe("place_call never dials the same call twice", () => {
   });
 
   it("the call's outcome fails after its answer was saved: the job's next run folds that same call, dialling nothing", async () => {
-    const runId = await seedRun(await seedWorkflow(CALL_WF), {
-      currentStep: "c",
-    });
+    const { runId, once } = await callRun();
     let dialled = 0;
     let outcomes = 0;
     const prompts: string[] = [];
@@ -519,7 +525,6 @@ describe("place_call never dials the same call twice", () => {
         return "no_answer";
       },
     };
-    const once = job(runId);
 
     await expect(handlePlaceCall(deps, once)).rejects.toThrow(
       "outcome not ready",
@@ -544,9 +549,7 @@ describe("place_call never dials the same call twice", () => {
   });
 
   it("a guardrail check that fails before the dial saves and dials nothing, so the job's next run dials once", async () => {
-    const runId = await seedRun(await seedWorkflow(CALL_WF), {
-      currentStep: "c",
-    });
+    const { runId, once } = await callRun();
     let dialled = 0;
     let checks = 0;
     const deps: PlaceCallDeps = {
@@ -566,7 +569,6 @@ describe("place_call never dials the same call twice", () => {
       registry: new ToolRegistry(),
       outcome: async () => "completed",
     };
-    const once = job(runId);
 
     await expect(handlePlaceCall(deps, once)).rejects.toThrow(
       "guardrails unreachable",
@@ -581,10 +583,32 @@ describe("place_call never dials the same call twice", () => {
     expect(await reviewTasks(runId)).toHaveLength(0);
   });
 
-  it("a late run of an older call job does nothing while the run waits for a newer call job's call", async () => {
-    const runId = await seedRun(await seedWorkflow(CALL_WF), {
-      currentStep: "c",
-      state: { contactId, callSendId: randomUUID() }, // the scheduler parked the run on a newer call
+  it("a late run of an older call job does nothing, whether its run now waits for a newer call job or on a timer before the next call", async () => {
+    // c1 → (no answer) → wait a day → c2, as the scheduler parks it
+    const twoCalls = {
+      entry: "c1",
+      steps: {
+        c1: {
+          kind: "call",
+          agent: "closer",
+          on: { no_answer: "w", completed: "end" },
+        },
+        w: { kind: "wait", for: "P1D", then: "c2" },
+        c2: {
+          kind: "call",
+          agent: "closer",
+          on: { completed: "end", no_answer: "end" },
+        },
+        end: { kind: "end" },
+      },
+    };
+    const onNewerCall = await seedRun(await seedWorkflow(twoCalls), {
+      currentStep: "c2",
+      state: { contactId, callSendId: randomUUID() }, // the scheduler queued c2's call
+    });
+    const onTimer = await seedRun(await seedWorkflow(twoCalls), {
+      currentStep: "c2", // a wait parks the run on its next step, and names no call job
+      wakeAt: new Date(Date.now() + 86_400_000),
     });
     let dialled = 0;
     const deps: PlaceCallDeps = {
@@ -600,20 +624,32 @@ describe("place_call never dials the same call twice", () => {
       registry: new ToolRegistry(),
       outcome: async () => "completed",
     };
+    const olderJob = (runId: string) => ({
+      orgId,
+      runId,
+      sendId: randomUUID(),
+      step: "c1",
+      idx: 0,
+      action: { kind: "place_call" as const, contactId, agentKey: "closer" },
+    });
 
-    await handlePlaceCall(deps, job(runId)); // an older job, with a send id of its own
+    await handlePlaceCall(deps, olderJob(onNewerCall)); // c1's job, run again after c1's outcome was folded
+    await handlePlaceCall(deps, olderJob(onTimer));
 
     expect(dialled).toBe(0);
-    expect(await sendOf(runId)).toEqual([]);
-    const run = await getRun(runId);
-    expect(run.status).toBe("waiting");
-    expect(run.state.lastDisposition ?? null).toBeNull();
+    for (const runId of [onNewerCall, onTimer]) {
+      expect(await sendOf(runId)).toEqual([]);
+      const run = await getRun(runId);
+      expect(run.status).toBe("waiting");
+      expect(run.state.lastDisposition ?? null).toBeNull();
+    }
+    expect(new Date((await getRun(onTimer)).wake_at).getTime()).toBeGreaterThan(
+      Date.now(),
+    ); // its wait still runs
   });
 
   it("the same call job delivered twice at the same moment dials once", async () => {
-    const runId = await seedRun(await seedWorkflow(CALL_WF), {
-      currentStep: "c",
-    });
+    const { runId, once } = await callRun();
     let dialled = 0;
     let atGuard = 0;
     const deps: PlaceCallDeps = {
@@ -635,7 +671,6 @@ describe("place_call never dials the same call twice", () => {
       registry: new ToolRegistry(),
       outcome: async () => "completed",
     };
-    const once = job(runId);
 
     await Promise.all([
       handlePlaceCall(deps, once),
@@ -652,9 +687,7 @@ describe("place_call never dials the same call twice", () => {
   });
 
   it("a run handed to a person while the dialer was answering is left as the person has it: the call is saved, but no turn runs and no outcome is folded", async () => {
-    const runId = await seedRun(await seedWorkflow(CALL_WF), {
-      currentStep: "c",
-    });
+    const { runId, once } = await callRun();
     const deps: PlaceCallDeps = {
       pool: appPool,
       guard: async () => ({ ok: true }),
@@ -673,7 +706,7 @@ describe("place_call never dials the same call twice", () => {
       outcome: async () => "completed",
     };
 
-    await handlePlaceCall(deps, job(runId));
+    await handlePlaceCall(deps, once);
 
     expect((await sendOf(runId))[0]).toMatchObject({
       status: "sent",
@@ -687,9 +720,7 @@ describe("place_call never dials the same call twice", () => {
   });
 
   it("a call the guardrails refuse is saved as blocked with the reason, and its job delivered again dials nothing", async () => {
-    const runId = await seedRun(await seedWorkflow(CALL_WF), {
-      currentStep: "c",
-    });
+    const { runId, once } = await callRun();
     let dialled = 0;
     const deps: PlaceCallDeps = {
       pool: appPool,
@@ -704,7 +735,6 @@ describe("place_call never dials the same call twice", () => {
       registry: new ToolRegistry(),
       outcome: async () => "completed",
     };
-    const once = job(runId);
 
     await handlePlaceCall(deps, once);
     await handlePlaceCall(deps, once);

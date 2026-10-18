@@ -94,7 +94,9 @@ Rules:
   reaches its queue's dead letter (`services/worker/src/handlers/call-post.ts`), which hands the lead to a person.
 - Every send goes through a doorway in `packages/channels`, which runs `guard()` first and, when it blocks, sends
   nothing and returns the reason.
-- No transaction is open while an outside service answers: each step is its own short `withOrg`.
+- No transaction is open while the dialer or the WhatsApp provider answers: each step is its own short `withOrg`. The
+  call job's outcome fold still runs the AI model inside its transaction, until Slice 1 · "A slow or stuck AI model,
+  dialer or WhatsApp service can't freeze the worker…" moves it out.
 - The handler stays small; the logic lives in `packages/harness`. Each queue is created, with its settings, in
   `services/worker/src/jobs.ts`, and the scheduler queues jobs with those settings (`enqueueJob` in
   `services/worker/src/scheduler.ts`).

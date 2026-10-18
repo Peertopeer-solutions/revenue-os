@@ -100,8 +100,9 @@ afterAll(async () => {
   await admin.end();
 });
 
-/** A lead with a number of their own, and a run of theirs waiting at `step`. */
-async function leadWithRun(step: string) {
+/** A lead with a number of their own, and a run of theirs waiting at `step`: on a call step, parked by the scheduler
+ *  for the call job whose send id `sendId` is. */
+async function leadWithRun(step: string, sendId = randomUUID()) {
   const number = `+9197${String(Math.random()).slice(2, 10)}`;
   const contactId = (
     await admin.query(
@@ -118,15 +119,21 @@ async function leadWithRun(step: string) {
     await admin.query(
       `insert into workflow_runs (org_id, workflow_id, contact_id, status, current_step, state)
        values ($1, $2, $3, 'waiting', $4, $5::jsonb) returning id`,
-      [orgId, workflowId, contactId, step, JSON.stringify({ contactId })],
+      [
+        orgId,
+        workflowId,
+        contactId,
+        step,
+        JSON.stringify({ contactId, callSendId: sendId }),
+      ],
     )
   ).rows[0].id;
-  return { number, contactId, runId };
+  return { number, contactId, runId, sendId };
 }
 
 /** Waits until each job has ended, and says how it ended and how often pg-boss retried it. */
-async function ended(ids: (string | null)[]) {
-  const deadline = Date.now() + 30_000;
+async function ended(ids: (string | null)[], ms = 30_000) {
+  const deadline = Date.now() + ms;
   for (;;) {
     const r = await admin.query<{ state: string; retry_count: number }>(
       `select state, retry_count from ${jobs.settings.schema}.job where id = any($1::uuid[]) order by created_on`,
@@ -167,12 +174,12 @@ const conversations = async (runId: string) =>
 
 describe("the worker's job runner never sends the same call or message twice", () => {
   it("a call job whose dialer took the call and whose save then failed is retried by pg-boss, and dials once: the lead goes to a person", async () => {
-    const { number, contactId, runId } = await leadWithRun("c");
+    const { number, contactId, runId, sendId } = await leadWithRun("c");
     tripOn.add(number);
     const id = await queue.send("place_call", {
       orgId,
       runId,
-      sendId: randomUUID(),
+      sendId,
       step: "c",
       idx: 0,
       action: { kind: "place_call", contactId, agentKey: "closer" },
@@ -188,11 +195,11 @@ describe("the worker's job runner never sends the same call or message twice", (
   }, 40_000);
 
   it("a call job queued twice dials once, and its outcome is folded once", async () => {
-    const { number, contactId, runId } = await leadWithRun("c");
+    const { number, contactId, runId, sendId } = await leadWithRun("c");
     const data = {
       orgId,
       runId,
-      sendId: randomUUID(),
+      sendId,
       step: "c",
       idx: 0,
       action: { kind: "place_call", contactId, agentKey: "closer" },
@@ -269,12 +276,12 @@ describe("the worker's job runner never sends the same call or message twice", (
 
 describe("the worker's job runner hands every failed send to a person, and runs AI turns with the same ports", () => {
   it("a call job that fails every try its queue allows reaches the dead letter, which gives a person a review task", async () => {
-    const { runId } = await leadWithRun("c");
+    const { runId, sendId } = await leadWithRun("c");
     // a lead that doesn't exist: the call can't even be saved, so every try fails before anything is dialled
     const id = await queue.send("place_call", {
       orgId,
       runId,
-      sendId: randomUUID(),
+      sendId,
       step: "c",
       idx: 0,
       action: {
@@ -284,7 +291,7 @@ describe("the worker's job runner hands every failed send to a person, and runs 
       },
     });
 
-    const [job] = await ended([id]);
+    const [job] = await ended([id], 60_000); // its queue's three retries come about 2, 4 and 8 seconds apart
     expect(job?.state).toBe("failed");
     const deadline = Date.now() + 30_000;
     let tasks: { title: string }[] = [];
@@ -299,7 +306,15 @@ describe("the worker's job runner hands every failed send to a person, and runs 
     }
     expect(tasks).toEqual([{ title: "Call failed — needs review" }]);
     expect(await sendsOf(runId)).toEqual([]); // nothing saved, nothing dialled
-  }, 60_000);
+    const run = await admin.query(
+      `select status, last_error from workflow_runs where id = $1`,
+      [runId],
+    );
+    expect(run.rows[0]).toEqual({
+      status: "failed",
+      last_error: "its job failed every try before the send was saved",
+    }); // the call's run can't route without the call: parked for the person
+  }, 120_000);
 
   it("an AI turn job gets its answer from the runner's model", async () => {
     const { contactId, runId } = await leadWithRun("end");

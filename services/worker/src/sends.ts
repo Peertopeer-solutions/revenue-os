@@ -28,8 +28,8 @@ export type SendJob = {
   idx?: number;
 };
 
-/** The key a job's send is saved under. A job without a send id, which only a test builds by hand, is keyed by its
- *  run's step instead (the worker gives every other job pg-boss's own id for it: src/jobs.ts). */
+/** The key a job's send is saved under. A job without a send id (queued before send ids existed, or built by hand
+ *  in a test) is keyed by its run's step and position instead; the dead-letter sink keys it the same way. */
 export const sendKey = (kind: string, job: SendJob) =>
   `${kind}:${job.runId}:${job.sendId ?? `${job.step}:${job.idx}`}`;
 

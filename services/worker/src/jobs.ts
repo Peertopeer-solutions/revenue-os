@@ -35,7 +35,10 @@ import { ACTION_QUEUES, discoverDueOrgs, tick } from "./scheduler";
 import { processVapiEvents } from "./vapi/process";
 
 export const WEBHOOK_PROCESS_VAPI = "webhook.process.vapi";
-const CALL_POST_QUEUE = "call.post"; // place_call's dead-letter SINK (handleCallPost drains it)
+const CALL_POST_QUEUE = "call.post"; // the call and WhatsApp jobs' dead-letter SINK (handleCallPost drains it)
+// A send job and its dead letter retry a few times with a growing delay (about 2, 4 and 8 seconds, and some random
+// part), so a short database outage doesn't use up every try at once; a retry never sends twice (src/sends.ts).
+const RETRIES = { retryLimit: 3, retryDelay: 2, retryBackoff: true };
 const TICK_QUEUE = "scheduler.tick"; // the durable pg-boss schedule that fires the scheduler tick
 // A job payload is a boundary (docs/security.md S5.1): validate the tenancy field before a handler re-scopes on it.
 const JobEnvelope = z.object({ orgId: OrgIdSchema });
@@ -149,33 +152,30 @@ export async function startJobs(
   // exists as it was, so updateQueue gives an existing queue these settings too. A retry runs the handler again,
   // which never sends twice: it finds the send it saved (src/sends.ts).
   await b.createQueue(CALL_POST_QUEUE);
+  await b.updateQueue(CALL_POST_QUEUE, RETRIES);
   for (const q of ACTION_QUEUES) {
     await b.createQueue(q, { policy: "short" });
     if (q !== "run_agent_turn")
-      await b.updateQueue(q, { deadLetter: CALL_POST_QUEUE });
+      await b.updateQueue(q, { ...RETRIES, deadLetter: CALL_POST_QUEUE });
   }
 
   // Shared handler deps. The guard pipeline is the real one (guardrails run before every send). Each work loop
   // parses the payload's org id as a boundary.
   const registry = buildCatalog({ send: UNWIRED_SEND });
 
-  // A send job without the scheduler's send id takes pg-boss's own id for its job, which every retry keeps.
   await b.work<PlaceCallJob>("place_call", async (jobs) => {
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
       await handlePlaceCall(
         { pool: db, guard, sender: voice, provider, registry, outcome },
-        { ...job.data, sendId: job.data.sendId ?? job.id },
+        job.data,
       );
     }
   });
   await b.work<SendWaJob>("send_wa", async (jobs) => {
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
-      await handleSendWa(
-        { pool: db, guard, sender: wa },
-        { ...job.data, sendId: job.data.sendId ?? job.id },
-      );
+      await handleSendWa({ pool: db, guard, sender: wa }, job.data);
     }
   });
   await b.work<AgentTurnJob>("run_agent_turn", async (jobs) => {
@@ -184,8 +184,9 @@ export async function startJobs(
       await handleAgentTurn({ pool: db, provider, registry }, job.data);
     }
   });
-  // The dead-letter SINK tolerates a partial/malformed payload by design (handleCallPost self-guards
-  // and never throws), so it takes the raw job data without the strict envelope parse.
+  // The dead-letter SINK tolerates a partial/malformed payload by design (handleCallPost self-guards: it resolves
+  // on one, and throws only when the database fails it, so its queue retries), so it takes the raw job data
+  // without the strict envelope parse.
   await b.work<CallPostJob>(CALL_POST_QUEUE, async (jobs) => {
     for (const job of jobs) {
       await handleCallPost({ pool: db }, job.data);

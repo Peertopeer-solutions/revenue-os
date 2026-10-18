@@ -7,6 +7,7 @@ import { createPool } from "@revenue-os/db";
 import pg from "pg";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleCallPost } from "../src/handlers/call-post";
+import { flakyPool } from "./fixtures/flaky-pool";
 
 // admin = superuser (BYPASSRLS): seeds + assertions. appPool = app_service (RLS-bound): the
 // role the handlers connect as through withOrg — exactly what production runs.
@@ -215,32 +216,103 @@ describe("call.post hands over a send whose job failed every try before saving t
     expect(run.rows[0].last_error).toContain("failed every try");
   });
 
-  it("a WhatsApp job whose send was saved as sent, or never saved, gets the failure review named for WhatsApp, and its send is left as it is", async () => {
-    const sentRun = await seedRun(await seedWorkflow(CALL_WF), {
+  it("a send saved as sent, whose job then failed every try, gets a task saying it went out, on its lead; a call's run is parked", async () => {
+    const message = await seedRun(await seedWorkflow(CALL_WF), {
       currentStep: "end",
     });
-    const neverRun = await seedRun(await seedWorkflow(CALL_WF), {
-      currentStep: "end",
+    const call = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
     });
 
     await handleCallPost(
       { pool: appPool },
-      await savedSend("send_wa", sentRun, "sent"),
+      await savedSend("send_wa", message, "sent"),
     );
+    await handleCallPost(
+      { pool: appPool },
+      await savedSend("place_call", call, "sent"),
+    );
+
+    expect(await statusOf(message)).toBe("sent"); // the provider took it: never sent again, never marked otherwise
+    expect(await tasksOf(message)).toEqual([
+      {
+        contact_id: contactId,
+        title: "This WhatsApp message went out, but it was never recorded",
+      },
+    ]);
+    expect(await tasksOf(call)).toEqual([
+      {
+        contact_id: contactId,
+        title: "This call went out, but its result was never recorded",
+      },
+    ]);
+    const runs = await admin.query(
+      `select id, status from workflow_runs where id = any($1::uuid[])`,
+      [[message, call]],
+    );
+    const status = new Map(runs.rows.map((r) => [r.id, r.status]));
+    expect(status.get(call)).toBe("failed"); // it can't route without the call's result
+    expect(status.get(message)).toBe("waiting"); // a message's sequence doesn't wait on it
+  });
+
+  it("a job that never saved its send gets the failure review on its run's lead, named for its channel; a blocked or handed-over send gets nothing more", async () => {
+    const never = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "end",
+    });
+    const blocked = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+    const handedOver = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+
     await handleCallPost(
       { pool: appPool },
       {
         orgId,
-        runId: neverRun,
+        runId: never,
         sendId: randomUUID(),
         action: { kind: "send_wa", contactId },
       },
     );
+    await handleCallPost(
+      { pool: appPool },
+      await savedSend("place_call", blocked, "blocked"),
+    );
+    await handleCallPost(
+      { pool: appPool },
+      await savedSend("place_call", handedOver, "unknown"),
+    );
 
-    expect(await statusOf(sentRun)).toBe("sent");
-    for (const runId of [sentRun, neverRun])
-      expect(await tasksOf(runId)).toEqual([
-        { contact_id: null, title: "WhatsApp message failed — needs review" },
-      ]);
+    expect(await tasksOf(never)).toEqual([
+      {
+        contact_id: contactId,
+        title: "WhatsApp message failed — needs review",
+      },
+    ]);
+    expect(await tasksOf(blocked)).toEqual([]);
+    expect(await tasksOf(handedOver)).toEqual([]);
+  });
+
+  it("a database failure makes the sink throw, so its own queue runs it again; a malformed payload still resolves", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+    const db = flakyPool();
+    try {
+      db.trip();
+      await expect(
+        handleCallPost(
+          { pool: db.pool },
+          await savedSend("place_call", runId, "sending"),
+        ),
+      ).rejects.toThrow("the database went away");
+      await expect(
+        handleCallPost({ pool: db.pool }, { orgId: "not-a-company", runId }),
+      ).resolves.toBeUndefined();
+    } finally {
+      await db.pool.end();
+    }
+    expect(await statusOf(runId)).toBe("sending"); // untouched, for the retry to hand over
   });
 });
