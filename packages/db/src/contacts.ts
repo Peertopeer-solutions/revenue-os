@@ -5,13 +5,96 @@ import { normalizePhoneE164 } from "@revenue-os/shared";
 import type pg from "pg";
 import { audit } from "./audit";
 import { withOrg } from "./client";
+import { recordDoNotCall } from "./consent";
 
 const CORE_COLUMNS = new Set(["first_name", "last_name", "phone"]);
+// The column a list marks a lead do-not-call in, by any of its usual names (letter case, spaces and hyphens aside).
+const DO_NOT_CALL_COLUMNS = new Set([
+  "do_not_call",
+  "do_not_contact",
+  "dnc",
+  "dnd",
+]);
+// What a do-not-call cell says to leave the lead open. Any other value blocks them, as do-not-call blocks when in
+// doubt (docs/decisions-in-force/2026-10-01-guard-postures.md).
+const OPEN = new Set(["", "no", "n", "false", "0"]);
 
 export interface ImportSummary {
   created: number;
   merged: number;
   invalid: number;
+}
+
+const doNotCallColumn = (column: string) =>
+  DO_NOT_CALL_COLUMNS.has(
+    column
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_"),
+  );
+
+/** Whether the row's list marks its lead do-not-call. */
+const saysDoNotCall = (row: Record<string, string>) =>
+  Object.entries(row).some(
+    ([k, v]) => doNotCallColumn(k) && !OPEN.has(v.trim().toLowerCase()),
+  );
+
+/** The row's other filled-in columns, kept as the lead's details. */
+const details = (row: Record<string, string>) =>
+  Object.fromEntries(
+    Object.entries(row).filter(
+      ([k, v]) => !CORE_COLUMNS.has(k) && !doNotCallColumn(k) && v !== "",
+    ),
+  );
+
+/** Files one row under its phone number: a new lead, or the company's lead with that number, enriched. */
+async function importRow(
+  tx: pg.PoolClient,
+  orgId: string,
+  phone: string,
+  row: Record<string, string>,
+): Promise<{ contactId: string; created: boolean }> {
+  const existing = await tx.query(
+    `select contact_id from contact_identities
+				 where org_id = $1 and kind = 'phone' and value = $2`,
+    [orgId, phone],
+  );
+
+  if (existing.rows.length > 0) {
+    // merge: enrich attributes + fill missing names on the EXISTING contact — never a new row
+    await tx.query(
+      `update contacts set
+					   attributes = attributes || $2::jsonb,
+					   first_name = coalesce(first_name, nullif($3, '')),
+					   last_name  = coalesce(last_name,  nullif($4, '')),
+					   updated_at = now()
+					 where id = $1 and org_id = $5`,
+      [
+        existing.rows[0].contact_id,
+        JSON.stringify(details(row)),
+        row.first_name ?? "",
+        row.last_name ?? "",
+        orgId,
+      ],
+    );
+    return { contactId: existing.rows[0].contact_id, created: false };
+  }
+  const contact = await tx.query(
+    `insert into contacts (org_id, first_name, last_name, source, attributes)
+					 values ($1, nullif($2, ''), nullif($3, ''), 'csv_import', $4) returning id`,
+    [
+      orgId,
+      row.first_name ?? "",
+      row.last_name ?? "",
+      JSON.stringify(details(row)),
+    ],
+  );
+  await tx.query(
+    `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
+					 values ($1, $2, 'phone', $3, true)`,
+    [orgId, contact.rows[0].id, phone],
+  );
+  return { contactId: contact.rows[0].id, created: true };
 }
 
 export async function importContacts(
@@ -29,53 +112,13 @@ export async function importContacts(
         summary.invalid++;
         continue;
       }
-      const attributes: Record<string, string> = {};
-      for (const [k, v] of Object.entries(row)) {
-        if (!CORE_COLUMNS.has(k) && v !== "") attributes[k] = v;
-      }
-
-      const existing = await tx.query(
-        `select contact_id from contact_identities
-				 where org_id = $1 and kind = 'phone' and value = $2`,
-        [orgId, phone],
-      );
-
-      if (existing.rows.length > 0) {
-        // merge: enrich attributes + fill missing names on the EXISTING contact — never a new row
-        await tx.query(
-          `update contacts set
-					   attributes = attributes || $2::jsonb,
-					   first_name = coalesce(first_name, nullif($3, '')),
-					   last_name  = coalesce(last_name,  nullif($4, '')),
-					   updated_at = now()
-					 where id = $1 and org_id = $5`,
-          [
-            existing.rows[0].contact_id,
-            JSON.stringify(attributes),
-            row.first_name ?? "",
-            row.last_name ?? "",
-            orgId,
-          ],
-        );
-        summary.merged++;
-      } else {
-        const contact = await tx.query(
-          `insert into contacts (org_id, first_name, last_name, source, attributes)
-					 values ($1, nullif($2, ''), nullif($3, ''), 'csv_import', $4) returning id`,
-          [
-            orgId,
-            row.first_name ?? "",
-            row.last_name ?? "",
-            JSON.stringify(attributes),
-          ],
-        );
-        await tx.query(
-          `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
-					 values ($1, $2, 'phone', $3, true)`,
-          [orgId, contact.rows[0].id, phone],
-        );
-        summary.created++;
-      }
+      const { contactId, created } = await importRow(tx, orgId, phone, row);
+      summary[created ? "created" : "merged"]++;
+      if (saysDoNotCall(row))
+        await recordDoNotCall(tx, orgId, contactId, {
+          from: "import",
+          userId: actorUserId,
+        });
     }
 
     await audit(tx, orgId, {
@@ -98,6 +141,7 @@ export interface ContactRow {
   last_interaction_at: string | null;
   created_at: string;
   latest_conversation_id: string | null;
+  do_not_call: boolean;
 }
 
 export async function listContacts(
@@ -114,7 +158,8 @@ export async function listContacts(
       `select c.id, c.first_name, c.last_name, c.lifecycle_stage, c.score::float8 as score,
               c.last_interaction_at::text as last_interaction_at,
               c.created_at::text as created_at,
-              latest.id as latest_conversation_id
+              latest.id as latest_conversation_id,
+              coalesce(c.consent -> 'dnc' = 'true'::jsonb, false) as do_not_call
          from contacts c
          left join lateral (
                      select conv.id

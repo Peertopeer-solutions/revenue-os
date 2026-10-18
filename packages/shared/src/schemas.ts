@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export const OrgIdSchema = z.string().uuid();
 export const ConversationIdSchema = z.string().uuid();
+export const ContactIdSchema = z.string().uuid();
 
 export const OrgRoleSchema = z.enum(["admin", "operator", "viewer"]);
 export type OrgRole = z.infer<typeof OrgRoleSchema>;
@@ -108,6 +109,14 @@ export const VapiWebhookSchema = z
   })
   .passthrough();
 export type VapiWebhook = z.infer<typeof VapiWebhookSchema>;
+// The AI's reading of a call, in its end-of-call report: the analysis' structured data, which the assistant's analysis
+// plan asks for. Only an explicit `doNotCall: true` counts, and it may only add a do-not-call block, never lift one
+// or grant consent (docs/decisions-in-force/2026-09-29-a-do-not-call-block-may-come-from-the-ai-s-reading-of-a.md).
+export const VapiReadingSaysDoNotCallSchema = z.object({
+  analysis: z.object({
+    structuredData: z.object({ doNotCall: z.literal(true) }),
+  }),
+});
 
 // ── Eval scenarios (task-59) — the three JSONB columns of eval_scenarios. A row that fails ANY
 //    of these is a malformed scenario: the eval runner records it and fails ONLY that scenario,

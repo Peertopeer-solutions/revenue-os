@@ -1,11 +1,9 @@
-// R2: ALL server state through TanStack Query hooks in features/*/api.ts, keys from the
-// queryKeys factory. The response is Zod-parsed here; the hook's data type is z.infer — never
-// a hand-written shape (R6). Mirrors features/conversations/api.ts.
+// The console's tasks, conversations and dashboard reads. Server state goes through TanStack Query hooks with keys
+// from the queryKeys factory, and each response is Zod-parsed here, so a hook's data type is z.infer of its schema,
+// never a hand-written shape (apps/console/src/features/README.md). The contacts list is features/contacts/api.ts.
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { api } from "../../lib/api";
-
-export { type ContactsResponse, useContactsQuery } from "../contacts/api";
 
 export const queryKeys = {
   tasks: (orgId: string) => ["tasks", orgId] as const,
@@ -79,7 +77,7 @@ export function useMetricsQuery(orgId: string) {
   });
 }
 
-// task 51: the 30-day daily series behind the funnel tiles — one row per calendar day (gap-filled
+// The 30-day daily series behind the funnel tiles — one row per calendar day (gap-filled
 // with zeros server-side), the three series mirroring funnelMetrics.
 const TrendsResponse = z.object({
   trends: z.array(

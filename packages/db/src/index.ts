@@ -8,6 +8,7 @@ export {
 } from "./agents";
 export { type ActorType, type AuditEntry, audit } from "./audit";
 export { createPool, type PoolClient, withOrg } from "./client";
+export { recordDoNotCall } from "./consent";
 export {
   type ContactRow,
   type ImportSummary,

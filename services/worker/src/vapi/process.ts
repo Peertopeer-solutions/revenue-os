@@ -3,8 +3,12 @@
 // timestamps give, onto the company's conversation for that call id, each message taking the next seq. Each event
 // is filed on its own: one that fails is marked failed with its reason, and the company's other events still go
 // through (ROADMAP.md, Slice 1).
-import { withOrg } from "@revenue-os/db";
-import { type VapiWebhook, VapiWebhookSchema } from "@revenue-os/shared";
+import { recordDoNotCall, withOrg } from "@revenue-os/db";
+import {
+  VapiReadingSaysDoNotCallSchema,
+  type VapiWebhook,
+  VapiWebhookSchema,
+} from "@revenue-os/shared";
 import type pg from "pg";
 import { logger } from "../logger";
 
@@ -55,7 +59,10 @@ async function fileTranscript(
   );
 }
 
-/** The call's end: the conversation completes with its summary, which becomes the lead's latest memory. */
+/**
+ * The call's end: the conversation completes with its summary, which becomes the lead's latest memory, and when the
+ * AI's reading of the call says the lead asked not to be contacted, that lead is blocked from every later send.
+ */
 async function fileEndOfCall(
   tx: Tx,
   orgId: string,
@@ -70,6 +77,18 @@ async function fileEndOfCall(
     [orgId, conversationId, m.timestamp ?? new Date().toISOString(), summary],
   );
   const contactId = done.rows[0]?.contact_id;
+  if (VapiReadingSaysDoNotCallSchema.safeParse(m).success) {
+    if (contactId)
+      await recordDoNotCall(tx, orgId, contactId, {
+        from: "call",
+        conversationId,
+      });
+    else
+      logger.warn(
+        { org_id: orgId, conversation_id: conversationId },
+        "a do-not-call request was heard on a call linked to no lead",
+      );
+  }
   // Fold the summary into long-term memory (verbatim, no embedding yet): insert the new live row, then point the
   // contact's previous live summary at it. Scoped by CONTACT, as an org-wide supersede would bury every other
   // contact's memory. An unknown caller (no contact) or a report with nothing to say makes no memory.
