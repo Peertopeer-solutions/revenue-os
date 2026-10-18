@@ -1,17 +1,11 @@
-// task-28 ui-foundation-v2 · A1-RED — DataShell primitive spec (ui/primitives/DataShell.tsx).
-// DataShell standardizes the loading/error/empty/content branch copy-pasted across 6 pages
-// (Tasks/Contacts/Conversations/Dashboard/Home/Settings). Props: isLoading, isError, isEmpty?,
-// loadingText? (default "Loading…"), errorText? (default "Unable to load data."), emptyText?,
-// children. Each non-happy state renders as <p className="text-sm text-muted"> exactly like
-// today's pages (calm, factual); children render ONLY on the happy path.
+// The DataShell primitive (ui/primitives/DataShell.tsx): the loading / error / empty / content branch the console's
+// data pages share. Props: isLoading, isError, isEmpty?, loadingText? (default "Loading…"), errorText? (default
+// "Unable to load data."), emptyText?, children. Each non-happy state renders as <p className="text-sm text-muted">,
+// marked with its state (data-state), which the browser check that opens every screen reads; children render ONLY
+// on the happy path.
 //
 // Env-free by construction (bun test + renderToStaticMarkup, no DOM library, no DB/network,
-// no new deps) — imitates apps/console/test/ui-smoke.test.tsx.
-//
-// RED shape: DataShell is not yet exported from ui/primitives, so every behavioral case GUARDS
-// on `typeof DataShell === "function"` first. Today that assertion fails cleanly (expected
-// "undefined" to be "function" — an assertion, NOT an import/typo error). Once the worker lands
-// the component the guard passes and the assertions below it run as the real behavioral spec.
+// no new deps) — imitates apps/console/test/ui-smoke.test.tsx. Each case first checks the barrel exports DataShell.
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import * as primitives from "../src/ui/primitives";
@@ -137,6 +131,22 @@ describe("DataShell — loading / error / empty / content branches", () => {
     const error = renderToStaticMarkup(<DataShell isLoading={false} isError />);
     expect(visible(loading)).toBe("Loading…");
     expect(visible(error)).toBe("Unable to load data.");
+  });
+
+  it("each non-happy state is marked with the state it is in, and the happy path with none", () => {
+    const DataShell = P.DataShell;
+    expect(typeof DataShell).toBe("function");
+    const marks = [
+      <DataShell key="l" isLoading isError={false} />,
+      <DataShell key="e" isLoading={false} isError />,
+      <DataShell key="m" isLoading={false} isError={false} isEmpty />,
+      <DataShell key="c" isLoading={false} isError={false}>
+        {children}
+      </DataShell>,
+    ].map(
+      (shell) => renderToStaticMarkup(shell).match(/data-state="(\w+)"/)?.[1],
+    );
+    expect(marks).toEqual(["loading", "error", "empty", undefined]);
   });
 
   it("precedence: loading wins over error", () => {

@@ -64,7 +64,9 @@ In-between sizes: use `text-sm` (14) and `text-xs` (12) with token colors.
   one primitive. `isLoading`, `isError`, `isEmpty?`; copy overrides `loadingText?` (default
   "Loading…"), `errorText?` (default "Unable to load data."), `emptyText?` (default "Nothing here
   yet."). `children` render ONLY on the happy path; precedence is loading > error > empty >
-  children. Each state is a calm muted `<p>` — never a spinner. Narrowing tradeoff: `children`
+  children. Each state is a calm muted `<p>` — never a spinner — marked `data-state="loading" | "error" |
+  "empty"`, which the browser check that opens every screen reads (`../../e2e/every-screen.e2e.ts`): so
+  show a page's data through DataShell, or that check can't see it missing. Narrowing tradeoff: `children`
   evaluate eagerly (the JSX is built before DataShell runs), so keep optional access (`data?.`)
   inside them — DataShell guards *rendering*, not *types*. It replaces the page ternary (see the
   skeleton below).
@@ -92,7 +94,7 @@ owns the markup; a page never hand-rolls the loading/error/empty ternary or `<ta
 ```tsx
 export function ThingsPage() {
   const { orgId } = useParams<{ orgId: string }>();
-  const { data, isLoading, isError } = useThingsQuery(orgId); // features/*/api.ts (R2)
+  const { data, isLoading, isError } = useThingsQuery(orgId); // features/*/api.ts (docs/patterns/tanstack-query.md)
   return (
     <div className="mx-auto w-full max-w-5xl">
       <PageHeader
@@ -138,9 +140,9 @@ plus svg props; `aria-hidden` by default, so pair with text or a labelled parent
 ## Adding a page (the whole procedure)
 
 1. Create `src/pages/<Name>/index.tsx` exporting `<Name>Page`, built from primitives +
-   layout + your feature's query hooks (`features/<name>/api.ts`, Zod-parsed — R2/R6).
-   Handle loading / error / empty where the data lands. No `dangerouslySetInnerHTML`
-   (S7.1 sweep fails the build otherwise).
+   layout + your feature's query hooks (`features/<name>/api.ts`, Zod-parsed — docs/patterns/tanstack-query.md).
+   Handle loading / error / empty where the data lands, through `DataShell`. No `dangerouslySetInnerHTML`
+   (`bun run guards` refuses raw HTML: scripts/guards/raw-html.sh).
 2. Append ONE entry to `src/routes.tsx` at the `// add your page here` anchor:
    `{ path: "things", label: "Things", icon: "tasks", element: <ThingsPage />, section: "Workspace" }`.
    Do not reorder or edit existing entries (parallel branches merge cleanly only if
