@@ -159,13 +159,10 @@ const CALL_WF = {
     end: { kind: "end" },
   },
 };
-const WA_WF = {
-  entry: "w",
-  steps: {
-    w: { kind: "whatsapp", template: "hello", then: "end" },
-    end: { kind: "end" },
-  },
-};
+// Written as JSON text: its step's `then` is the sequence's own field, which as an object key lint takes for a promise's.
+const WA_WF: unknown = JSON.parse(
+  '{"entry": "w", "steps": {"w": {"kind": "whatsapp", "template": "hello", "then": "end"}, "end": {"kind": "end"}}}',
+);
 
 async function runIn(definition: unknown, contactId: string, step: string) {
   const wf = await admin.query<{ id: string }>(
