@@ -13,7 +13,7 @@ export type Send = {
   channel: "voice" | "whatsapp";
   contactId: string;
   runId: string;
-  payload: Record<string, unknown>; // what is about to be sent: the number, a template and its values
+  payload: object; // what is about to be sent: the number, a template and its values
 };
 
 /** What a job carries to name its send: the scheduler gives each job a send id, the same on every run of the job. */

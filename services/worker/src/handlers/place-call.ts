@@ -106,8 +106,9 @@ export async function handlePlaceCall(
       )
     ).rows[0] as Agent | undefined;
     if (!agent) return; // no active agent to place the call
-    send.payload = { to: await resolveTo(tx, orgId, action.contactId) };
-    return { agent, earlier: await saveSend(tx, orgId, send) };
+    const payload = { to: await resolveTo(tx, orgId, action.contactId) };
+    send.payload = payload;
+    return { agent, payload, earlier: await saveSend(tx, orgId, send) };
   });
   if (!claim) return;
   const { agent, earlier } = claim;
@@ -136,7 +137,7 @@ export async function handlePlaceCall(
         contactId: action.contactId,
         autonomy: "auto",
         toolName: "place_call",
-        payload: { to: send.payload.to as string },
+        payload: claim.payload,
       },
     );
   } catch (err) {
@@ -230,8 +231,7 @@ async function waitingForCall(
     )
   ).rows[0];
   const state = (run?.state ?? {}) as RunState;
-  if (!run || run.status !== "waiting" || state.lastDisposition != null)
-    return; // RLS-hidden (cross-tenant) or gone, already advanced, or the outcome is folded (re-delivery)
+  if (!run || run.status !== "waiting" || state.lastDisposition != null) return; // RLS-hidden (cross-tenant) or gone, already advanced, or the outcome is folded (re-delivery)
   const def = (
     await tx.query(
       `select definition from workflows where id = $1 and (org_id = $2 or org_id is null)`,
