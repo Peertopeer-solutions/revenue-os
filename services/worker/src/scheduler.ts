@@ -384,9 +384,8 @@ async function enqueueJob(
   );
   const { queue, queued } = r.rows[0] ?? { queue: null, queued: 0 };
   if (queue !== "short in job_common")
-    throw new Error(
-      `queue ${action.kind} is ${queue ? `policy ${queue}` : "missing"}, not policy short in job_common`,
-    );
+    // coverage gap: every database the tests use has the action queues, policy 'short', so none meets a missing one
+    throw new Error(`queue ${action.kind}: ${queue ?? "missing"}`);
   return queued > 0;
 }
 

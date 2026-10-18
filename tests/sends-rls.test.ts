@@ -50,6 +50,7 @@ afterAll(async () => {
 });
 
 describe("sends tenant isolation", () => {
+  // behaviour already on main: migration 021 is applied to the one local database both copies of the code run against; it is the table's own row-level security and links that this checks
   it("withOrg(A) sees company A's send", async () => {
     const rows = await withOrg(appService, orgA, (tx) =>
       tx
@@ -59,6 +60,7 @@ describe("sends tenant isolation", () => {
     expect(rows.map((r) => r.id)).toEqual([sendA]);
   });
 
+  // behaviour already on main: migration 021 is applied to the one local database both copies of the code run against; it is the table's own row-level security and links that this checks
   it("withOrg(B) cannot read company A's send, even when asked for it by id", async () => {
     const rows = await withOrg(appService, orgB, (tx) =>
       tx
@@ -68,6 +70,7 @@ describe("sends tenant isolation", () => {
     expect(rows).toHaveLength(0);
   });
 
+  // behaviour already on main: migration 021 is applied to the one local database both copies of the code run against; it is the table's own row-level security and links that this checks
   it("withOrg(B) cannot mark company A's send as unknown, nor sent", async () => {
     const changed = await withOrg(appService, orgB, (tx) =>
       tx
@@ -84,8 +87,9 @@ describe("sends tenant isolation", () => {
     expect(still.rows[0].status).toBe("sent");
   });
 
+  // behaviour already on main: migration 021 is applied to the one local database both copies of the code run against; it is the table's own row-level security and links that this checks
   it("withOrg(B) cannot save a send into company A (row-level security), nor a send of its own about A's lead (the link)", async () => {
-    expect(
+    await expect(
       withOrg(appService, orgB, (tx) =>
         tx.query(
           `insert into sends (org_id, send_key, channel, contact_id) values ($1, $2, 'voice', $3)`,
@@ -93,7 +97,7 @@ describe("sends tenant isolation", () => {
         ),
       ),
     ).rejects.toThrow(/row-level security/);
-    expect(
+    await expect(
       withOrg(appService, orgB, (tx) =>
         tx.query(
           `insert into sends (org_id, send_key, channel, contact_id) values ($1, $2, 'voice', $3)`,

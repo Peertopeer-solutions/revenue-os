@@ -529,6 +529,41 @@ describe("place_call never dials the same call twice", () => {
     expect(await reviewTasks(runId)).toHaveLength(0); // nothing for a person: the call's answer was saved
   });
 
+  it("a run handed to a person while the dialer was answering is left as the person has it: the call is saved, but no turn runs and no outcome is folded", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+    });
+    const deps: PlaceCallDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        place: async () => {
+          // another run of this job handed the lead over while this one waited for the dialer
+          await admin.query(
+            `update workflow_runs set status = 'failed', last_error = 'handed over' where id = $1`,
+            [runId],
+          );
+          return { providerRef: `vapi-late-${REF}` };
+        },
+      },
+      provider: fakeLlm([{ text: "Hello", usage: { in: 2, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => "completed",
+    };
+
+    await handlePlaceCall(deps, job(runId));
+
+    expect((await sendOf(runId))[0]).toMatchObject({
+      status: "sent",
+      provider_ref: `vapi-late-${REF}`,
+    }); // the dialer's answer is still saved: the call did go out
+    const convo = await getConversation(runId);
+    expect(await countMessages(convo.id)).toBe(0); // no turn ran on it
+    const run = await getRun(runId);
+    expect(run).toMatchObject({ status: "failed", last_error: "handed over" });
+    expect(run.state.lastDisposition ?? null).toBeNull();
+  });
+
   it("a call the guardrails refuse is saved as blocked with the reason, and its job delivered again dials nothing", async () => {
     const runId = await seedRun(await seedWorkflow(CALL_WF), {
       currentStep: "c",

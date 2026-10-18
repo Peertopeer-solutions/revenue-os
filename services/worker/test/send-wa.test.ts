@@ -373,6 +373,18 @@ describe("send_wa never sends the same message twice", () => {
     const after = await leftBehind(runId);
     expect(after.conversations).toBe(1);
     expect(after.tasks).toHaveLength(0);
+    const message = await admin.query(
+      `select m.content, m.tool_call from messages m
+         join conversations c on c.id = m.conversation_id
+        where c.workflow_run_id = $1`,
+      [runId],
+    );
+    expect(message.rows).toEqual([
+      {
+        content: "template:welcome",
+        tool_call: { providerRef: `wamid.ok-${REF}` },
+      },
+    ]); // the outbound message, carrying the provider's id for it
   });
 
   it("a message the guardrails refuse is saved as blocked with the reason, and nothing is sent", async () => {

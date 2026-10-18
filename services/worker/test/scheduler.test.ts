@@ -499,18 +499,20 @@ describe("every job the scheduler queues keeps its queue's retry and failure set
     await tick(appPool, orgId, { now: new Date() });
     const [first] = await jobsFor(`${runId}:c:0`);
     // the job ran and the call's outcome routed the run back onto the same call step: the next tick queues again
-    await appPool.query(`delete from pgboss.job where singleton_key = $1`, [
-      `${runId}:c:0`,
-    ]);
+    await appPool.query(
+      `update pgboss.job set state = 'completed' where singleton_key = $1`,
+      [`${runId}:c:0`],
+    );
     await admin.query(
       `update workflow_runs set status = 'waiting', wake_at = now() - interval '1 minute' where id = $1`,
       [runId],
     );
     await tick(appPool, orgId, { now: new Date() });
-    const [again] = await jobsFor(`${runId}:c:0`);
+    const both = await jobsFor(`${runId}:c:0`);
+    const again = both.find((j) => j.data.sendId !== first.data.sendId);
 
+    expect(both).toHaveLength(2); // the first visit's job and the second's
     expect(first.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(again.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(again.data.sendId).not.toBe(first.data.sendId);
+    expect(again?.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
