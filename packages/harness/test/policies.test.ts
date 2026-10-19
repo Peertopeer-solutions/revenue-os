@@ -33,8 +33,21 @@
 //       { "voice": {"max":3,"per_hours":72}, "whatsapp": {"max":2,"per_hours":24} }
 //   count-in-window(ch) = |{ t in attempts[ch] : t >= now - per_hours }|; block when >= max.
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
-import * as policies from "../src/policies";
+import * as attemptCap from "../src/policies/attempt-cap";
+import * as autonomy from "../src/policies/autonomy";
+import * as callingHours from "../src/policies/calling-hours";
+import * as doNotCall from "../src/policies/do-not-call";
+import * as pipeline from "../src/policies/pipeline";
 import type { GuardedAction, OrgCtx, OrgScopedDb } from "../src/types";
+
+// Every check, each from its own file, read through one namespace as above.
+const policies = {
+  ...attemptCap,
+  ...autonomy,
+  ...callingHours,
+  ...doNotCall,
+  ...pipeline,
+};
 
 // Fake org-scoped db: routes on table name, records every query (so a test can assert the DNC
 // source was consulted), and `throwOn` lets the security-edge tests simulate a failing read.

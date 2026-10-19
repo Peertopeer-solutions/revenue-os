@@ -31,9 +31,14 @@ import {
   it,
   setSystemTime,
 } from "bun:test";
-import * as policies from "../src/policies";
+import * as callingHours from "../src/policies/calling-hours";
+import * as doNotCall from "../src/policies/do-not-call";
+import * as pipeline from "../src/policies/pipeline";
 import { isWithinQuietHours } from "../src/quiet-hours";
 import type { GuardedAction, OrgScopedDb } from "../src/types";
+
+// The checks under test, each from its own file, read through one namespace as above.
+const policies = { ...callingHours, ...doNotCall, ...pipeline };
 
 type QueryLog = { text: string; values?: unknown[] };
 type GuardEvent = { hook?: string; decision?: string; reason?: string };

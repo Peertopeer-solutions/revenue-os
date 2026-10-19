@@ -6,12 +6,9 @@
 // 'quiet_hours' config {"start":"21:00","end":"09:00","tz":"contact"}; contacts.timezone (text,
 // default 'Asia/Kolkata'). Boundary semantics under test: START inclusive, END exclusive.
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
-import {
-  autonomyHook,
-  defaultPipeline,
-  guard,
-  quietHoursHook,
-} from "../src/policies";
+import { autonomyHook } from "../src/policies/autonomy";
+import { quietHoursHook } from "../src/policies/calling-hours";
+import { defaultPipeline, guard } from "../src/policies/pipeline";
 import { isWithinQuietHours } from "../src/quiet-hours";
 import type { GuardedAction, OrgCtx, OrgScopedDb } from "../src/types";
 

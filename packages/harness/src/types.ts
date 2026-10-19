@@ -81,6 +81,7 @@ export type Verdict =
       ok: false;
       reason:
         | "dnc"
+        | "no_whatsapp_optin"
         | "quiet_hours"
         | "attempt_cap"
         | "approval_required"

@@ -7,7 +7,7 @@ export { assembleContext } from "./context";
 export { createAnthropicProvider } from "./llm";
 export { runTurn, type TurnDeps } from "./loop";
 export { emitUsage } from "./meter";
-export { autonomyHook, defaultPipeline, guard } from "./policies";
+export { guard } from "./policies";
 export { ToolRegistry } from "./registry";
 export { retrieveMemories } from "./retrieval";
 export { buildCatalog, type SendPort } from "./tools";

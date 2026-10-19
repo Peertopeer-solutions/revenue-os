@@ -6,10 +6,12 @@ import { attemptCapHook } from "./attempt-cap";
 import { autonomyHook } from "./autonomy";
 import { quietHoursHook } from "./calling-hours";
 import { dncHook } from "./do-not-call";
+import { whatsappOptInHook } from "./whatsapp-opt-in";
 
 export const defaultPipeline: PolicyHook[] = [
   autonomyHook,
   dncHook,
+  whatsappOptInHook,
   quietHoursHook,
   attemptCapHook,
 ];
