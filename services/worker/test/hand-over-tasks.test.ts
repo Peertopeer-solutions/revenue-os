@@ -35,9 +35,11 @@ async function run(definition: unknown, step: string): Promise<string> {
      values ($1, $2, 1, 'active', $3::jsonb) returning id`,
     [orgId, `tasks-wf-${crypto.randomUUID()}`, JSON.stringify(definition)],
   );
+  // wake_at an hour in the PAST: the run must be due against the injected host clock even if the
+  // database clock runs slightly ahead of it (dueness is `wake_at <= ctx.now`).
   const r = await admin.query(
     `insert into workflow_runs (org_id, workflow_id, contact_id, status, current_step, state, wake_at)
-     values ($1, $2, $3, 'waiting', $4, $5::jsonb, now()) returning id`,
+     values ($1, $2, $3, 'waiting', $4, $5::jsonb, now() - interval '1 hour') returning id`,
     [orgId, wf.rows[0].id, contactId, step, JSON.stringify({ contactId })],
   );
   return r.rows[0].id;
