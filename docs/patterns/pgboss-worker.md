@@ -75,13 +75,15 @@ answer is saved on its own, so nothing that follows can undo it:
   }
 ```
 
-Last, what the send produced is recorded once, so a later run of the job finds it and records nothing more:
+Last, what the send produced is recorded once, so a later run of the job finds it and records nothing more. The
+`sender` handed to the doorway is the provider wrapped in its time limit (`services/worker/src/time-limits.ts`), so a
+provider that never answers throws too, and its lead is handed to a person:
 
 ```ts
 // services/worker/src/handlers/send-wa.ts
   const sent = await sendOnce(deps.pool, orgId, send, deps.guard, (guard) =>
     wa.send(
-      { sender: deps.sender, guard },
+      { sender, guard },
 …
   );
   if (sent && "sent" in sent) await record(deps, job, send, sent.sent);
