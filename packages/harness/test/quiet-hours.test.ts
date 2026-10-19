@@ -48,7 +48,15 @@ const activePolicy = (config: unknown) => ({
   active: true,
 });
 const CONTACT_TZ = { start: "21:00", end: "09:00", tz: "contact" };
-const contact = (timezone: unknown) => ({ id: "c1", timezone });
+// The lead agreed to WhatsApp messages, so only calling hours decide a send here.
+const contact = (timezone: unknown) => ({
+  id: "c1",
+  timezone,
+  consent: {
+    dnc: false,
+    whatsapp_optin: { status: "opted_in", source: "test fixture" },
+  },
+});
 const send = (over: Partial<GuardedAction> = {}): GuardedAction => ({
   kind: "tool",
   toolName: "send_whatsapp",
