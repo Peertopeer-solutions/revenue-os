@@ -66,8 +66,8 @@ async function fileTranscript(
 }
 
 /**
- * The call's end: the conversation completes with its summary, which becomes the lead's latest memory, and when the
- * AI's reading of the call says the lead asked not to be contacted, that lead is blocked from every later send.
+ * The call's end: the conversation completes with its summary, which becomes the lead's latest memory. A request in
+ * the AI's reading not to be contacted was recorded before this, on its own (blockFirst).
  */
 async function fileEndOfCall(
   tx: Tx,
@@ -88,8 +88,6 @@ async function fileEndOfCall(
     ],
   );
   const contactId = done.rows[0]?.contact_id;
-  if (VapiReadingSaysDoNotCallSchema.safeParse(m).success)
-    await blockCallsLead(tx, orgId, conversationId, contactId ?? null, m);
   // Fold the summary into long-term memory (verbatim, no embedding yet): insert the new live row, then point the
   // contact's previous live summary at it. Scoped by CONTACT, as an org-wide supersede would bury every other
   // contact's memory. An unknown caller (no contact) or a report with nothing to say makes no memory.
@@ -110,6 +108,32 @@ async function fileEndOfCall(
 }
 
 /**
+ * An end-of-call report whose AI reading says the lead asked not to be contacted: the call's lead is blocked before
+ * the report is filed, in a savepoint of its own, so a part of the report that can't be filed (an end time Postgres
+ * can't read) never undoes the block. A failure the report causes here undoes only the block, and filing the report
+ * then fails the same way; the database's own trouble fails the whole job, which runs again.
+ */
+async function blockFirst(tx: Tx, orgId: string, payload: unknown) {
+  const m = VapiWebhookSchema.safeParse(payload).data?.message;
+  const callId = m?.call?.id;
+  if (
+    m?.type !== "end-of-call-report" ||
+    !callId ||
+    !VapiReadingSaysDoNotCallSchema.safeParse(m).success
+  )
+    return;
+  await tx.query("savepoint vapi_block");
+  try {
+    const conversationId = await ensureConversation(tx, orgId, callId, null);
+    await blockCallsLead(tx, orgId, conversationId, m);
+  } catch (err) {
+    if (!eventsFault(err)) throw err;
+    await tx.query("rollback to savepoint vapi_block");
+  }
+  await tx.query("release savepoint vapi_block");
+}
+
+/**
  * The AI's reading of the call asked not to be contacted: block the call's lead, the conversation's own or, on a call
  * no lead is linked to (one that came in), the company's leads with the number the call came from.
  */
@@ -117,9 +141,13 @@ async function blockCallsLead(
   tx: Tx,
   orgId: string,
   conversationId: string,
-  contactId: string | null,
   m: Message,
 ) {
+  const linked = await tx.query<{ contact_id: string | null }>(
+    "select contact_id from conversations where org_id = $1 and id = $2",
+    [orgId, conversationId],
+  );
+  const contactId = linked.rows[0]?.contact_id;
   const customer =
     VapiCustomerSchema.safeParse(m).data ??
     VapiCustomerSchema.safeParse(m.call).data;
@@ -190,6 +218,7 @@ export async function processVapiEvents(
     );
 
     for (const row of events.rows) {
+      await blockFirst(tx, orgId, row.payload);
       // A failure the event causes undoes only that event's writes and marks it failed. The database's own trouble
       // fails the whole job, so pg-boss runs it again and no event is marked failed for it.
       await tx.query("savepoint vapi_event");

@@ -650,6 +650,36 @@ describe("a call", () => {
     );
   });
 
+  it("a reading that asked not to be contacted blocks the lead even when the rest of its report can't be filed, which is marked failed", async () => {
+    // An end time Postgres can't read, and one too large for a date.
+    for (const timestamp of ["1970-13-45T99:99:99Z", 9e15]) {
+      const lead = await newLead();
+      const callId = await call(lead);
+      await report(callId, { doNotCall: true }, { timestamp });
+      await processVapiEvents(pool, orgId);
+      expect(await events(callId)).toEqual([{ status: "failed" }]);
+      expect(await isBlocked(lead)).toBe(true);
+      expect(await audits(lead)).toBe(1);
+      expect(await nextSends(lead)).toEqual(REFUSED);
+    }
+  });
+
+  // behaviour already on main: main marks a report it can't file failed and files the company's other events; this pins that recording a block first keeps both
+  it("a report with a reading to block whose call the database can't file at all (its id too long for the key) is marked failed, and the company's next report is still filed", async () => {
+    // Random, so the database can't compress it to fit the key.
+    const tooLong = `call-${Array.from({ length: 400 }, () => randomUUID()).join("")}`;
+    await report(
+      tooLong,
+      { doNotCall: true },
+      { timestamp: "2026-10-18T09:00:00Z" },
+    );
+    const next = await call(await newLead());
+    await report(next, null, { timestamp: "2026-10-18T09:01:00Z" });
+    await processVapiEvents(pool, orgId);
+    expect(await events(tooLong)).toEqual([{ status: "failed" }]);
+    expect(await events(next)).toEqual([{ status: "processed" }]);
+  });
+
   it("a known lead who calls in is blocked by the number they call from, and their next send is refused", async () => {
     const number = phone();
     const lead = await newLead(orgId, number);
