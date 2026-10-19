@@ -315,6 +315,7 @@ describe("send_wa never sends the same message twice", () => {
     return runId;
   };
 
+  // behaviour already on main: only its lead changed, to a lead of the run's own, as a lead's messages now share one thread
   it("the provider takes the message but its answer is lost: the job never sends again and a person is handed the lead; the sequence goes on", async () => {
     const runId = await seed();
     let sent = 0;
