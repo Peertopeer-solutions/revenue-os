@@ -1,10 +1,12 @@
 // The AI's turn loop (docs/tech-stack.md T26.5): build the prompt, ask the model, record usage, run each tool call it
-// asks for (src/tool-call.ts: validate, guard(), run, audit), append the tool's result as a message, and repeat up to
-// MAX_TOOL_ROUNDS times before saving the model's closing message.
+// asks for (src/tool-call.ts: validate, guard(), run, audit), add the tool's result as a message, and repeat up to
+// MAX_TOOL_ROUNDS times before saving the model's closing message. Every message is written by the database package's
+// one writer, addMessage.
 // Stateless: every effect is a row; a crash mid-turn loses nothing that matters. The model gets a time limit, and a
 // caller that passes OrgUnits holds no transaction, so no locked row, while the model thinks.
 // G1: runtime-agnostic.
 
+import { addMessage } from "@revenue-os/db";
 import { assembleContext } from "./context";
 import { emitUsage } from "./meter";
 import type { ToolRegistry } from "./registry";
@@ -24,32 +26,13 @@ export interface TurnDeps {
   modelTimeLimitMs?: number; // the longest the turn waits for the model (MODEL_TIME_LIMIT_MS when unset)
 }
 
+/** The seq the conversation's next line would take: a turn's answer is out of date once it moves. */
 async function nextSeq(ctx: OrgCtx, conversationId: string): Promise<number> {
   const r = await ctx.db.query(
     `select coalesce(max(seq), 0) + 1 as seq from messages where conversation_id = $1 and org_id = $2`,
     [conversationId, ctx.orgId],
   );
   return Number(r.rows[0]?.seq ?? 1);
-}
-
-async function appendMessage(
-  ctx: OrgCtx,
-  conversationId: string,
-  row: { role: "agent" | "tool"; content?: string; toolCall?: unknown },
-): Promise<void> {
-  const seq = await nextSeq(ctx, conversationId);
-  await ctx.db.query(
-    `insert into messages (org_id, conversation_id, seq, role, content, tool_call)
-		 values ($1, $2, $3, $4, $5, $6)`,
-    [
-      ctx.orgId,
-      conversationId,
-      seq,
-      row.role,
-      row.content ?? null,
-      row.toolCall === undefined ? null : JSON.stringify(row.toolCall),
-    ],
-  );
 }
 
 /** The longest the turn waits for the AI model's answer before it gives up (the worker may set its own). */
@@ -130,14 +113,14 @@ async function saveRound(
 
   if (!turn.toolCalls || turn.toolCalls.length === 0) {
     if (turn.text)
-      await appendMessage(ctx, conversationId, {
+      await addMessage(ctx.db, ctx.orgId, conversationId, {
         role: "agent",
         content: turn.text,
       });
     return false;
   }
   for (const call of turn.toolCalls)
-    await appendMessage(ctx, conversationId, {
+    await addMessage(ctx.db, ctx.orgId, conversationId, {
       role: "tool",
       toolCall: await runToolCall(deps, ctx, conversationId, round, call),
     });

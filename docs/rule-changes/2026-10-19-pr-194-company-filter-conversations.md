@@ -1,0 +1,1 @@
+- 2026-10-19 · [#194](https://github.com/Peertopeer-solutions/revenue-os/pull/194) · scripts/guards/company-filter.ts: it also fails any product code outside packages/db/src/conversations.ts that inserts into, updates or deletes from conversations or messages · tighter

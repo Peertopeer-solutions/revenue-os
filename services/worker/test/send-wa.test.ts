@@ -5,8 +5,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { createPool } from "@revenue-os/db";
+import { ToolRegistry } from "@revenue-os/harness";
 import pg, { type Pool } from "pg";
 import { testCompanies } from "../../../tests/test-companies";
+import { handleAgentTurn } from "../src/handlers/agent-turn";
 import { handleSendWa, type SendWaDeps } from "../src/handlers/send-wa";
 import { flakyPool } from "./fixtures/flaky-pool";
 
@@ -274,6 +276,11 @@ const hooked = (hook: (text: string) => Promise<void> | void) =>
   }) as unknown as Pool;
 
 describe("send_wa never sends the same message twice", () => {
+  // Each run's lead is its own: a lead's WhatsApp messages share one open thread, which follows its newest run, so
+  // runs on one lead would see each other's messages.
+  const leads = new Map<string, string>();
+  const numberOf = (runId: string) =>
+    `+9198765${String([...leads.keys()].indexOf(runId) + 1).padStart(5, "0")}`;
   const job = (runId: string) => ({
     orgId,
     runId,
@@ -282,17 +289,33 @@ describe("send_wa never sends the same message twice", () => {
     idx: 0,
     action: {
       kind: "send_wa" as const,
-      contactId,
+      contactId: leads.get(runId) ?? contactId,
       template: "welcome",
       vars: {},
     },
   });
-  const seed = async () =>
-    seedRun(await seedWorkflow(CALL_WF), {
+  const seed = async () => {
+    const lead = (
+      await admin.query(
+        `insert into contacts (org_id, first_name) values ($1, 'Asha') returning id`,
+        [orgId],
+      )
+    ).rows[0].id as string;
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
       currentStep: "end",
-      state: { contactId, vars: { name: "Asha" } },
+      contact: lead,
+      state: { contactId: lead, vars: { name: "Asha" } },
     });
+    leads.set(runId, lead);
+    await admin.query(
+      `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
+       values ($1, $2, 'whatsapp', $3, true)`,
+      [orgId, lead, numberOf(runId)],
+    );
+    return runId;
+  };
 
+  // behaviour already on main: only its lead changed, to a lead of the run's own, as a lead's messages now share one thread
   it("the provider takes the message but its answer is lost: the job never sends again and a person is handed the lead; the sequence goes on", async () => {
     const runId = await seed();
     let sent = 0;
@@ -316,14 +339,14 @@ describe("send_wa never sends the same message twice", () => {
     expect(send).toMatchObject({ status: "unknown", provider_ref: null });
     expect(send.reason).toContain("socket hang up");
     expect(send.payload).toEqual({
-      to: "+919876500000",
+      to: numberOf(runId),
       template: "welcome",
       vars: { name: "Asha" },
     }); // what was about to be sent, saved first
     const after = await leftBehind(runId);
     expect(after.tasks).toHaveLength(1);
     expect(after.tasks[0]).toMatchObject({
-      contact_id: contactId,
+      contact_id: leads.get(runId),
       title:
         "Check whether this WhatsApp message went out before sending again",
     });
@@ -567,5 +590,182 @@ describe("send_wa never sends the same message twice", () => {
     expect(await sendOf(runId)).toEqual([
       expect.objectContaining({ status: "blocked", reason: "dnc" }),
     ]);
+  });
+});
+
+describe("send_wa on the lead's thread", () => {
+  it("two sends to one lead, from two runs, go on the lead's one open WhatsApp thread as lines 1 and 2; it follows the newer run", async () => {
+    const lead = (
+      await admin.query(
+        `insert into contacts (org_id, first_name) values ($1, 'Meera') returning id`,
+        [orgId],
+      )
+    ).rows[0].id;
+    await admin.query(
+      `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
+       values ($1, $2, 'whatsapp', '+919876500077', true)`,
+      [orgId, lead],
+    );
+    let n = 0;
+    const deps: SendWaDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        send: async () => {
+          n += 1;
+          return { providerRef: `wamid.thread${n}-${REF}` };
+        },
+      },
+    };
+    const runs: string[] = [];
+    for (const template of ["welcome", "reminder"]) {
+      const runId = await seedRun(await seedWorkflow(CALL_WF), {
+        currentStep: "end",
+        contact: lead,
+        state: { contactId: lead },
+      });
+      runs.push(runId);
+      await handleSendWa(deps, {
+        orgId,
+        runId,
+        sendId: randomUUID(),
+        step: "w",
+        idx: 0,
+        action: { kind: "send_wa", contactId: lead, template, vars: {} },
+      });
+    }
+    const threads = await admin.query(
+      `select id, workflow_run_id, status, provider, started_at from conversations
+        where org_id = $1 and contact_id = $2 and channel = 'whatsapp'`,
+      [orgId, lead],
+    );
+    expect(threads.rows).toEqual([
+      expect.objectContaining({
+        workflow_run_id: runs[1],
+        status: "active",
+        provider: "meta_wa",
+      }),
+    ]);
+    expect(threads.rows[0].started_at).toBeInstanceOf(Date);
+    const said = await admin.query(
+      "select seq, content, tool_call from messages where conversation_id = $1 order by seq",
+      [threads.rows[0].id],
+    );
+    expect(said.rows).toEqual([
+      {
+        seq: 1,
+        content: "template:welcome",
+        tool_call: { providerRef: `wamid.thread1-${REF}` },
+      },
+      {
+        seq: 2,
+        content: "template:reminder",
+        tool_call: { providerRef: `wamid.thread2-${REF}` },
+      },
+    ]);
+  });
+
+  it("a send while an AI turn waits for its model goes on the lead's thread as line 2, and the turn, its answer now out of date, adds no line: one thread, every saved line in order", async () => {
+    const lead = (
+      await admin.query(
+        `insert into contacts (org_id, first_name) values ($1, 'Ravi') returning id`,
+        [orgId],
+      )
+    ).rows[0].id;
+    await admin.query(
+      `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
+       values ($1, $2, 'whatsapp', '+919876500088', true)`,
+      [orgId, lead],
+    );
+    const agentId = (
+      await admin.query(
+        `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
+         values ($1, $2, 1, 'active', 'm', 'You reply.', '{}') returning id`,
+        [orgId, `wa-agent-${REF}`],
+      )
+    ).rows[0].id;
+    const thread = (
+      await admin.query(
+        `insert into conversations (org_id, contact_id, agent_id, channel, direction, status, provider)
+         values ($1, $2, $3, 'whatsapp', 'inbound', 'active', 'meta_wa') returning id`,
+        [orgId, lead, agentId],
+      )
+    ).rows[0].id;
+    await admin.query(
+      `insert into messages (org_id, conversation_id, seq, role, content) values ($1, $2, 1, 'contact', 'Hi')`,
+      [orgId, thread],
+    );
+    let release = () => {};
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    let asked = () => {};
+    const modelAsked = new Promise<void>((r) => {
+      asked = r;
+    });
+    const turn = handleAgentTurn(
+      {
+        pool: appPool,
+        registry: new ToolRegistry(),
+        provider: {
+          complete: async () => {
+            asked();
+            await held; // a slow model: the turn holds the thread meanwhile
+            return { text: "Hello Ravi", usage: { in: 1, out: 1 } };
+          },
+        },
+      },
+      {
+        orgId,
+        runId: randomUUID(),
+        action: { kind: "run_agent_turn", conversationId: thread },
+      },
+    );
+    await modelAsked;
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "end",
+      contact: lead,
+      state: { contactId: lead },
+    });
+    await handleSendWa(
+      {
+        pool: appPool,
+        guard: async () => ({ ok: true }),
+        sender: { send: async () => ({ providerRef: `wamid.race-${REF}` }) },
+      },
+      {
+        orgId,
+        runId,
+        sendId: randomUUID(),
+        step: "w",
+        idx: 0,
+        action: {
+          kind: "send_wa",
+          contactId: lead,
+          template: "welcome",
+          vars: {},
+        },
+      },
+    ); // the turn holds no lock while its model thinks, so the send goes through now
+    const lines = async () =>
+      (
+        await admin.query(
+          "select seq, role, content from messages where conversation_id = $1 order by seq",
+          [thread],
+        )
+      ).rows;
+    const saved = [
+      { seq: 1, role: "contact", content: "Hi" },
+      { seq: 2, role: "agent", content: "template:welcome" },
+    ];
+    expect(await lines()).toEqual(saved);
+    release();
+    await turn;
+    expect(await lines()).toEqual(saved); // the turn's out-of-date answer is not saved
+    const threads = await admin.query(
+      "select count(*)::int n from conversations where org_id = $1 and contact_id = $2",
+      [orgId, lead],
+    );
+    expect(threads.rows[0].n).toBe(1);
   });
 });

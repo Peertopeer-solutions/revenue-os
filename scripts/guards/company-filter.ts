@@ -20,9 +20,11 @@
 // org_id. A read that must look across companies goes through an app.* security-definer function, as app.due_org_ids
 // does.
 //
-// It also holds three tables to one writer each (ONE_WRITER): an insert into tasks, audit_log or org_members fails
-// anywhere but the file that owns the table in packages/db (createTask; audit; the audited member grant), so every task
-// is for a lead and every audit row and access grant is written one way. A write's target is always the real table,
+// It also holds five tables to one writer each (ONE_WRITER): an insert into tasks, audit_log, org_members, conversations
+// or messages fails anywhere but the file that owns the table in packages/db (createTask; audit; the audited member
+// grant; openConversation and addMessage), so every task is for a lead and every audit row, access grant, conversation
+// and message is written one way. An update or delete of conversations or messages (EVERY_WRITE) fails there too, so a
+// conversation is finished one way (finishConversation). A write's target is always the real table,
 // whatever a common table expression is named, and a merge statement fails anywhere in the SQL.
 //
 // Known limits: it proves the SQL names a company parameter, not that $n holds the request's company (the tests that
@@ -50,7 +52,11 @@ const ONE_WRITER: Record<string, string> = {
   tasks: "packages/db/src/tasks.ts",
   audit_log: "packages/db/src/audit.ts",
   org_members: "packages/db/src/orgs.ts",
+  conversations: "packages/db/src/conversations.ts",
+  messages: "packages/db/src/conversations.ts",
 };
+// Tables whose every write, not just an insert, belongs to their one writer.
+const EVERY_WRITE = new Set(["conversations", "messages"]);
 const HOLE = "\u0001"; // a ${…} in a template literal
 const ODD = "\u0002"; // SQL this guard would read differently from the database
 const HOW =
@@ -561,13 +567,18 @@ function problemsIn(sql: string, file: string): { at: number; what: string }[] {
     for (const r of refs) {
       const col = r.table === "orgs" ? "id" : "org_id";
       const named = r.q === r.table ? r.table : `${r.table} (as ${r.q})`;
+      const owner = ONE_WRITER[r.table];
+      if (
+        owner &&
+        owner !== file &&
+        (r.verb === "inserted into" ||
+          (r.verb !== "read" && EVERY_WRITE.has(r.table)))
+      )
+        out.push({
+          at: r.at,
+          what: `${r.verb === "inserted into" ? "inserts into" : r.verb === "updated" ? "updates" : "deletes from"} ${r.table}, which only ${owner} writes: call its function instead`,
+        });
       if (r.verb === "inserted into") {
-        const owner = ONE_WRITER[r.table];
-        if (owner && owner !== file)
-          out.push({
-            at: r.at,
-            what: `inserts into ${r.table}, which only ${owner} writes: call its function instead`,
-          });
         if (!r.cols)
           out.push({
             at: r.at,
