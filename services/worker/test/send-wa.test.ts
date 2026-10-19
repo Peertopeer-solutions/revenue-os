@@ -635,12 +635,16 @@ describe("send_wa on the lead's thread", () => {
       });
     }
     const threads = await admin.query(
-      `select id, workflow_run_id, status, started_at from conversations
+      `select id, workflow_run_id, status, provider, started_at from conversations
         where org_id = $1 and contact_id = $2 and channel = 'whatsapp'`,
       [orgId, lead],
     );
     expect(threads.rows).toEqual([
-      expect.objectContaining({ workflow_run_id: runs[1], status: "active" }),
+      expect.objectContaining({
+        workflow_run_id: runs[1],
+        status: "active",
+        provider: "meta_wa",
+      }),
     ]);
     expect(threads.rows[0].started_at).toBeInstanceOf(Date);
     const said = await admin.query(
