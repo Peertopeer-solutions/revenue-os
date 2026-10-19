@@ -185,7 +185,7 @@ async function fold(
 ): Promise<void> {
   const { orgId, runId, action } = job;
   const now = deps.now?.() ?? new Date();
-  const conversationId = await withOrg(deps.pool, orgId, async (tx) => {
+  const call = await withOrg(deps.pool, orgId, async (tx) => {
     // The call's conversation, keyed by the dialer's call id as the call's own events file it (src/vapi/process.ts),
     // so whichever of the two comes first makes it, and this fills in its lead, run and agent.
     const id = (
@@ -200,24 +200,32 @@ async function fold(
         [orgId, action.contactId, runId, agent.id, providerRef],
       )
     ).rows[0]?.id as string;
-    return (await waitingForCall(tx, job)) ? id : undefined; // folded by an earlier run of this job, or handed over
+    if (!(await waitingForCall(tx, job))) return; // folded by an earlier run of this job, or handed over
+    // An earlier run of this job saved the call's turn, then failed before folding: its turn is not run, or billed, twice.
+    const spoken = await tx.query(
+      `select 1 from messages where org_id = $1 and conversation_id = $2 and role = 'agent' limit 1`,
+      [orgId, id],
+    );
+    return { conversationId: id, spoken: (spoken.rowCount ?? 0) > 0 };
   });
-  if (!conversationId) return;
-  await runTurn(
-    {
-      provider: deps.provider,
-      registry: deps.registry,
-      toolsAllowed: agent.tools_allowed ?? [],
-      systemPrompt: agent.system_prompt ?? "",
-      modelTimeLimitMs: deps.limits?.model ?? TIME_LIMITS.model,
-    },
-    {
-      orgId,
-      inTransaction: (work) =>
-        withOrg(deps.pool, orgId, (tx) => work({ orgId, db: tx })),
-    },
-    conversationId,
-  );
+  if (!call) return;
+  const { conversationId } = call;
+  if (!call.spoken)
+    await runTurn(
+      {
+        provider: deps.provider,
+        registry: deps.registry,
+        toolsAllowed: agent.tools_allowed ?? [],
+        systemPrompt: agent.system_prompt ?? "",
+        modelTimeLimitMs: deps.limits?.model ?? TIME_LIMITS.model,
+      },
+      {
+        orgId,
+        inTransaction: (work) =>
+          withOrg(deps.pool, orgId, (tx) => work({ orgId, db: tx })),
+      },
+      conversationId,
+    );
   const disposition = await withTimeLimit(
     "the call's outcome",
     deps.limits?.outcome ?? TIME_LIMITS.outcome,

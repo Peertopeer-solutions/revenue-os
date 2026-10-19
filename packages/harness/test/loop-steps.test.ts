@@ -104,6 +104,36 @@ describe("runTurn in short steps", () => {
     expect(usage.rows[0].n).toBe(2);
   });
 
+  it("stops after five tool rounds when the model never closes the turn", async () => {
+    const id = await conversation();
+    let asked = 0;
+    const provider: LlmProvider = {
+      complete: async () => {
+        asked += 1;
+        return {
+          toolCalls: [{ name: "check_flat", args: {} }],
+          usage: { in: 1, out: 1 },
+        };
+      },
+    };
+
+    await runTurn(turnDeps(provider), units, id);
+
+    expect(asked).toBe(5);
+    const roles = await admin.query(
+      `select role from messages where conversation_id = $1 order by seq`,
+      [id],
+    );
+    expect(roles.rows.map((r) => r.role)).toEqual([
+      "contact",
+      "tool",
+      "tool",
+      "tool",
+      "tool",
+      "tool",
+    ]);
+  });
+
   it("gives the model its time limit, and cuts off a model that never answers", async () => {
     const id = await conversation();
     const seen: { timeoutMs?: number; signal?: AbortSignal }[] = [];

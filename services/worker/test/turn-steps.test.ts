@@ -182,4 +182,101 @@ describe("the AI turn's short steps", () => {
     expect(run.status).toBe("failed");
     expect(run.state.lastDisposition).toBeUndefined();
   });
+
+  it("a call job run again after its outcome failed folds the call without running or billing its AI turn twice", async () => {
+    const sendId = randomUUID();
+    const runId = await callRun(sendId);
+    let asked = 0;
+    let outcomes = 0;
+    let dials = 0;
+    const deps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }) as const,
+      sender: {
+        place: async () => {
+          dials += 1;
+          return { providerRef: `vapi-ts-${sendId}` };
+        },
+      },
+      provider: {
+        complete: async () => {
+          asked += 1;
+          return { text: `Namaste (${asked}).`, usage: { in: 1, out: 1 } };
+        },
+      },
+      registry: new ToolRegistry(),
+      outcome: async () => {
+        outcomes += 1;
+        if (outcomes === 1) throw new Error("outcome service down");
+        return "completed";
+      },
+    };
+    const job = {
+      orgId,
+      runId,
+      sendId,
+      step: "c",
+      idx: 0,
+      action: { kind: "place_call" as const, contactId, agentKey: "closer" },
+    };
+
+    await expect(handlePlaceCall(deps, job)).rejects.toThrow(
+      "outcome service down",
+    );
+    await handlePlaceCall(deps, job); // the job's next run
+
+    expect({ dials, asked, outcomes }).toEqual({
+      dials: 1,
+      asked: 1,
+      outcomes: 2,
+    });
+    const convo = (
+      await admin.query(
+        `select id from conversations where workflow_run_id = $1`,
+        [runId],
+      )
+    ).rows[0].id;
+    expect((await messagesOf(convo)).map((m) => [m.role, m.content])).toEqual([
+      ["agent", "Namaste (1)."],
+    ]);
+    const usage = await admin.query(
+      `select count(*)::int n from usage_events where conversation_id = $1 and kind = 'llm'`,
+      [convo],
+    );
+    expect(usage.rows[0].n).toBe(1);
+    const run = (
+      await admin.query(`select state from workflow_runs where id = $1`, [
+        runId,
+      ])
+    ).rows[0];
+    expect(run.state.lastDisposition).toBe("completed");
+  });
 });
+
+/** A run of a fresh lead waiting at a call step, parked for the call job whose send id `sendId` is. */
+async function callRun(sendId: string): Promise<string> {
+  const workflowId = (
+    await admin.query(
+      `insert into workflows (org_id, key, version, status, definition)
+       values ($1, $2, 1, 'active', $3::jsonb) returning id`,
+      [
+        orgId,
+        `turn-steps-${randomUUID()}`,
+        JSON.stringify({
+          entry: "c",
+          steps: {
+            c: { kind: "call", agent: "closer", on: { completed: "end" } },
+            end: { kind: "end" },
+          },
+        }),
+      ],
+    )
+  ).rows[0].id;
+  return (
+    await admin.query(
+      `insert into workflow_runs (org_id, workflow_id, contact_id, status, current_step, state)
+       values ($1, $2, $3, 'waiting', 'c', $4::jsonb) returning id`,
+      [orgId, workflowId, contactId, JSON.stringify({ callSendId: sendId })],
+    )
+  ).rows[0].id;
+}
