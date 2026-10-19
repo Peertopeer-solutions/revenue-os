@@ -134,7 +134,7 @@ describe("openConversation", () => {
     const agentId = String(
       (
         await admin.query(
-          `insert into agents (org_id, key, version, status, model) values ($1, $2, 1, 'active', 'm') returning id`,
+          `insert into agents (org_id, key, version, status, model, system_prompt) values ($1, $2, 1, 'active', 'm', 'p') returning id`,
           [orgA, `a-${randomUUID()}`],
         )
       ).rows[0]?.id,
@@ -344,5 +344,13 @@ describe("migration 022: one open thread per lead and channel", () => {
       [orgA, contactId],
     );
     expect(active.rows[0]?.n).toBe(4);
+    // openConversation finds that one open WhatsApp thread through the index
+    const thread = await admin.query(
+      `select id from conversations where org_id = $1 and contact_id = $2 and channel = 'whatsapp' and status = 'active'`,
+      [orgA, contactId],
+    );
+    expect(
+      await open({ channel: "whatsapp", direction: "outbound", contactId }),
+    ).toBe(thread.rows[0]?.id);
   });
 });
