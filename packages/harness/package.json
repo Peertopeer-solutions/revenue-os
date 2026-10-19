@@ -3,9 +3,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@revenue-os/db": "workspace:*",
     "zod": "4.4.3"
-  },
-  "devDependencies": {
-    "@revenue-os/db": "workspace:*"
   }
 }

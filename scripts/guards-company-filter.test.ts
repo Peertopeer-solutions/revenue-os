@@ -292,6 +292,9 @@ export async function bad(tx, pool, orgId, id, sql, extra, table, sets) {
   await tx.query("table contacts"); // ✗ a TABLE x read
   await tx.query("select id from contacts where org_id = $1 union all table contacts", [orgId]); // ✗ a TABLE x read
   await tx.query("truncate tasks"); // ✗ a truncate statement
+  await tx.query("with tasks as (select 1) insert into tasks (org_id, contact_id, kind, title) values ($1, $2, 'review', 't')", [orgId, id]); // ✗ inserts into tasks, which only packages/db/src/tasks.ts writes
+  await tx.query("with contacts as (select 1) update contacts set first_name = $1", ["A"]); // ✗ contacts is updated
+  await tx.query("with x as (select 1) merge into tasks t using contacts c on t.contact_id = c.id when matched then delete", []); // ✗ a merge statement
   await tx.query("select * from auth.users"); // ✗ auth.users, a table in a schema this guard doesn't know
   await tx.query("select * from contacts where $$ and org_id = $1 and $$ <> $1::text", [orgId]); // ✗ SQL this guard would read differently
   await tx.query("select * from contacts where (E'\\\\' and org_id = $1 and \\\\'' <> '')", [orgId]); // ✗ SQL this guard would read differently
@@ -355,6 +358,55 @@ export const Empty = (db) => <p>Nobody's here</p> && db.query("select id from ou
   );
   expect(own).toContain("FAIL — company filter");
   expect(own).toContain("docs/patterns/drizzle-query.md");
+  expect(code).toBe(1);
+}, 30_000);
+
+// Tasks, audit rows and memberships each have one writer in packages/db (createTask, audit, the member functions of
+// orgs.ts): their own file may insert into the table, and any other product file that does fails, naming the owner.
+const INSERTS = {
+  tasks:
+    'db.query("insert into tasks (org_id, contact_id, kind, title) values ($1, $2, $3, $4)", [o, c, "review", "t"])',
+  audit_log:
+    'db.query("insert into audit_log (org_id, actor_type, action) values ($1, $2, $3)", [o, "system", "x"])',
+  org_members:
+    'db.query("insert into org_members (org_id, user_id, role) values ($1, $2, $3)", [o, u, "viewer"])',
+};
+const writer = (table: keyof typeof INSERTS) =>
+  `export const write = (db, o, c, u) => ${INSERTS[table]};\n`;
+
+it("lets each table's own file insert into it, and fails any other product file that does, naming the file that may", () => {
+  const files = {
+    "packages/db/src/tasks.ts": writer("tasks"),
+    "packages/db/src/audit.ts": writer("audit_log"),
+    "packages/db/src/orgs.ts": `${writer("org_members")}${writer("audit_log").replace("write", "writeAudit")}`,
+    "services/worker/src/handlers/call-post.ts": writer("tasks"),
+    "packages/harness/src/audit.ts": writer("audit_log"),
+    "packages/db/src/members.ts": writer("org_members"),
+    "apps/console/src/tasks.ts": writer("tasks"),
+  };
+  const { code, own } = guards(files);
+  for (const [file, owner, table] of [
+    [
+      "services/worker/src/handlers/call-post.ts",
+      "packages/db/src/tasks.ts",
+      "tasks",
+    ],
+    ["packages/harness/src/audit.ts", "packages/db/src/audit.ts", "audit_log"],
+    ["packages/db/src/members.ts", "packages/db/src/orgs.ts", "org_members"],
+    ["apps/console/src/tasks.ts", "packages/db/src/tasks.ts", "tasks"],
+    ["packages/db/src/orgs.ts:2", "packages/db/src/audit.ts", "audit_log"],
+  ])
+    expect(own).toContain(
+      `${file.includes(":") ? file : `${file}:1`}: inserts into ${table}, which only ${owner} writes: call its function instead`,
+    );
+  // Each owner's own insert is never named: only orgs.ts's second line, an audit row it may not write.
+  for (const owner of [
+    "packages/db/src/tasks.ts:",
+    "packages/db/src/audit.ts:",
+    "packages/db/src/orgs.ts:1:",
+  ])
+    expect(own).not.toContain(owner);
+  expect(own).toContain("FAIL — company filter");
   expect(code).toBe(1);
 }, 30_000);
 
