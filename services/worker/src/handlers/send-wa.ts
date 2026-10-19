@@ -139,7 +139,7 @@ const UNANSWERED =
 
 /**
  * 3. record the outbound message + usage, once: the usage row names the send (meta.sendKey), so a later run of the
- * job finds it and records nothing more. The wamid is the outbound MESSAGE id, not a wa THREAD id — provider_ref
+ * job finds it and records nothing more, and the send's row is locked while it looks, so two runs never both record. The wamid is the outbound MESSAGE id, not a wa THREAD id — provider_ref
  * (unique per thread) stays NULL and the wamid rides the message's tool_call, so distinct sends never collide on
  * convo_provider_ref_uq.
  */
@@ -151,6 +151,11 @@ async function record(
 ): Promise<void> {
   const { orgId, runId, action } = job;
   await withOrg(deps.pool, orgId, async (tx) => {
+    // the send locked first: two runs of the job recording it at once take turns, and the second finds the record
+    await tx.query(
+      `select 1 from sends where org_id = $1 and send_key = $2 for update`,
+      [orgId, send.key],
+    );
     const recorded = await tx.query(
       `select 1 from usage_events
         where org_id = $1 and kind = 'wa_message' and meta ->> 'sendKey' = $2 limit 1`,

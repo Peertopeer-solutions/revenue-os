@@ -6,9 +6,12 @@
 // schema, so it runs with the local stack's settings (`bun run gate`, CI). Correctness-critical:
 // the atomicity, SKIP LOCKED, singleton_key and place_call-doesn't-advance assertions are exact.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { ToolRegistry } from "@revenue-os/harness";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 import { testCompanies } from "../../../tests/test-companies";
+import { handlePlaceCall } from "../src/handlers/place-call";
 import { startRun } from "../src/runs";
 import { tick } from "../src/scheduler";
 
@@ -312,6 +315,70 @@ describe("scheduler tick + run writer", () => {
     ).resolves.toBeDefined();
 
     expect((await jobsFor(`${runId}:c:0`)).length).toBe(1); // still exactly one job
+  });
+
+  it("a re-poll of the still-parked call step keeps the run waiting for the call job still queued, which then dials once", async () => {
+    const lead = (
+      await admin.query(
+        `insert into contacts (org_id, first_name) values ($1, 'Re-poll') returning id`,
+        [orgId],
+      )
+    ).rows[0].id;
+    await admin.query(
+      `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
+       values ($1, $2, 'phone', '+919800033344', true)`,
+      [orgId, lead],
+    );
+    await admin.query(
+      `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
+       values ($1, 'repoll', 1, 'active', 'm', 'You call.', '{}')`,
+      [orgId],
+    );
+    const runId = await seedRun(
+      await seedWorkflow({
+        entry: "c",
+        steps: {
+          c: { kind: "call", agent: "repoll", on: { completed: "end" } },
+          end: { kind: "end" },
+        },
+      }),
+      { currentStep: "c", state: { contactId: lead }, contact: lead },
+    );
+
+    await tick(appPool, orgId, { now: new Date() }); // queues the call job and parks the run on it
+    await admin.query(
+      `update workflow_runs set wake_at = now() - interval '1 hour', status = 'waiting' where id = $1`,
+      [runId],
+    );
+    await tick(appPool, orgId, { now: new Date() }); // the same call queued again: deduplicated
+
+    const [queued] = await jobsFor(`${runId}:c:0`);
+    expect(queued.data.sendId).toEqual(expect.any(String));
+    expect((await getRun(runId)).state.callSendId).toBe(queued.data.sendId); // the run still waits for that job
+    let dialled = 0;
+    await handlePlaceCall(
+      {
+        pool: appPool,
+        guard: async () => ({ ok: true }),
+        sender: {
+          place: async () => {
+            dialled += 1;
+            return { providerRef: `vapi-repoll-${randomUUID()}` };
+          },
+        },
+        provider: {
+          complete: async () => ({
+            text: "Namaste.",
+            usage: { in: 1, out: 1 },
+          }),
+        },
+        registry: new ToolRegistry(),
+        outcome: async () => "completed",
+      },
+      queued.data,
+    );
+    expect(dialled).toBe(1);
+    expect((await getRun(runId)).state.lastDisposition).toBe("completed");
   });
 
   it("FOR UPDATE SKIP LOCKED: a run locked by a concurrent tx is skipped, not double-processed", async () => {

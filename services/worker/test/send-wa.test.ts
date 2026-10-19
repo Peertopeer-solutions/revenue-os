@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { createPool } from "@revenue-os/db";
-import pg from "pg";
+import pg, { type Pool } from "pg";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleSendWa, type SendWaDeps } from "../src/handlers/send-wa";
 import { flakyPool } from "./fixtures/flaky-pool";
@@ -250,6 +250,29 @@ async function leftBehind(runId: string) {
   };
 }
 
+/** The app's pool, with `hook` run before each query a handler sends through it, given the query's text. */
+const hooked = (hook: (text: string) => Promise<void> | void) =>
+  ({
+    connect: async () => {
+      const client = await appPool.connect();
+      return new Proxy(client, {
+        get(target, key) {
+          if (key === "query")
+            return async (text: unknown, ...rest: unknown[]) => {
+              await hook(String(text));
+              return (target.query as (...a: unknown[]) => unknown).call(
+                target,
+                text,
+                ...rest,
+              );
+            };
+          const value = Reflect.get(target, key, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    },
+  }) as unknown as Pool;
+
 describe("send_wa never sends the same message twice", () => {
   const job = (runId: string) => ({
     orgId,
@@ -470,6 +493,58 @@ describe("send_wa never sends the same message twice", () => {
         },
       },
     ]); // metered once, naming the send it records
+  });
+
+  it("the same job delivered again while its first run is still recording the message records and meters it once", async () => {
+    const runId = await seed();
+    const once = job(runId);
+    let sent = 0;
+    const sender = {
+      send: async () => {
+        sent += 1;
+        return { providerRef: `wamid.twice-${REF}` };
+      },
+    };
+    let reached = () => {};
+    const atRecord = new Promise<void>((done) => {
+      reached = done;
+    });
+    // the second delivery says when it reaches the record step: its look at the send, or at the usage row
+    const later: SendWaDeps = {
+      pool: hooked((text) => {
+        if (/from sends[\s\S]*for update|from usage_events/.test(text))
+          reached();
+      }),
+      guard: async () => ({ ok: true }),
+      sender,
+    };
+    // the first, as it starts recording, is delivered again, and waits until that delivery reaches its record step
+    let second: Promise<void> | undefined;
+    const first: SendWaDeps = {
+      pool: hooked(async (text) => {
+        if (second || !text.includes("insert into conversations")) return;
+        second = handleSendWa(later, once);
+        await atRecord;
+        await new Promise((r) => setTimeout(r, 200)); // its query reaches the database
+      }),
+      guard: async () => ({ ok: true }),
+      sender,
+    };
+
+    await handleSendWa(first, once);
+    await second;
+
+    expect(sent).toBe(1);
+    const recorded = await admin.query(
+      `select (select count(*)::int from conversations where workflow_run_id = $1) as conversations,
+              (select count(*)::int from messages m join conversations c on c.id = m.conversation_id
+                where c.workflow_run_id = $1) as messages,
+              (select count(*)::int from usage_events where kind = 'wa_message' and meta ->> 'sendKey' = $2) as metered`,
+      [runId, `send_wa:${runId}:${once.sendId}`],
+    );
+    expect(recorded.rows).toEqual([
+      { conversations: 1, messages: 1, metered: 1 },
+    ]);
   });
 
   it("a message the guardrails refuse is saved as blocked with the reason, and nothing is sent", async () => {

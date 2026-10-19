@@ -286,25 +286,13 @@ async function applyTransitions(
   for (const { step, transition } of steps) {
     final = transition;
     for (const [idx, action] of transition.actions.entries()) {
-      if (EXTERNAL.has(action.kind)) {
-        // Record the channel attempt only when the job is actually enqueued (singleton_key may
-        // dedupe a re-tick of a still-parked run — no new job means no new attempt).
-        const sendId = randomUUID();
-        const enqueued = await enqueueJob(
-          tx,
-          orgId,
-          { runId: run.id, step, idx, sendId },
-          action,
-        );
-        if (enqueued && action.kind === "place_call") {
-          pushAttempt(attempts, "voice", iso);
-          callSendId = sendId;
-        } else if (enqueued && action.kind === "send_wa") {
-          pushAttempt(attempts, "whatsapp", iso);
-        }
-      } else {
-        await applyInlineAction(tx, orgId, run.id, run, action);
-      }
+      if (EXTERNAL.has(action.kind))
+        callSendId =
+          (await queueExternal(tx, orgId, run, { step, idx }, action, {
+            attempts,
+            iso,
+          })) ?? callSendId;
+      else await applyInlineAction(tx, orgId, run.id, run, action);
     }
   }
   if (!final) return; // drive never yields an empty walk; this guards the type-checker
@@ -393,6 +381,37 @@ async function enqueueJob(
   if (queue === "short in job_common") return queued > 0;
   // coverage gap: every database the tests use has the action queues, policy 'short', so none meets a missing one
   throw new Error(`queue ${action.kind}: ${queue ?? "missing"}`);
+}
+
+/**
+ * Queues an external action's job, and records the channel attempt only when the job is actually queued (singleton_key
+ * may dedupe a re-tick of a still-parked run: no new job means no new attempt). For a call, the send id of the call
+ * job the run now waits for: the new job's or, when its job is still queued (deduplicated), the one the run names.
+ */
+async function queueExternal(
+  tx: PoolClient,
+  orgId: string,
+  run: RunRow,
+  at: { step: string; idx: number },
+  action: Action,
+  { attempts, iso }: { attempts: Attempts; iso: string },
+): Promise<string | undefined> {
+  const sendId = randomUUID();
+  const enqueued = await enqueueJob(
+    tx,
+    orgId,
+    { runId: run.id, ...at, sendId },
+    action,
+  );
+  if (enqueued && action.kind === "send_wa")
+    pushAttempt(attempts, "whatsapp", iso);
+  if (action.kind !== "place_call") return;
+  if (enqueued) {
+    pushAttempt(attempts, "voice", iso);
+    return sendId;
+  }
+  const queued = run.state?.callSendId;
+  return typeof queued === "string" ? queued : undefined;
 }
 
 /** Apply an inline (no job hop) action in the same tx: outcomes / tasks writes. */
