@@ -12,7 +12,7 @@ import { testCompanies } from "../../../tests/test-companies";
 import { startRun } from "../src/runs";
 import { tick } from "../src/scheduler";
 
-// app_service is the RLS-bound backend role withOrg connects as (docs/security.md S1.2). Seeds +
+// app_service is the RLS-bound backend role withOrg connects as (docs/security.md, "Tenancy & identity"). Seeds +
 // assertions use the superuser (admin) pool, which bypasses RLS — the functions under test use
 // appPool, which also owns pg-boss's tables, so it reads and clears this file's queued jobs.
 const DB_URL =
