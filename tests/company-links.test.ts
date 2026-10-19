@@ -324,7 +324,7 @@ describe("links between company records", () => {
     expect(seen).toEqual(expected);
   });
 
-  // behaviour already on main: only the run it writes changed, to an ended one, so the open run oneOfEach made stays the lead's only open run in that sequence (migration 025)
+  // behaviour already on main: migration 019 is applied to the one local database both copies of the code run against; before it, the worker's login took another company's workflow
   it("refuses another company's record to the worker's own login too, where a trigger guards the link", async () => {
     const worker = createPool(
       process.env.DATABASE_URL ||
