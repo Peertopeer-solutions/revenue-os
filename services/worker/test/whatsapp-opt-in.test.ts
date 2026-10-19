@@ -91,13 +91,25 @@ const optInOf = async (contactId: string) =>
     )
   ).rows[0]?.opt_in ?? null;
 
-const leadByPhone = async (number: string) =>
-  (
-    await admin.query<{ contact_id: string }>(
-      `select contact_id from contact_identities where org_id = $1 and kind = 'phone' and value = $2`,
-      [orgId, number],
-    )
-  ).rows[0]?.contact_id ?? "";
+/**
+ * The company's lead a list filed under this phone number, given the same number as their WhatsApp number (an import
+ * records phone numbers only), so a refused message is the opt-in's doing, never a missing number.
+ */
+async function leadByPhone(number: string): Promise<string> {
+  const lead =
+    (
+      await admin.query<{ contact_id: string }>(
+        `select contact_id from contact_identities where org_id = $1 and kind = 'phone' and value = $2`,
+        [orgId, number],
+      )
+    ).rows[0]?.contact_id ?? "";
+  await admin.query(
+    `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
+     values ($1, $2, 'whatsapp', $3, false) on conflict do nothing`,
+    [orgId, lead, number],
+  );
+  return lead;
+}
 
 /** The lead's opt-in and opt-out audit rows, in any company. */
 const audits = async (contactId: string) =>
