@@ -816,11 +816,14 @@ describe("place_call never dials the same call twice", () => {
     expect(run.state.lastDisposition ?? null).toBeNull();
   });
 
-  it("a call job for another step than the run's does nothing, whether it carries the run's send id or none (queued before send ids)", async () => {
+  it("a call job for another step than the run's does nothing, whether it carries the run's send id or none (queued before send ids), and a job naming no step does nothing while its run is on a step that isn't a call", async () => {
     const sendId = randomUUID();
     const runId = await seedRun(await seedWorkflow(TWO_CALLS), {
       currentStep: "c2",
       state: { contactId, callSendId: sendId },
+    });
+    const onWait = await seedRun(await seedWorkflow(TWO_CALLS), {
+      currentStep: "w",
     });
     let dialled = 0;
     const deps: PlaceCallDeps = {
@@ -846,11 +849,14 @@ describe("place_call never dials the same call twice", () => {
 
     await handlePlaceCall(deps, { ...c1, sendId });
     await handlePlaceCall(deps, c1);
+    await handlePlaceCall(deps, { orgId, runId: onWait, action: c1.action }); // built by hand: no send id, no step
 
     expect(dialled).toBe(0);
-    expect(await sendOf(runId)).toEqual([]);
-    const run = await getRun(runId);
-    expect(run.status).toBe("waiting");
-    expect(run.state.lastDisposition ?? null).toBeNull();
+    for (const id of [runId, onWait]) {
+      expect(await sendOf(id)).toEqual([]);
+      const run = await getRun(id);
+      expect(run.status).toBe("waiting");
+      expect(run.state.lastDisposition ?? null).toBeNull();
+    }
   });
 });
