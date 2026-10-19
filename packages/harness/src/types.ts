@@ -72,6 +72,7 @@ export interface LlmProvider {
     tools?: ToolSpec[];
     maxTokens?: number;
     timeoutMs?: number;
+    signal?: AbortSignal; // aborted when the turn gives up waiting (src/time-limit.ts)
   }): Promise<LlmTurn>;
 }
 

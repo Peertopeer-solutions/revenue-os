@@ -73,6 +73,7 @@ export function createAnthropicProvider(config: {
           "content-type": "application/json",
         },
         body: JSON.stringify(body),
+        signal: req.signal,
       });
       if (!res.ok) {
         // Body read is best-effort: an unreadable/non-JSON body must never turn the failure

@@ -4,11 +4,17 @@
 // G1: runtime-agnostic — no bun:* imports, no Bun globals in this package.
 export { assembleContext } from "./context";
 export { createAnthropicProvider } from "./llm";
-export { runTurn, type TurnDeps } from "./loop";
+export {
+  MODEL_TIME_LIMIT_MS,
+  type OrgUnits,
+  runTurn,
+  type TurnDeps,
+} from "./loop";
 export { emitUsage } from "./meter";
 export { autonomyHook, defaultPipeline, guard } from "./policies";
 export { ToolRegistry } from "./registry";
 export { retrieveMemories } from "./retrieval";
+export { TimeLimitError, withTimeLimit } from "./time-limit";
 export { buildCatalog, type SendPort } from "./tools";
 export type * from "./types";
 export { interpret } from "./workflow/interpret";
