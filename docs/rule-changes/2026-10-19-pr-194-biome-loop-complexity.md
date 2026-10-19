@@ -1,0 +1,1 @@
+- 2026-10-19 · [#194](https://github.com/Peertopeer-solutions/revenue-os/pull/194) · biome.json: packages/harness/src/loop.ts loses its exemption from the cognitive-complexity limit of 20, as runTurn hands each tool call to runTool · tighter
