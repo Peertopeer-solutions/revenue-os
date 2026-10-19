@@ -26,7 +26,10 @@ export async function handleSendWa(
     const run = reload.rows[0];
     if (!run) return; // RLS-hidden (cross-tenant) or gone
 …
-    return { payload, send, earlier: await findSend(tx, orgId, send.key) };
+    const key = sendKey("send_wa", job);
+    const earlier = await findSend(tx, orgId, key);
+…
+    return { payload, send, earlier };
   });
   if (!claim) return;
   const { payload, send, earlier } = claim;

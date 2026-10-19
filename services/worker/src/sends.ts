@@ -6,7 +6,7 @@
 // (docs/decisions-in-force/2026-09-25-scheduler-database-error-policy.md).
 import type { GuardedAction, OrgCtx, Verdict } from "@harness/types";
 import type { DoorwayResult, GuardFn } from "@revenue-os/channels";
-import { withOrg } from "@revenue-os/db";
+import { createTask, withOrg } from "@revenue-os/db";
 import type { Pool, PoolClient } from "pg";
 
 export type SendStatus = "sending" | "sent" | "blocked" | "unknown";
@@ -157,17 +157,14 @@ export async function handOver(
     [orgId, send.key, reason],
   );
   if (!changed.rowCount) return false;
-  await tx.query(
-    `insert into tasks (org_id, contact_id, workflow_run_id, kind, title, payload)
-     values ($1, $2, $3, 'review', $4, $5::jsonb)`,
-    [
-      orgId,
-      send.contactId,
-      send.runId,
-      TITLES[send.channel],
-      JSON.stringify({ reason, sendKey: send.key, channel: send.channel }),
-    ],
-  );
+  await createTask(tx, orgId, {
+    contactId: send.contactId,
+    workflowRunId: send.runId,
+    kind: "review",
+    title: TITLES[send.channel],
+    payload: { reason, sendKey: send.key, channel: send.channel },
+    actor: { type: "system" },
+  });
   if (send.channel === "voice")
     await tx.query(
       `update workflow_runs set status = 'failed', last_error = $2, updated_at = now()

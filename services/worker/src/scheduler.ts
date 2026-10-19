@@ -11,7 +11,7 @@
 // A run whose definition dangles (interpret throws) is dead-lettered: status 'failed', last_error
 // captured, and the tick keeps going.
 import { randomUUID } from "node:crypto";
-import { withOrg } from "@revenue-os/db";
+import { createTask, type TaskKind, withOrg } from "@revenue-os/db";
 import {
   type Action,
   interpret,
@@ -423,16 +423,19 @@ async function applyInlineAction(
     return;
   }
   if (action.kind === "create_task") {
+    // The step's own kind and title, as its definition gives them; the database refuses a kind it doesn't know.
     const { kind, title, ...payload } = action.task as {
-      kind?: string;
-      title?: string;
+      kind: TaskKind;
+      title: string;
     } & Record<string, unknown>;
-    await tx.query(
-      `insert into tasks
-         (org_id, workflow_run_id, contact_id, kind, title, payload)
-       values ($1, $2, $3, $4, $5, $6::jsonb)`,
-      [orgId, runId, run.contact_id, kind, title, JSON.stringify(payload)],
-    );
+    await createTask(tx, orgId, {
+      contactId: run.contact_id,
+      workflowRunId: runId,
+      kind,
+      title,
+      payload,
+      actor: { type: "system" },
+    });
     return;
   }
   throw new Error(`unhandled inline action: ${action.kind}`);

@@ -6,9 +6,11 @@
 //     review task says so, so nobody sends it again;
 //   - saved as blocked, or handed over already: nothing more;
 //   - never saved: the job failed before it reached the provider: a review task, and the failure on the run.
-// A call's run, which waits on the call and can't route without its result, is parked as failed in the last two.
+// A call's run, which waits on the call and can't route without its result, is parked as failed in the last two. Each
+// task is made by createTask, with its audit row, once per failed job however often the sink is handed it; a run the
+// company doesn't have gets none.
 // A partial or malformed payload resolves without throwing; a database failure throws, so this queue retries it.
-import { withOrg } from "@revenue-os/db";
+import { createTask, withOrg } from "@revenue-os/db";
 import { OrgIdSchema } from "@revenue-os/shared";
 import type { Pool, PoolClient } from "pg";
 import { findSend, handOver, type Send, type SendJob, sendKey } from "../sends";
@@ -62,33 +64,36 @@ function sendOf(job: CallPostJob, runId: string): Send | undefined {
 /** Records the failure on the run, parking a call's run, and gives a person a review task on the run's lead. */
 async function recordFailure(
   tx: PoolClient,
-  { orgId, error, action }: CallPostJob,
+  job: CallPostJob,
   runId: string,
   saved: { providerRef: string | null } | undefined,
 ): Promise<void> {
+  const { orgId, error, action } = job;
   const call = action?.kind !== "send_wa";
   const went = saved ? "went" : "not";
-  await tx.query(
+  const run = await tx.query(
     `update workflow_runs
         set last_error = $2, updated_at = now(),
             status = case when $4::boolean and status = 'waiting' then 'failed' else status end
-      where id = $1 and org_id = $3`,
+      where id = $1 and org_id = $3
+      returning contact_id`,
     [runId, error ?? FAILED[went], orgId, call],
   );
-  await tx.query(
-    `insert into tasks (org_id, contact_id, workflow_run_id, kind, title, payload)
-     values ($1, (select contact_id from workflow_runs where id = $2 and org_id = $1), $2, 'review', $3, $4::jsonb)`,
-    [
-      orgId,
-      runId,
-      TITLES[`${call ? "call" : "message"} ${went}`],
-      JSON.stringify({
-        error: error ?? null,
-        action: action ?? null,
-        providerRef: saved?.providerRef ?? null,
-      }),
-    ],
-  );
+  const contactId = run.rows[0]?.contact_id;
+  if (typeof contactId !== "string") return; // not this company's run, or gone
+  await createTask(tx, orgId, {
+    contactId,
+    workflowRunId: runId,
+    kind: "review",
+    title: TITLES[`${call ? "call" : "message"} ${went}` as const],
+    payload: {
+      error: error ?? null,
+      action: action ?? null,
+      providerRef: saved?.providerRef ?? null,
+    },
+    actor: { type: "system" },
+    once: `call.post:${sendKey(action?.kind ?? "job", { ...job, runId })}`, // the same failed job handed over again
+  });
 }
 
 /** Why the sink hands a lead over: the job saved its send, then failed every try before it saved the answer. */
@@ -98,7 +103,7 @@ const FAILED = {
   went: "the provider took the send, then its job failed every try",
   not: "its job failed every try before the send was saved",
 };
-const TITLES: Record<string, string> = {
+const TITLES: Record<`${"call" | "message"} ${"went" | "not"}`, string> = {
   "call went": "This call went out, but its result was never recorded",
   "message went": "This WhatsApp message went out, but it was never recorded",
   "call not": "Call failed — needs review",

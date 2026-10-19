@@ -1,5 +1,7 @@
 // Org bootstrap + membership helpers — the only sanctioned queries for these flows (AGENTS.md: DB
-// access only via packages/db).
+// access only via packages/db). Every grant of access to a company goes through grant(), which records who granted it
+// and writes its member.add audit row in the same transaction (`bun run guards` fails any other insert into
+// org_members).
 // G1: runtime-agnostic.
 import type {
   AddMember,
@@ -9,13 +11,34 @@ import type {
 } from "@revenue-os/shared";
 import type pg from "pg";
 import { audit } from "./audit";
-import { withOrg } from "./client";
+import { type Db, withOrg } from "./client";
 
 export interface OrgRow {
   id: string;
   name: string;
   slug: string;
   role: OrgRole;
+}
+
+/** Gives `userId` the role `role` in the company, granted by `actorUserId`, with its member.add audit row. */
+async function grant(
+  tx: Db,
+  orgId: string,
+  member: { userId: string; role: OrgRole },
+  actorUserId: string,
+): Promise<void> {
+  await tx.query(
+    `insert into org_members (org_id, user_id, role, granted_by) values ($1, $2, $3, $4)`,
+    [orgId, member.userId, member.role, actorUserId],
+  );
+  await audit(tx, orgId, {
+    actorType: "user",
+    actorId: actorUserId,
+    action: "member.add",
+    resourceType: "member",
+    resourceId: member.userId,
+    after: { user_id: member.userId, role: member.role },
+  });
 }
 
 /** Create an org and its first admin membership in one org-scoped transaction. */
@@ -29,10 +52,7 @@ export async function createOrgWithAdmin(
       `insert into orgs (id, name, slug, vertical) values ($1, $2, $3, $4)`,
       [id, input.name, input.slug, input.vertical],
     );
-    await tx.query(
-      `insert into org_members (org_id, user_id, role) values ($1, $2, 'admin')`,
-      [id, input.userId],
-    );
+    await grant(tx, id, { userId: input.userId, role: "admin" }, input.userId);
     await audit(tx, id, {
       actorType: "user",
       actorId: input.userId,
@@ -94,19 +114,16 @@ export async function memberRole(
   });
 }
 
-/** Adds `member` to the company: false, with nothing written, when member.userId names no one (no profiles row). */
+/** Adds `member` to the company, granted by `actorUserId`: false, with nothing written, when member.userId names no
+ *  one (no profiles row). */
 export async function addMember(
   pool: pg.Pool,
   orgId: string,
   member: AddMember,
+  actorUserId: string,
 ): Promise<boolean> {
   try {
-    await withOrg(pool, orgId, async (tx) => {
-      await tx.query(
-        `insert into org_members (org_id, user_id, role) values ($1, $2, $3)`,
-        [orgId, member.userId, member.role],
-      );
-    });
+    await withOrg(pool, orgId, (tx) => grant(tx, orgId, member, actorUserId));
     return true;
   } catch (err) {
     // Only this foreign key is the caller's mistake; any other failure, another foreign key included, is a fault.

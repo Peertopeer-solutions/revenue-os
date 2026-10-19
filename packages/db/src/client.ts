@@ -7,6 +7,15 @@ import pg from "pg";
 
 export type { PoolClient } from "pg";
 
+/** A transaction's query door, as withOrg hands it out: what the shared write operations (createTask, audit,
+ *  leadNumber) take, so each writes inside its caller's transaction. The harness hands its tools the same shape. */
+export type Db = {
+  query(
+    text: string,
+    values?: unknown[],
+  ): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }>;
+};
+
 export function createPool(connectionString: string): pg.Pool {
   return new pg.Pool({ connectionString });
 }

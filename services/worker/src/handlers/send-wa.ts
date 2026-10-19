@@ -14,9 +14,9 @@
 //   3. Record the outbound message + usage, once.
 import type { GuardedAction, OrgCtx, Verdict } from "@harness/types";
 import { type WaPayload, wa } from "@revenue-os/channels";
-import { withOrg } from "@revenue-os/db";
+import { createTask, leadNumber, withOrg } from "@revenue-os/db";
 import { emitUsage } from "@revenue-os/harness";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import {
   findSend,
   handOver,
@@ -72,19 +72,36 @@ export async function handleSendWa(
     const run = reload.rows[0];
     if (!run) return; // RLS-hidden (cross-tenant) or gone
     const state = (run.state ?? {}) as { vars?: Record<string, string> };
+    const key = sendKey("send_wa", job);
+    const earlier = await findSend(tx, orgId, key);
+    const to = await leadNumber(tx, orgId, action.contactId, "whatsapp");
+    if (!earlier && !to) {
+      // No WhatsApp number (none on file, or the lead was deleted or merged): nothing is sent, and a person is handed
+      // the lead with the reason, never a silent drop.
+      await createTask(tx, orgId, {
+        contactId: action.contactId,
+        workflowRunId: runId,
+        kind: "review",
+        title: "WhatsApp message not sent — no WhatsApp number",
+        payload: { reason: "no_whatsapp_number", template: action.template },
+        actor: { type: "system" },
+        once: `${key}:no-number`,
+      });
+      return;
+    }
     const payload: WaPayload = {
-      to: await resolveTo(tx, orgId, action.contactId),
+      to: to ?? "", // a message saved before is never sent again: only a new one needs the number
       template: action.template,
       vars: { ...action.vars, ...(state.vars ?? {}) },
     };
     const send: Send = {
-      key: sendKey("send_wa", job),
+      key,
       channel: "whatsapp",
       contactId: action.contactId,
       runId,
       payload,
     };
-    return { payload, send, earlier: await findSend(tx, orgId, send.key) };
+    return { payload, send, earlier };
   });
   if (!claim) return;
   const { payload, send, earlier } = claim;
@@ -166,19 +183,4 @@ async function record(
       meta: { sendKey: send.key, template: action.template },
     });
   });
-}
-
-/** Resolve the company's contact's WhatsApp destination (E.164), primary first. */
-async function resolveTo(
-  tx: PoolClient,
-  orgId: string,
-  contactId: string,
-): Promise<string> {
-  const r = await tx.query(
-    `select value from contact_identities
-      where org_id = $1 and contact_id = $2 and kind = 'whatsapp'
-      order by is_primary desc, created_at asc limit 1`,
-    [orgId, contactId],
-  );
-  return (r.rows[0]?.value as string) ?? "";
 }

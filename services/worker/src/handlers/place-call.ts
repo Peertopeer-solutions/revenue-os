@@ -24,7 +24,7 @@ import type {
   Verdict,
 } from "@harness/types";
 import { voice } from "@revenue-os/channels";
-import { withOrg } from "@revenue-os/db";
+import { createTask, leadNumber, withOrg } from "@revenue-os/db";
 import { runTurn } from "@revenue-os/harness";
 import type { Pool, PoolClient } from "pg";
 import {
@@ -96,7 +96,7 @@ export async function handlePlaceCall(
   // 1. reload (the stale checks NO-OP before the guard) and look up this job's saved call.
   const claim = await withOrg(deps.pool, orgId, async (tx) => {
     if (!(await waitingForCall(tx, job))) return;
-    const to = await resolveTo(tx, orgId, action.contactId);
+    const to = await leadNumber(tx, orgId, action.contactId, "voice");
     const send: Send = {
       key: sendKey("place_call", job),
       channel: "voice",
@@ -119,13 +119,30 @@ export async function handlePlaceCall(
       )
     ).rows[0] as Agent | undefined;
     if (!agent) return; // no active agent to place the call, or to drive its turn
+    if (!earlier && !to) {
+      // No number to call (none on file, or the lead was deleted or merged): nothing is placed, the reason is saved
+      // and a person is handed the lead, never a silent stop.
+      await tx.query(
+        `update workflow_runs set last_error = $2, updated_at = now() where id = $1 and org_id = $3`,
+        [runId, "no number to call", orgId],
+      );
+      await createTask(tx, orgId, {
+        contactId: action.contactId,
+        workflowRunId: runId,
+        kind: "review",
+        title: "Call not placed — no number to call",
+        payload: { reason: "no_number" },
+        actor: { type: "system" },
+        once: `${send.key}:no-number`,
+      });
+    }
     return { agent, to, send, earlier };
   });
   if (!claim || "handedOver" in claim) return;
   const { agent, to, send, earlier } = claim;
   if (earlier?.status === "sent" && earlier.providerRef)
     return fold(deps, job, agent, earlier.providerRef); // dialled before; its outcome is still to fold
-  if (earlier) return; // blocked, or already handed over: nothing to do
+  if (earlier || !to) return; // blocked or already handed over; or no number, handed to a person above
 
   // 2. guard BEFORE the dial; the call is saved with the guard's verdict, then dialled with no transaction open.
   const placed = await sendOnce(deps.pool, orgId, send, deps.guard, (guard) =>
@@ -232,19 +249,4 @@ async function waitingForCall(
   return def?.steps?.[run.current_step as string]?.kind === "call"
     ? state
     : undefined;
-}
-
-/** Resolve an E.164 destination for the company's contact (any phone-bearing identity, primary first). */
-async function resolveTo(
-  tx: PoolClient,
-  orgId: string,
-  contactId: string,
-): Promise<string> {
-  const r = await tx.query(
-    `select value from contact_identities
-      where org_id = $1 and contact_id = $2 and kind in ('phone','whatsapp')
-      order by is_primary desc, created_at asc limit 1`,
-    [orgId, contactId],
-  );
-  return (r.rows[0]?.value as string) ?? "";
 }

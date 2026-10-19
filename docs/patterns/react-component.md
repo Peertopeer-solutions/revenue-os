@@ -93,8 +93,8 @@ export function ConversationsPage() {
                   </TD>
                   …
 ```
-Rules: a component file stays at 150 lines or fewer, or a part of it moves out (the Settings page, 247 lines, is the
-one over: `docs/fix-when-touched.md`, entry 10, splits it) · primitives take typed props and use design tokens, with
+Rules: a component file stays at 150 lines or fewer, or a part of it moves out (as the Settings page's two guardrail
+forms moved to `apps/console/src/pages/Settings/QuietHoursForm.tsx` and `AutonomyForm.tsx`) · primitives take typed props and use design tokens, with
 no data or app logic · a feature component gets everything it shows as props, never from a query hook or the
 sign-in client · a page only composes, and never fetches or re-declares a response shape · loading, error and empty
 go through `DataShell` where the data lands · second usage → promote: a piece a second screen needs moves into its

@@ -1,10 +1,11 @@
 // The AI's turn loop (docs/tech-stack.md T26.5): build the prompt, ask the model, record usage, validate the tool
 // arguments with zod, run guard(), run the tool, write the audit row, append the tool's result as a message, and repeat
-// up to MAX_TOOL_ROUNDS times before saving the model's closing message.
+// up to MAX_TOOL_ROUNDS times before saving the model's closing message. The audit row and an approval's task are
+// written by the database package's one writers (audit, createTask), in the turn's own transaction.
 // Stateless: every effect is a row; a crash mid-turn loses nothing that matters.
 // G1: runtime-agnostic.
 
-import { emitAudit } from "./audit";
+import { audit, createTask } from "@revenue-os/db";
 import { assembleContext } from "./context";
 import { emitUsage } from "./meter";
 import { guard } from "./policies";
@@ -51,6 +52,37 @@ async function conversationContactId(
   );
   const id = r.rows[0]?.contact_id;
   return typeof id === "string" ? id : undefined;
+}
+
+/** An approval-gated tool call becomes a task for a person (AGENTS.md hard rail 5: never a silent drop), always for the
+ *  conversation's lead and its run. A conversation with no lead leaves no one to ask about, so the turn fails, loudly. */
+async function askForApproval(
+  ctx: OrgCtx,
+  conversationId: string,
+  tool: string,
+  args: unknown,
+): Promise<void> {
+  const convo = (
+    await ctx.db.query(
+      `select contact_id, workflow_run_id from conversations where id = $1 and org_id = $2`,
+      [conversationId, ctx.orgId],
+    )
+  ).rows[0];
+  const contactId = convo?.contact_id;
+  if (typeof contactId !== "string")
+    throw new Error(
+      `an approval is a task for the conversation's lead, and conversation ${conversationId} has none`,
+    );
+  const run = convo?.workflow_run_id;
+  await createTask(ctx.db, ctx.orgId, {
+    contactId,
+    conversationId,
+    workflowRunId: typeof run === "string" ? run : undefined,
+    kind: "approval",
+    title: `Approve: ${tool}`,
+    payload: { tool, args },
+    actor: { type: "agent" },
+  });
 }
 
 export interface TurnDeps {
@@ -170,7 +202,7 @@ export async function runTurn(
           { ...ctx, conversationId },
           parsed.data as never,
         );
-        await emitAudit(ctx, {
+        await audit(ctx.db, ctx.orgId, {
           actorType: "agent",
           action: `tool.${tool.name}`,
           resourceType: "conversation",
@@ -178,17 +210,7 @@ export async function runTurn(
           meta: { round, ok: result.ok },
         });
       } else if (verdict.reason === "approval_required") {
-        // approval-gated → a human task, never a silent drop (AGENTS.md hard rail 5)
-        await ctx.db.query(
-          `insert into tasks (org_id, conversation_id, kind, title, payload)
-					 values ($1, $2, 'approval', $3, $4)`,
-          [
-            ctx.orgId,
-            conversationId,
-            `Approve: ${tool.name}`,
-            JSON.stringify({ tool: tool.name, args: parsed.data }),
-          ],
-        );
+        await askForApproval(ctx, conversationId, tool.name, parsed.data);
         result = { ok: false, error: "approval_required" };
       } else {
         result = { ok: false, error: verdict.reason };

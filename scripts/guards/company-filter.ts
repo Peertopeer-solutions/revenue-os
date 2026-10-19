@@ -20,6 +20,11 @@
 // org_id. A read that must look across companies goes through an app.* security-definer function, as app.due_org_ids
 // does.
 //
+// It also holds three tables to one writer each (ONE_WRITER): an insert into tasks, audit_log or org_members fails
+// anywhere but the file that owns the table in packages/db (createTask; audit; the audited member grant), so every task
+// is for a lead and every audit row and access grant is written one way. A write's target is always the real table,
+// whatever a common table expression is named, and a merge statement fails anywhere in the SQL.
+//
 // Known limits: it proves the SQL names a company parameter, not that $n holds the request's company (the tests that
 // run with the database's rules off cover that); SQL in database functions is not read; a `query` reached by
 // destructuring or by a bracket (tx["query"]) is not seen; it tells a regex from a division by the token before it,
@@ -40,6 +45,12 @@ const NOT_PRODUCT =
 const TEMPLATES = new Set(["agents", "workflows", "eval_scenarios"]); // the only tables whose org_id may be empty
 const NO_ORG_ID = new Set(["profiles", "platform_operators"]); // public tables without an org_id column
 const KNOWN_SCHEMA = /^(?:app|pgboss)\./;
+// The only file that may insert into each of these tables (scripts and tests outside SCOPE aside).
+const ONE_WRITER: Record<string, string> = {
+  tasks: "packages/db/src/tasks.ts",
+  audit_log: "packages/db/src/audit.ts",
+  org_members: "packages/db/src/orgs.ts",
+};
 const HOLE = "\u0001"; // a ${…} in a template literal
 const ODD = "\u0002"; // SQL this guard would read differently from the database
 const HOW =
@@ -287,8 +298,8 @@ type Ref = {
 };
 type Cond = { q: string; col: string; template?: boolean };
 
-/** The problems in one call's SQL, each at its offset in the SQL text. */
-function problemsIn(sql: string): { at: number; what: string }[] {
+/** The problems in one call's SQL in `file`, each at its offset in the SQL text. */
+function problemsIn(sql: string, file: string): { at: number; what: string }[] {
   const T = sqlTokens(sql);
   const out: { at: number; what: string }[] = [];
   const odd = T.find((t) => t.t === ODD);
@@ -305,6 +316,12 @@ function problemsIn(sql: string): { at: number; what: string }[] {
         at: t.at,
         what: `a \${…} piece in the SQL, which can add tables or conditions this guard can't see: write the whole SQL at the call, values as $n parameters`,
       });
+  const merge = T.find((t) => t.t === "merge" && t.name && !t.quoted);
+  if (merge)
+    out.push({
+      at: merge.at,
+      what: "a merge statement, which this guard can't check: use select, insert, update or delete with the company filter",
+    });
   const is = (i: number | undefined, v: string) =>
     i !== undefined && T[i]?.t === v;
   const kw = (i: number | undefined, ...words: string[]) =>
@@ -486,8 +503,8 @@ function problemsIn(sql: string): { at: number; what: string }[] {
               at: t.at,
               what: `${table}, a table in a schema this guard doesn't know: use a public table, or an app.* function`,
             });
-        } else if (t.t.includes(".") || !cte(table, i))
-          ref = { table, q: table, at: t.at, verb };
+        } else if (t.t.includes(".") || verb !== "read" || !cte(table, i))
+          ref = { table, q: table, at: t.at, verb }; // a write's target is the real table, whatever a CTE is named
         const after = T[A[m] as number];
         if (kw(A[m], "as")) {
           if (ref) ref.q = T[A[m + 1] as number]?.t ?? table;
@@ -545,6 +562,12 @@ function problemsIn(sql: string): { at: number; what: string }[] {
       const col = r.table === "orgs" ? "id" : "org_id";
       const named = r.q === r.table ? r.table : `${r.table} (as ${r.q})`;
       if (r.verb === "inserted into") {
+        const owner = ONE_WRITER[r.table];
+        if (owner && owner !== file)
+          out.push({
+            at: r.at,
+            what: `inserts into ${r.table}, which only ${owner} writes: call its function instead`,
+          });
         if (!r.cols)
           out.push({
             at: r.at,
@@ -679,7 +702,7 @@ for (const f of listed.split("\0")) {
     const line = newlines(src, c.at) + 1;
     if (c.problem) problems.push(`${f}:${line}: ${c.problem}`);
     else
-      for (const p of problemsIn(c.sql ?? ""))
+      for (const p of problemsIn(c.sql ?? "", f))
         problems.push(`${f}:${line + newlines(c.sql ?? "", p.at)}: ${p.what}`);
   }
 }

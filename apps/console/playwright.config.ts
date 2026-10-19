@@ -10,7 +10,9 @@
 //     is built against it, and global-setup.ts seeds the workspace the auth spec signs in to.
 //   - `bun run e2e` with no stack env — only the console starts, built with the designed-dummy
 //     VITE_ pair (NOT secrets; paired copy in ci.yml's "Console build (dummy env)" step — change
-//     both together): the boot smoke passes, the auth spec fails with its own "must be set" error.
+//     both together) and a dummy API address (a production build refuses to start without one, and
+//     that build of ci.yml's is never started): the start-up check reaches the sign-in screen, the
+//     signed-in specs fail with their own "must be set" error.
 //     `-- --list` collects every spec with no browser, no webServer and no global setup.
 // e2e specs sit OUTSIDE tsc scope by design (Node-runner vs DOM types); `--list` is their syntax gate.
 //
@@ -85,6 +87,7 @@ export default defineConfig({
           process.env.VITE_SUPABASE_URL || "https://dummy.invalid",
         VITE_SUPABASE_ANON_KEY:
           process.env.VITE_SUPABASE_ANON_KEY || "dummy-not-a-key",
+        VITE_API_URL: apiUrl || "https://api.dummy.invalid",
       },
     },
     // The marketing site, built to dist-e2e like the console (never its checked dist/).
