@@ -385,7 +385,6 @@ describe("an imported list", () => {
     });
 
   // behaviour already on main: the list now also opts its leads in to WhatsApp, so each refusal stays the block's doing
-
   it("a lead the list marks do-not-call is blocked, whether new or already the company's, and their next send is refused", async () => {
     const [fresh, known, open] = [phone(), phone(), phone()];
     const existing = await newLead(orgId, known);
