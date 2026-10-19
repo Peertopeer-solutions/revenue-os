@@ -10,6 +10,7 @@
 // rolls its whole tx back — enqueue included — and is left 'waiting', never advanced (atomicity).
 // A run whose definition dangles (interpret throws) is dead-lettered: status 'failed', last_error
 // captured, and the tick keeps going.
+import { randomUUID } from "node:crypto";
 import { createTask, type TaskKind, withOrg } from "@revenue-os/db";
 import {
   type Action,
@@ -29,8 +30,8 @@ export type TickResult = { processed: number };
 
 /**
  * External-action queues, one per action kind. The worker (jobs.ts) MUST createQueue()
- * each of these (policy 'short') at startup — pgboss.job is partitioned BY LIST(name) with an
- * FK to pgboss.queue, so the raw insert below FK-fails against a queue that does not exist yet.
+ * each of these (policy 'short') at startup: enqueueJob below copies each job's settings from its
+ * queue's row and refuses a queue that does not exist yet.
  */
 export const ACTION_QUEUES = [
   "place_call",
@@ -281,21 +282,17 @@ async function applyTransitions(
   delete attempts[APPLY_ERRORS]; // this apply commits — an earlier transient failure is spent
 
   let final: Transition | undefined;
+  let callSendId: string | undefined; // the call job this run will wait for, when the walk queues one
   for (const { step, transition } of steps) {
     final = transition;
     for (const [idx, action] of transition.actions.entries()) {
-      if (EXTERNAL.has(action.kind)) {
-        // Record the channel attempt only when the job is actually enqueued (singleton_key may
-        // dedupe a re-tick of a still-parked run — no new job means no new attempt).
-        const enqueued = await enqueueJob(tx, orgId, run.id, step, idx, action);
-        if (enqueued && action.kind === "place_call") {
-          pushAttempt(attempts, "voice", iso);
-        } else if (enqueued && action.kind === "send_wa") {
-          pushAttempt(attempts, "whatsapp", iso);
-        }
-      } else {
-        await applyInlineAction(tx, orgId, run.id, run, action);
-      }
+      if (EXTERNAL.has(action.kind))
+        callSendId =
+          (await queueExternal(tx, orgId, run, { step, idx }, action, {
+            attempts,
+            iso,
+          })) ?? callSendId;
+      else await applyInlineAction(tx, orgId, run.id, run, action);
     }
   }
   if (!final) return; // drive never yields an empty walk; this guards the type-checker
@@ -317,13 +314,44 @@ async function applyTransitions(
       run.id,
       final.runStatus,
       nextStep,
-      JSON.stringify({ ...finalState, currentStep: undefined }),
+      JSON.stringify({ ...finalState, currentStep: undefined, callSendId }),
       final.wakeAt,
       JSON.stringify(attempts),
       final.runStatus === "completed" ? iso : null,
       orgId,
     ],
   );
+}
+
+/**
+ * Queues an external action's job, and records the channel attempt only when the job is actually queued (singleton_key
+ * may dedupe a re-tick of a still-parked run: no new job means no new attempt). For a call, the send id of the call
+ * job the run now waits for: the new job's or, when its job is still queued (deduplicated), the one the run names.
+ */
+async function queueExternal(
+  tx: PoolClient,
+  orgId: string,
+  run: RunRow,
+  at: { step: string; idx: number },
+  action: Action,
+  { attempts, iso }: { attempts: Attempts; iso: string },
+): Promise<string | undefined> {
+  const sendId = randomUUID();
+  const enqueued = await enqueueJob(
+    tx,
+    orgId,
+    { runId: run.id, ...at, sendId },
+    action,
+  );
+  if (enqueued && action.kind === "send_wa")
+    pushAttempt(attempts, "whatsapp", iso);
+  if (action.kind !== "place_call") return;
+  if (enqueued) {
+    pushAttempt(attempts, "voice", iso);
+    return sendId;
+  }
+  const queued = run.state?.callSendId;
+  return typeof queued === "string" ? queued : undefined;
 }
 
 /**
@@ -334,33 +362,56 @@ async function applyTransitions(
  * which is where the `job_i1` dedup index lives and which app_service owns (migration 015). This
  * also sidesteps a privilege split: app_service is not the parent `job`'s effective DML owner in
  * some stacks, but always owns the partition it works through (proven by the pg-boss send path).
+ * Every job takes its queue's own retry and failure settings from pgboss.queue, as pg-boss's own
+ * `send` gives them (retries, their delay, expiry, how long it is kept, the dead-letter queue), so
+ * changing a queue in jobs.ts changes its scheduled jobs too; a queue missing, or not policy 'short'
+ * in job_common, fails the apply rather than queue a job its settings or dedupe would not hold.
  * Idempotent by singleton_key `<runId>:<step>:<idx>` + policy 'short' (job_i1 dedupes while
  * state='created'), so a re-tick of a still-parked run no-ops. Payload = ids + action only; the
- * job handler re-scopes via withOrg. `step`/`idx` ride the payload so the HANDLER's own
- * exactly-once marker identifies THIS SEND, not the template — two steps may legitimately share one
- * template (the reminder cadence), and the two dedupe layers must agree. Returns true iff a row was
- * inserted.
+ * job handler re-scopes via withOrg. `sendId` is this job's own: every delivery and retry of the job
+ * carries it, so the handler saves its send under it (src/sends.ts) and never sends twice, while a
+ * later visit to the same step is a new job with a new id. `step`/`idx` ride the payload too.
+ * Returns true iff a row was inserted.
  */
 async function enqueueJob(
   tx: PoolClient,
   orgId: string,
-  runId: string,
-  step: string,
-  idx: number,
+  job: { runId: string; step: string; idx: number; sendId: string },
   action: Action,
 ): Promise<boolean> {
+  const { runId, step, idx, sendId } = job;
   const singletonKey = `${runId}:${step}:${idx}`;
-  const r = await tx.query(
-    `insert into pgboss.job_common (name, data, singleton_key, policy)
-     values ($1, $2::jsonb, $3, 'short')
-     on conflict do nothing`,
+  const r = await tx.query<{ queue: string | null; queued: number }>(
+    `with q as (select * from pgboss.queue where name = $1),
+          queued as (
+            insert into pgboss.job_common
+              (name, data, singleton_key, policy, retry_limit, retry_delay, retry_backoff, retry_delay_max,
+               expire_seconds, deletion_seconds, keep_until, dead_letter, heartbeat_seconds)
+            select name, $2::jsonb, $3, policy, retry_limit, retry_delay, retry_backoff, retry_delay_max,
+                   expire_seconds, deletion_seconds, now() + retention_seconds * interval '1 second',
+                   dead_letter, heartbeat_seconds
+              from q where policy = 'short' and table_name = 'job_common'
+            on conflict do nothing
+            returning 1)
+     select (select policy || ' in ' || table_name from q) as queue,
+            (select count(*) from queued)::int as queued`,
     [
       action.kind,
-      JSON.stringify({ orgId, runId, step, idx, action }),
+      JSON.stringify({
+        orgId,
+        runId,
+        step,
+        idx,
+        sendId,
+        action,
+      }),
       singletonKey,
     ],
   );
-  return (r.rowCount ?? 0) > 0;
+  const { queue, queued } = r.rows[0] ?? { queue: null, queued: 0 };
+  if (queue === "short in job_common") return queued > 0;
+  // coverage gap: every database the tests use has the action queues, policy 'short', so none meets a missing one
+  throw new Error(`queue ${action.kind}: ${queue ?? "missing"}`);
 }
 
 /** Apply an inline (no job hop) action in the same tx: outcomes / tasks writes. */

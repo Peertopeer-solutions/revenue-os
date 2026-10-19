@@ -6,9 +6,12 @@
 // schema, so it runs with the local stack's settings (`bun run gate`, CI). Correctness-critical:
 // the atomicity, SKIP LOCKED, singleton_key and place_call-doesn't-advance assertions are exact.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { randomUUID } from "node:crypto";
+import { ToolRegistry } from "@revenue-os/harness";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 import { testCompanies } from "../../../tests/test-companies";
+import { handlePlaceCall } from "../src/handlers/place-call";
 import { startRun } from "../src/runs";
 import { tick } from "../src/scheduler";
 
@@ -314,6 +317,70 @@ describe("scheduler tick + run writer", () => {
     expect((await jobsFor(`${runId}:c:0`)).length).toBe(1); // still exactly one job
   });
 
+  it("a re-poll of the still-parked call step keeps the run waiting for the call job still queued, which then dials once", async () => {
+    const lead = (
+      await admin.query(
+        `insert into contacts (org_id, first_name) values ($1, 'Re-poll') returning id`,
+        [orgId],
+      )
+    ).rows[0].id;
+    await admin.query(
+      `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
+       values ($1, $2, 'phone', '+919800033344', true)`,
+      [orgId, lead],
+    );
+    await admin.query(
+      `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
+       values ($1, 'repoll', 1, 'active', 'm', 'You call.', '{}')`,
+      [orgId],
+    );
+    const runId = await seedRun(
+      await seedWorkflow({
+        entry: "c",
+        steps: {
+          c: { kind: "call", agent: "repoll", on: { completed: "end" } },
+          end: { kind: "end" },
+        },
+      }),
+      { currentStep: "c", state: { contactId: lead }, contact: lead },
+    );
+
+    await tick(appPool, orgId, { now: new Date() }); // queues the call job and parks the run on it
+    await admin.query(
+      `update workflow_runs set wake_at = now() - interval '1 hour', status = 'waiting' where id = $1`,
+      [runId],
+    );
+    await tick(appPool, orgId, { now: new Date() }); // the same call queued again: deduplicated
+
+    const [queued] = await jobsFor(`${runId}:c:0`);
+    expect(queued.data.sendId).toEqual(expect.any(String));
+    expect((await getRun(runId)).state.callSendId).toBe(queued.data.sendId); // the run still waits for that job
+    let dialled = 0;
+    await handlePlaceCall(
+      {
+        pool: appPool,
+        guard: async () => ({ ok: true }),
+        sender: {
+          place: async () => {
+            dialled += 1;
+            return { providerRef: `vapi-repoll-${randomUUID()}` };
+          },
+        },
+        provider: {
+          complete: async () => ({
+            text: "Namaste.",
+            usage: { in: 1, out: 1 },
+          }),
+        },
+        registry: new ToolRegistry(),
+        outcome: async () => "completed",
+      },
+      queued.data,
+    );
+    expect(dialled).toBe(1);
+    expect((await getRun(runId)).state.lastDisposition).toBe("completed");
+  });
+
   it("FOR UPDATE SKIP LOCKED: a run locked by a concurrent tx is skipped, not double-processed", async () => {
     const workflowId = await seedWorkflow(CALL_WF);
     const runId = await seedRun(workflowId, {
@@ -453,5 +520,84 @@ describe("scheduler tick + run writer", () => {
     expect((await jobsFor(`${runId}:call_2:0`)).length).toBe(1);
     expect(Array.isArray(run.attempts.voice)).toBe(true);
     expect(run.attempts.voice.length).toBe(1); // one place_call attempt, for call_2
+  });
+});
+
+// What pg-boss reads from a queued job when it runs, retries or fails it: the settings a job takes from its queue.
+const JOB_SETTINGS = `policy, retry_limit, retry_delay, retry_backoff, retry_delay_max, expire_seconds,
+  deletion_seconds, extract(epoch from keep_until - created_on)::int as kept_seconds, dead_letter, heartbeat_seconds`;
+
+describe("every job the scheduler queues keeps its queue's retry and failure settings", () => {
+  it("a scheduled call job has exactly the settings pg-boss's own send gives a job on its queue, the worker's dead letter included", async () => {
+    // The dead letter the worker gives place_call (services/worker/src/jobs.ts), so a call job that keeps failing
+    // reaches a person through call.post.
+    await boss.createQueue("call.post");
+    await boss.updateQueue("place_call", { deadLetter: "call.post" });
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+      state: { contactId },
+    });
+
+    await tick(appPool, orgId, { now: new Date() });
+    const reference = await boss.send(
+      "place_call",
+      { orgId, runId },
+      { singletonKey: `reference:${runId}` },
+    );
+
+    const scheduled = await appPool.query(
+      `select ${JOB_SETTINGS} from pgboss.job where singleton_key = $1`,
+      [`${runId}:c:0`],
+    );
+    const sent = await appPool.query(
+      `select ${JOB_SETTINGS} from pgboss.job where id = $1`,
+      [reference],
+    );
+    expect(scheduled.rows).toHaveLength(1);
+    expect(scheduled.rows).toEqual(sent.rows);
+    expect(scheduled.rows[0].dead_letter).toBe("call.post");
+  });
+
+  it("each queued job carries a send id of its own, which a later visit to the same step does not share", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+      state: { contactId },
+    });
+
+    await tick(appPool, orgId, { now: new Date() });
+    const [first] = await jobsFor(`${runId}:c:0`);
+    // the job ran and the call's outcome routed the run back onto the same call step: the next tick queues again
+    await appPool.query(
+      `update pgboss.job set state = 'completed' where singleton_key = $1`,
+      [`${runId}:c:0`],
+    );
+    await admin.query(
+      `update workflow_runs set status = 'waiting', wake_at = now() - interval '1 minute' where id = $1`,
+      [runId],
+    );
+    await tick(appPool, orgId, { now: new Date() });
+    const both = await jobsFor(`${runId}:c:0`);
+    const again = both.find((j) => j.data.sendId !== first.data.sendId);
+
+    expect(both).toHaveLength(2); // the first visit's job and the second's
+    expect(first.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(again?.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe("a run parked on a call names the call job it waits for", () => {
+  it("the parked run's state holds the send id of the call job the tick queued, so a late run of an older job can be told apart", async () => {
+    const runId = await seedRun(await seedWorkflow(CALL_WF), {
+      currentStep: "c",
+      state: { contactId },
+    });
+
+    await tick(appPool, orgId, { now: new Date() });
+
+    const [queued] = await jobsFor(`${runId}:c:0`);
+    const run = await getRun(runId);
+    expect(run.status).toBe("waiting");
+    expect(queued.data.sendId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(run.state.callSendId).toBe(queued.data.sendId);
   });
 });

@@ -30,7 +30,7 @@ let waSeq = 0;
 
 /**
  * A scripted LlmProvider: returns turns[i] then advances, holding the LAST turn once exhausted
- * (the loop.test / handlers.test idiom). runTurn stops the moment a turn has no toolCalls, so a
+ * (the loop.test idiom, as place-call.test.ts and agent-turn.test.ts use it). runTurn stops the moment a turn has no toolCalls, so a
  * call that must BOOK scripts [bookToolCall, closingText] and a no-answer call scripts [text].
  */
 export function makeScriptedLlm(turns: LlmTurn[]): LlmProvider {

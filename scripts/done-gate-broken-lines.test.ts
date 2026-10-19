@@ -38,6 +38,7 @@ describe("kindOf: which files are guardrail, tenancy or money code", () => {
   it("names each kind by path, and leaves out tests, type declarations and other files", () => {
     expect(kindOf("packages/harness/src/policies.ts")).toBe("guardrail");
     expect(kindOf("packages/channels/src/whatsapp.ts")).toBe("guardrail");
+    expect(kindOf("services/worker/src/sends.ts")).toBe("guardrail");
     expect(kindOf("services/worker/src/routes/guardrail-policies.ts")).toBe(
       "guardrail",
     );
