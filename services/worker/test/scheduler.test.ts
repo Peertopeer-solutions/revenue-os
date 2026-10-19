@@ -301,8 +301,9 @@ describe("scheduler tick + run writer", () => {
     await tick(appPool, orgId, { now: new Date() }); // tick 1 -> enqueues place_call (runId:c:0), run parks
 
     // re-arm the run at the SAME step (a retry / re-poll of the still-parked call step)
+    // an hour in the PAST, so it is due even if the database clock runs ahead of the host's
     await admin.query(
-      `update workflow_runs set wake_at = now(), status = 'waiting' where id = $1`,
+      `update workflow_runs set wake_at = now() - interval '1 hour', status = 'waiting' where id = $1`,
       [runId],
     );
     // tick 2 must NOT throw — the duplicate enqueue conflicts on singleton_key and no-ops
