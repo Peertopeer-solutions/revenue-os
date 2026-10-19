@@ -665,7 +665,7 @@ describe("send_wa on the lead's thread", () => {
     ]);
   });
 
-  it("a send and an AI turn writing to the lead's thread at once take turns: the send waits for the turn, and lines 1 to 3 are all kept on one thread", async () => {
+  it("a send while an AI turn waits for its model goes on the lead's thread as line 2, and the turn, its answer now out of date, adds no line: one thread, every saved line in order", async () => {
     const lead = (
       await admin.query(
         `insert into contacts (org_id, first_name) values ($1, 'Ravi') returning id`,
@@ -727,8 +727,7 @@ describe("send_wa on the lead's thread", () => {
       contact: lead,
       state: { contactId: lead },
     });
-    let sendDone = false;
-    const send = handleSendWa(
+    await handleSendWa(
       {
         pool: appPool,
         guard: async () => ({ ok: true }),
@@ -747,22 +746,22 @@ describe("send_wa on the lead's thread", () => {
           vars: {},
         },
       },
-    ).then(() => {
-      sendDone = true;
-    });
-    await new Promise((r) => setTimeout(r, 300));
-    expect(sendDone).toBe(false); // the send's line waits for the turn's
-    release();
-    await Promise.all([turn, send]);
-    const lines = await admin.query(
-      "select seq, role, content from messages where conversation_id = $1 order by seq",
-      [thread],
-    );
-    expect(lines.rows).toEqual([
+    ); // the turn holds no lock while its model thinks, so the send goes through now
+    const lines = async () =>
+      (
+        await admin.query(
+          "select seq, role, content from messages where conversation_id = $1 order by seq",
+          [thread],
+        )
+      ).rows;
+    const saved = [
       { seq: 1, role: "contact", content: "Hi" },
-      { seq: 2, role: "agent", content: "Hello Ravi" },
-      { seq: 3, role: "agent", content: "template:welcome" },
-    ]);
+      { seq: 2, role: "agent", content: "template:welcome" },
+    ];
+    expect(await lines()).toEqual(saved);
+    release();
+    await turn;
+    expect(await lines()).toEqual(saved); // the turn's out-of-date answer is not saved
     const threads = await admin.query(
       "select count(*)::int n from conversations where org_id = $1 and contact_id = $2",
       [orgId, lead],
