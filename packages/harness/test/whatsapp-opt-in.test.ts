@@ -123,11 +123,13 @@ describe("guard() with the WhatsApp opt-in check", () => {
     ).toEqual({ ok: true });
   });
 
-  // behaviour already on main: do-not-call runs first and named the refusal before the opt-in check existed; this pins that the new check does not take its place
-  it("names do-not-call, not the opt-in, when a lead is blocked and opted in to nothing", async () => {
+  it("names do-not-call when a lead is blocked and opted in to nothing, and the opt-in when the same lead is only not opted in", async () => {
     expect(await guard(company(lead(null, true)).ctx, send())).toEqual({
       ok: false,
       reason: "dnc",
     });
+    expect(await guard(company(lead(null, false)).ctx, send())).toEqual(
+      REFUSED,
+    );
   });
 });
