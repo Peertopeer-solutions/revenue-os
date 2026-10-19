@@ -115,3 +115,26 @@ it("leaves a send that is sent, blocked or handed over already as it is: no task
     expect(await after(send)).toEqual({ status, tasks: 0, run: "waiting" });
   }
 });
+
+it("says why in words a person reads: an error's message, anything else thrown as it is, cut to 500 characters", async () => {
+  const unsure = "could not tell whether the provider took it: "; // 45 characters
+  const cases: [unknown, string][] = [
+    [new Error("dialer timed out"), `${unsure}dialer timed out`],
+    ["socket closed", `${unsure}socket closed`],
+    [new Error("x".repeat(600)), `${unsure}${"x".repeat(455)}`],
+  ];
+  for (const [why, reason] of cases) {
+    const send = await savedCall("sending");
+
+    await withOrg(appPool, orgId, (tx) => handOver(tx, orgId, send, why));
+
+    const saved = await admin.query(
+      `select s.reason, t.payload->>'reason' as task, r.last_error
+         from sends s join tasks t on t.workflow_run_id = s.workflow_run_id
+         join workflow_runs r on r.id = s.workflow_run_id
+        where s.send_key = $1`,
+      [send.key],
+    );
+    expect(saved.rows).toEqual([{ reason, task: reason, last_error: reason }]);
+  }
+});

@@ -396,6 +396,25 @@ async function reviewTasks(runId: string) {
   return r.rows;
 }
 
+/** c1 → (no answer) → wait a day → c2, as the scheduler parks it. */
+const TWO_CALLS = {
+  entry: "c1",
+  steps: {
+    c1: {
+      kind: "call",
+      agent: "closer",
+      on: { no_answer: "w", completed: "end" },
+    },
+    w: { kind: "wait", for: "P1D", then: "c2" },
+    c2: {
+      kind: "call",
+      agent: "closer",
+      on: { completed: "end", no_answer: "end" },
+    },
+    end: { kind: "end" },
+  },
+};
+
 describe("place_call never dials the same call twice", () => {
   /** A call job as the scheduler queues it, and its run parked on the call step naming that job's send id. */
   async function callRun() {
@@ -418,9 +437,13 @@ describe("place_call never dials the same call twice", () => {
   it("the dialer takes the call but its answer is lost: the job never dials again, a person is handed the lead, the run is parked", async () => {
     const { runId, once } = await callRun();
     let dialled = 0;
+    let checks = 0;
     const deps: PlaceCallDeps = {
       pool: appPool,
-      guard: async () => ({ ok: true }),
+      guard: async () => {
+        checks += 1;
+        return { ok: true };
+      },
       sender: {
         place: async () => {
           dialled += 1; // the dialer placed the call …
@@ -436,10 +459,15 @@ describe("place_call never dials the same call twice", () => {
     await handlePlaceCall(deps, once); // the same job delivered again
 
     expect(dialled).toBe(1);
+    expect(checks).toBe(1); // the second delivery stopped at the call handed over, before the guardrails
     expect(await countConversations(runId)).toBe(0);
+    const why = "could not tell whether the provider took it: dialer timed out";
     const [send] = await sendOf(runId);
-    expect(send).toMatchObject({ status: "unknown", provider_ref: null });
-    expect(send.reason).toContain("dialer timed out");
+    expect(send).toMatchObject({
+      status: "unknown",
+      provider_ref: null,
+      reason: why,
+    });
     expect(send.payload).toEqual({ to: "+919876500000" }); // what was about to be dialled, saved first
     const tasks = await reviewTasks(runId);
     expect(tasks).toHaveLength(1); // handed over once, not once per delivery
@@ -447,10 +475,10 @@ describe("place_call never dials the same call twice", () => {
       contact_id: contactId,
       title: "Check whether this call went out before calling again",
     });
-    expect(tasks[0].payload.reason).toContain("dialer timed out");
+    expect(tasks[0].payload.reason).toBe(why);
     const run = await getRun(runId);
     expect(run.status).toBe("failed"); // parked for the person: a call whose result is unknown can't route
-    expect(run.last_error).toContain("dialer timed out");
+    expect(run.last_error).toBe(why);
   });
 
   it("the database goes away right after the dialer took the call: the job fails, and its next run hands the lead over without dialling again", async () => {
@@ -584,29 +612,11 @@ describe("place_call never dials the same call twice", () => {
   });
 
   it("a late run of an older call job does nothing, whether its run now waits for a newer call job or on a timer before the next call", async () => {
-    // c1 → (no answer) → wait a day → c2, as the scheduler parks it
-    const twoCalls = {
-      entry: "c1",
-      steps: {
-        c1: {
-          kind: "call",
-          agent: "closer",
-          on: { no_answer: "w", completed: "end" },
-        },
-        w: { kind: "wait", for: "P1D", then: "c2" },
-        c2: {
-          kind: "call",
-          agent: "closer",
-          on: { completed: "end", no_answer: "end" },
-        },
-        end: { kind: "end" },
-      },
-    };
-    const onNewerCall = await seedRun(await seedWorkflow(twoCalls), {
+    const onNewerCall = await seedRun(await seedWorkflow(TWO_CALLS), {
       currentStep: "c2",
       state: { contactId, callSendId: randomUUID() }, // the scheduler queued c2's call
     });
-    const onTimer = await seedRun(await seedWorkflow(twoCalls), {
+    const onTimer = await seedRun(await seedWorkflow(TWO_CALLS), {
       currentStep: "c2", // a wait parks the run on its next step, and names no call job
       wakeAt: new Date(Date.now() + 86_400_000),
     });
@@ -719,12 +729,16 @@ describe("place_call never dials the same call twice", () => {
     expect(run.state.lastDisposition ?? null).toBeNull();
   });
 
-  it("a call the guardrails refuse is saved as blocked with the reason, and its job delivered again dials nothing", async () => {
+  it("a call the guardrails refuse is saved as blocked with the reason, and its job delivered again dials nothing and asks the guardrails nothing", async () => {
     const { runId, once } = await callRun();
     let dialled = 0;
+    let checks = 0;
     const deps: PlaceCallDeps = {
       pool: appPool,
-      guard: async () => ({ ok: false, reason: "quiet_hours" }) as const,
+      guard: async () => {
+        checks += 1;
+        return { ok: false, reason: "quiet_hours" } as const;
+      },
       sender: {
         place: async () => {
           dialled += 1;
@@ -740,9 +754,103 @@ describe("place_call never dials the same call twice", () => {
     await handlePlaceCall(deps, once);
 
     expect(dialled).toBe(0);
+    expect(checks).toBe(1); // the second delivery stopped at the blocked call
     expect(await sendOf(runId)).toEqual([
       expect.objectContaining({ status: "blocked", reason: "quiet_hours" }),
     ]);
     expect(await reviewTasks(runId)).toHaveLength(0);
+  });
+
+  it("a late run of an older call job on a step visited again does nothing: the run waits for the newer job's call", async () => {
+    // c → (no answer) → wait a day → c again: the scheduler queued a new call job for the second visit
+    const loop = {
+      entry: "c",
+      steps: {
+        c: {
+          kind: "call",
+          agent: "closer",
+          on: { no_answer: "w", completed: "end" },
+        },
+        w: { kind: "wait", for: "P1D", then: "c" },
+        end: { kind: "end" },
+      },
+    };
+    const runId = await seedRun(await seedWorkflow(loop), {
+      currentStep: "c",
+      state: { contactId, callSendId: randomUUID() },
+    });
+    let dialled = 0;
+    let checks = 0;
+    const deps: PlaceCallDeps = {
+      pool: appPool,
+      guard: async () => {
+        checks += 1;
+        return { ok: true };
+      },
+      sender: {
+        place: async () => {
+          dialled += 1;
+          return { providerRef: `vapi-revisit-${REF}` };
+        },
+      },
+      provider: fakeLlm([{ text: "x", usage: { in: 1, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => "completed",
+    };
+
+    // the first visit's job, on the same step, run again after its outcome was folded
+    await handlePlaceCall(deps, {
+      orgId,
+      runId,
+      sendId: randomUUID(),
+      step: "c",
+      idx: 0,
+      action: { kind: "place_call", contactId, agentKey: "closer" },
+    });
+
+    expect(dialled).toBe(0);
+    expect(checks).toBe(0);
+    expect(await sendOf(runId)).toEqual([]);
+    const run = await getRun(runId);
+    expect(run.status).toBe("waiting");
+    expect(run.state.lastDisposition ?? null).toBeNull();
+  });
+
+  it("a call job for another step than the run's does nothing, whether it carries the run's send id or none (queued before send ids)", async () => {
+    const sendId = randomUUID();
+    const runId = await seedRun(await seedWorkflow(TWO_CALLS), {
+      currentStep: "c2",
+      state: { contactId, callSendId: sendId },
+    });
+    let dialled = 0;
+    const deps: PlaceCallDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        place: async () => {
+          dialled += 1;
+          return { providerRef: `vapi-other-step-${REF}` };
+        },
+      },
+      provider: fakeLlm([{ text: "x", usage: { in: 1, out: 1 } }]),
+      registry: new ToolRegistry(),
+      outcome: async () => "completed",
+    };
+    const c1 = {
+      orgId,
+      runId,
+      step: "c1",
+      idx: 0,
+      action: { kind: "place_call" as const, contactId, agentKey: "closer" },
+    };
+
+    await handlePlaceCall(deps, { ...c1, sendId });
+    await handlePlaceCall(deps, c1);
+
+    expect(dialled).toBe(0);
+    expect(await sendOf(runId)).toEqual([]);
+    const run = await getRun(runId);
+    expect(run.status).toBe("waiting");
+    expect(run.state.lastDisposition ?? null).toBeNull();
   });
 });

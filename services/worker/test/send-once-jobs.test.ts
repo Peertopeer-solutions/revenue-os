@@ -2,8 +2,8 @@
 // src/jobs.ts) on real pg-boss and the real local database, in a pg-boss schema of this test's own
 // (fixtures/test-job-schema.ts), with pretend providers at its ports and a database pool that can be made to fail its
 // next connection (fixtures/flaky-pool.ts). A job that fails after the provider took its send is run again by pg-boss
-// with its queue's own retry settings, and that run hands the lead to a person instead of sending again; the same job
-// queued twice sends once.
+// with its queue's own retry limit and dead letter, and that run hands the lead to a person instead of sending again;
+// the same job queued twice sends once.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { LlmProvider } from "@revenue-os/harness";
@@ -89,6 +89,10 @@ beforeAll(async () => {
     schedule: false,
   });
   await queue.start();
+  // Retries come at once here, not 2, 4 and 8 seconds apart: the worker's own retry settings are checked in
+  // queue-settings.test.ts; this file checks what each retry does.
+  for (const q of ["place_call", "send_wa"])
+    await queue.updateQueue(q, { retryDelay: 0, retryBackoff: false });
 }, 60_000);
 
 afterAll(async () => {
@@ -291,7 +295,7 @@ describe("the worker's job runner hands every failed send to a person, and runs 
       },
     });
 
-    const [job] = await ended([id], 60_000); // its queue's three retries come about 2, 4 and 8 seconds apart
+    const [job] = await ended([id]); // its queue's three retries
     expect(job?.state).toBe("failed");
     const deadline = Date.now() + 30_000;
     let tasks: { title: string }[] = [];
