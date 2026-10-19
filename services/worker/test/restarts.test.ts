@@ -4,18 +4,15 @@
 // its running call finish before it exits; the next worker takes the job it left. A worker killed mid-send leaves its
 // jobs running in pg-boss with no one alive behind them: the next worker picks them up again, and neither the call
 // nor the WhatsApp message is sent twice; each lead goes to a person, since nobody knows whether the send went out.
+// The next worker is this test's own job runner (startJobs, with pretend providers that record each send);
+// restarts-signal.test.ts checks the stop on a signal in this process.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 import { testCompanies } from "../../../tests/test-companies";
-import {
-  jobQueueReachable,
-  startJobs,
-  stopJobs,
-  stopOnSignal,
-} from "../src/jobs";
+import { startJobs, stopJobs } from "../src/jobs";
 import { testJobSchema } from "./fixtures/test-job-schema";
 
 const DB_URL =
@@ -122,6 +119,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  await stopJobs();
   for (const w of workers) w.proc.kill("SIGKILL");
   await Promise.all(workers.map((w) => w.proc.exited));
   await queue.stop({ graceful: false });
@@ -194,22 +192,38 @@ const reviewTasks = async (runId: string) =>
     )
   ).rows;
 
+/** Every number the next worker's pretend dialer and WhatsApp service were asked to reach. */
+const nextSent: string[] = [];
+
+/** Starts this test's own job runner as the next worker, checking every second for jobs whose worker died. */
+const startNextWorker = () =>
+  startJobs(
+    {
+      ...jobs.settings,
+      superviseIntervalSeconds: 1,
+      monitorIntervalSeconds: 1,
+    },
+    {
+      voice: {
+        place: async ({ to }) => {
+          nextSent.push(to);
+          return { providerRef: `vapi-next-${randomUUID()}` };
+        },
+      },
+      wa: {
+        send: async ({ to }) => {
+          nextSent.push(to);
+          return { providerRef: `wamid.next-${randomUUID()}` };
+        },
+      },
+      outcome: async () => "completed",
+      provider: {
+        complete: async () => ({ text: "Namaste.", usage: { in: 1, out: 1 } }),
+      },
+    },
+  );
+
 describe("a worker stopped for a restart or deploy loses no work", () => {
-  it("SIGTERM stops the worker's job runner (it no longer answers ready), and then the worker exits", async () => {
-    await startJobs(jobs.settings);
-    expect(await jobQueueReachable()).toBe(true);
-    let exits = 0;
-    stopOnSignal(() => exits++);
-
-    process.emit("SIGTERM");
-    await until(() => exits === 1, "the worker never exited");
-
-    expect(await jobQueueReachable()).toBe(false);
-    process.emit("SIGINT"); // Ctrl-C stops it the same way
-    await until(() => exits === 2, "the worker never exited on SIGINT");
-    await stopJobs();
-  }, 30_000);
-
   it("on SIGTERM the worker takes no new job and lets its running call finish, then exits; the next worker takes the job it left", async () => {
     const worker = await startWorker(3_000);
     const first = await lead("place_call");
@@ -233,15 +247,14 @@ describe("a worker stopped for a restart or deploy loses no work", () => {
     expect(said(worker, "placed", second.number)).toBe(0);
     expect((await jobState(secondId))?.state).toBe("created"); // left in the queue, untouched
 
-    const next = await startWorker(0);
+    await startNextWorker();
     await until(
       async () => (await jobState(secondId))?.state === "completed",
       "the next worker never took the job",
     );
-    expect(said(next, "placed", second.number)).toBe(1);
+    await stopJobs();
+    expect(nextSent.filter((n) => n === second.number)).toHaveLength(1);
     expect(await sendsOf(second.runId)).toEqual(["sent"]);
-    next.proc.kill("SIGTERM");
-    expect(await next.proc.exited).toBe(0);
   }, 60_000);
 });
 
@@ -272,7 +285,7 @@ describe("a worker killed mid-send loses no work and sends nothing twice", () =>
     expect((await jobState(callId))?.state).toBe("active"); // nobody alive is working it
     expect(await sendsOf(call.runId)).toEqual(["sending"]);
 
-    const next = await startWorker(0);
+    await startNextWorker();
     await until(
       async () =>
         (await jobState(callId))?.state === "completed" &&
@@ -280,6 +293,7 @@ describe("a worker killed mid-send loses no work and sends nothing twice", () =>
       "the next worker never picked the jobs up",
       45_000,
     );
+    await stopJobs();
 
     for (const [id, { runId, contactId }] of [
       [callId, call],
@@ -292,7 +306,7 @@ describe("a worker killed mid-send loses no work and sends nothing twice", () =>
       expect(await sendsOf(runId)).toEqual(["unknown"]);
       expect(await reviewTasks(runId)).toEqual([{ contact_id: contactId }]);
     }
-    expect(said(next, "placed", call.number)).toBe(0);
-    expect(said(next, "messaged", message.number)).toBe(0);
+    expect(nextSent).not.toContain(call.number);
+    expect(nextSent).not.toContain(message.number);
   }, 90_000);
 });
