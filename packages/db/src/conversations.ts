@@ -90,7 +90,8 @@ export type ConvoStatus =
  *   (the call's own events, or the job that placed it). A second open only fills what is still missing, keeps the
  *   earliest start time, and marks the call outbound when the job that placed it says so; it never overwrites.
  * - A thread (a lead, no call id: WhatsApp now): the lead's open thread on that channel is reused, and follows the
- *   newest run that writes to it (docs/decisions-in-force/2026-10-19-a-lead-s-open-thread-is-reused.md).
+ *   newest run that writes to it (docs/decisions-in-force/2026-10-19-a-lead-s-open-thread-is-reused.md). Two opens
+ *   at once for one lead and channel take turns, so they never make two threads.
  * - Anyone else (no lead, no call id): a new conversation.
  */
 export async function openConversation(
@@ -133,28 +134,54 @@ export async function openConversation(
          returning id`,
         values,
       )
-    : c.contactId
-      ? await db.query(
-          `insert into conversations
-             (org_id, contact_id, workflow_run_id, agent_id, channel, direction, status, provider, provider_ref, started_at)
-           values ($1, $2, $3, $4, $5, $6, 'active', $7, $8, coalesce($9::timestamptz, now()))
-           on conflict (org_id, contact_id, channel)
-             where contact_id is not null and provider_ref is null and status in ('queued', 'ringing', 'active')
-           do update set
-             workflow_run_id = coalesce(excluded.workflow_run_id, conversations.workflow_run_id),
-             agent_id = coalesce(conversations.agent_id, excluded.agent_id),
-             provider = coalesce(conversations.provider, excluded.provider)
-           returning id`,
-          values,
-        )
-      : await db.query(
-          `insert into conversations
+    : (c.contactId && (await openThread(db, orgId, c.contactId, c))) ||
+      (await db.query(
+        `insert into conversations
              (org_id, contact_id, workflow_run_id, agent_id, channel, direction, status, provider, provider_ref, started_at)
            values ($1, $2, $3, $4, $5, $6, 'active', $7, $8, coalesce($9::timestamptz, now()))
            returning id`,
-          values,
-        );
+        values,
+      ));
   return String(opened.rows[0]?.id);
+}
+
+/** The lead's newest open thread on the channel, now following the given run, or nothing: the opener then inserts one.
+ *  A lock per company, lead and channel, held to the end of the caller's transaction, makes two opens take turns. */
+async function openThread(
+  db: Db,
+  orgId: string,
+  contactId: string,
+  c: {
+    channel: string;
+    workflowRunId?: string;
+    agentId?: string;
+    provider?: string;
+  },
+) {
+  await db.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    `thread:${orgId}:${contactId}:${c.channel}`,
+  ]);
+  const reused = await db.query(
+    `update conversations
+        set workflow_run_id = coalesce($4, workflow_run_id),
+            agent_id = coalesce(agent_id, $5),
+            provider = coalesce(provider, $6)
+      where org_id = $1 and id = (
+        select id from conversations
+         where org_id = $1 and contact_id = $2 and channel = $3 and provider_ref is null
+           and status in ('queued', 'ringing', 'active')
+         order by created_at desc, id desc limit 1)
+      returning id`,
+    [
+      orgId,
+      contactId,
+      c.channel,
+      c.workflowRunId ?? null,
+      c.agentId ?? null,
+      c.provider ?? null,
+    ],
+  );
+  return reused.rowCount ? reused : undefined;
 }
 
 /**

@@ -1,8 +1,8 @@
 // The one way each conversation operation is written (openConversation, addMessage, finishConversation), against the
 // real local database as app_service through withOrg, the worker's own login. Fixtures are made as postgres (row-level
 // security doesn't apply to it). Covers: a lead's open thread reused, a call's conversation filled in by whichever
-// writer comes second, two writers adding messages at once, an outcome that is this company's own, and migration 022's
-// rule of one open thread per lead and channel.
+// writer comes second, two writers adding messages at once, an outcome that is this company's own, and two opens at once
+// for one lead making one thread.
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
@@ -322,35 +322,46 @@ describe("finishConversation", () => {
   });
 });
 
-describe("migration 022: one open thread per lead and channel", () => {
-  it("refuses a second open thread for a lead, and allows a call, another channel and a finished thread beside it", async () => {
+describe("two opens at once", () => {
+  it("make one thread for a lead and channel: the second waits for the first and reuses its thread", async () => {
     const contactId = await lead();
-    const insert = (channel: string, status: string, ref: string | null) =>
-      admin.query(
-        `insert into conversations (org_id, contact_id, channel, direction, status, provider, provider_ref)
-         values ($1, $2, $3, 'outbound', $4, $5, $6)`,
-        [orgA, contactId, channel, status, ref ? "vapi" : null, ref],
-      );
-    await insert("whatsapp", "active", null);
-    await expect(insert("whatsapp", "queued", null)).rejects.toThrow(
-      "convo_open_thread_uq",
-    );
-    await insert("whatsapp", "completed", null);
-    await insert("sms", "active", null);
-    await insert("voice", "active", `call-${randomUUID()}`);
-    await insert("voice", "active", `call-${randomUUID()}`);
-    const active = await admin.query(
-      "select count(*)::int n from conversations where org_id = $1 and contact_id = $2 and status = 'active'",
+    let releaseFirst = () => {};
+    const held = new Promise<void>((r) => {
+      releaseFirst = r;
+    });
+    let firstOpened = () => {};
+    const opened = new Promise<void>((r) => {
+      firstOpened = r;
+    });
+    const first = withOrg(app, orgA, async (tx) => {
+      const id = await openConversation(tx, orgA, {
+        channel: "whatsapp",
+        direction: "outbound",
+        contactId,
+      });
+      firstOpened();
+      await held; // the first opener's transaction stays open, its thread not yet visible to others
+      return id;
+    });
+    await opened;
+    let secondDone = false;
+    const second = open({
+      channel: "whatsapp",
+      direction: "inbound",
+      contactId,
+    }).then((id) => {
+      secondDone = true;
+      return id;
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(secondDone).toBe(false); // it waits for the first
+    releaseFirst();
+    const [a, b] = await Promise.all([first, second]);
+    expect(b).toBe(a);
+    const threads = await admin.query(
+      "select count(*)::int n from conversations where org_id = $1 and contact_id = $2",
       [orgA, contactId],
     );
-    expect(active.rows[0]?.n).toBe(4);
-    // openConversation finds that one open WhatsApp thread through the index
-    const thread = await admin.query(
-      `select id from conversations where org_id = $1 and contact_id = $2 and channel = 'whatsapp' and status = 'active'`,
-      [orgA, contactId],
-    );
-    expect(
-      await open({ channel: "whatsapp", direction: "outbound", contactId }),
-    ).toBe(thread.rows[0]?.id);
+    expect(threads.rows[0]?.n).toBe(1);
   });
 });
