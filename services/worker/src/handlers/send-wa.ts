@@ -10,9 +10,9 @@
 //      send; record the outbound message + usage (the usage row is the durable exactly-once marker).
 import type { GuardedAction, OrgCtx, Verdict } from "@harness/types";
 import { wa } from "@revenue-os/channels";
-import { withOrg } from "@revenue-os/db";
+import { createTask, leadNumber, withOrg } from "@revenue-os/db";
 import { emitUsage } from "@revenue-os/harness";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 
 /** WhatsApp sender port — structural superset of channels' WaSender (local, no channels dep). */
 export type WaSenderPort = {
@@ -83,7 +83,21 @@ export async function handleSendWa(
 
     // 2 + 3. MERGE (run/contact vars WIN) then guard BEFORE the send.
     const vars = { ...action.vars, ...(state.vars ?? {}) };
-    const to = await resolveTo(tx, orgId, action.contactId);
+    const to = await leadNumber(tx, orgId, action.contactId, "whatsapp");
+    if (!to) {
+      // No WhatsApp number (none on file, or the lead was deleted or merged): nothing is sent, and a person is handed
+      // the lead with the reason, never a silent drop.
+      await createTask(tx, orgId, {
+        contactId: action.contactId,
+        workflowRunId: runId,
+        kind: "review",
+        title: "WhatsApp message not sent — no WhatsApp number",
+        payload: { reason: "no_whatsapp_number", template: action.template },
+        actor: { type: "system" },
+        once: `${dedupeKey}:no-number`,
+      });
+      return;
+    }
     const doorway = await wa.send(
       { sender: deps.sender, guard: deps.guard },
       ctx,
@@ -125,19 +139,4 @@ export async function handleSendWa(
       meta: { dedupeKey, template: action.template },
     });
   });
-}
-
-/** Resolve the company's contact's WhatsApp destination (E.164), primary first. */
-async function resolveTo(
-  tx: PoolClient,
-  orgId: string,
-  contactId: string,
-): Promise<string> {
-  const r = await tx.query(
-    `select value from contact_identities
-      where org_id = $1 and contact_id = $2 and kind = 'whatsapp'
-      order by is_primary desc, created_at asc limit 1`,
-    [orgId, contactId],
-  );
-  return (r.rows[0]?.value as string) ?? "";
 }
