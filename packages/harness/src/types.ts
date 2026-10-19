@@ -1,8 +1,8 @@
-// The AI engine's shared types (docs/tech-stack.md, section T26.1) — every one lives here, nowhere else.
+// Every type the engine shares lives here, nowhere else (docs/tech-stack.md T26.1).
 // G1: runtime-agnostic.
 import type { z } from "zod";
 
-/** Structural view of packages/db's tx client — the ONLY door to data. */
+/** Structural view of packages/db's tx client — the ONLY door to data (docs/tech-stack.md T26.1). */
 export interface OrgScopedDb {
   query(
     text: string,
@@ -16,7 +16,7 @@ export interface OrgScopedDb {
 //
 // conversationId: the turn's conversation, threaded in by runTurn so a tool's write can
 // attribute to the run — book_appointment stamps outcomes.conversation_id, which traces to the run
-// via conversations.workflow_run_id (AGENTS.md → Conventions: every conversation traces to a run). Optional: absent outside a turn (unit tests,
+// via conversations.workflow_run_id (AGENTS.md → Conventions: every result traces to its run). Optional: absent outside a turn (unit tests,
 // inline callers) where the tool writes a null link.
 //
 // onGuardEvent: the guard pipeline's observability sink, shaped like the clock seam —
@@ -43,8 +43,8 @@ export type Autonomy = "auto" | "approval" | "forbidden";
 export interface Tool<I = unknown> {
   name: string;
   description: string;
-  schema: z.ZodType<I>; // args validated BEFORE anything runs (runTurn's schema check)
-  autonomy: Autonomy; // the tool's approval level; no company setting changes it today
+  schema: z.ZodType<I>; // args validated BEFORE anything runs (src/tool-call.ts)
+  autonomy: Autonomy; // what guard()'s approval-level check (autonomyHook) applies; company settings don't change it
   execute(ctx: OrgCtx, args: I): Promise<ToolResult>;
 }
 
@@ -72,6 +72,7 @@ export interface LlmProvider {
     tools?: ToolSpec[];
     maxTokens?: number;
     timeoutMs?: number;
+    signal?: AbortSignal; // aborted when the turn gives up waiting (src/time-limit.ts)
   }): Promise<LlmTurn>;
 }
 
@@ -81,7 +82,6 @@ export type Verdict =
       ok: false;
       reason:
         | "dnc"
-        | "no_whatsapp_optin"
         | "quiet_hours"
         | "attempt_cap"
         | "approval_required"

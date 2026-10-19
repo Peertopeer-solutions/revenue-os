@@ -1,0 +1,1 @@
+- 2026-10-19 · [#193](https://github.com/Peertopeer-solutions/revenue-os/pull/193) · scripts/done-gate/broken-lines.ts: packages/harness/src/tool-call.ts joins GUARDED as guardrail code, since it now holds the guard() call before each AI tool's side effect that packages/harness/src/loop.ts held · tighter
