@@ -59,6 +59,7 @@ it("fails a tangled function in every app, service and package, a circle of impo
     "packages/db/src/x.ts",
     "packages/shared/src/x.ts",
     "services/worker/src/vapi/process.ts",
+    "packages/db/src/contacts.ts",
   ];
   for (const file of [...over, "scripts/x.ts", "packages/harness/src/loop.ts"])
     put(file, tangled);

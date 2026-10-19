@@ -5,16 +5,22 @@ import { sh } from "./scratch";
 
 const REGEX = /[.*+?^${}()|[\]\\]/g;
 
-/** What was seen when every test of `file` named in `names` ran alone and passed; else an error naming each that didn't. */
-export function namedTestsPass(root: string, file: string, names: string[]) {
+/**
+ * What was seen when every test of `file` named in `names` ran alone and passed; else an error naming each that didn't.
+ * The tests run with the PATH and home folder only, plus `env` (a test that signs in needs the local stack's settings).
+ */
+export function namedTestsPass(
+  root: string,
+  file: string,
+  names: string[],
+  env: Record<string, string | undefined> = {},
+) {
   const bad = names.flatMap((name) => {
-    const r = sh(root, [
-      "bun",
-      "test",
-      file,
-      "-t",
-      name.replace(REGEX, "\\$&"),
-    ]);
+    const r = sh(
+      root,
+      ["bun", "test", file, "-t", name.replace(REGEX, "\\$&")],
+      env,
+    );
     const ran = /\b1 pass\b/.test(r.out) && /\b0 fail\b/.test(r.out);
     return r.status === 0 && ran
       ? []

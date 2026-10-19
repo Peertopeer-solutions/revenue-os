@@ -32,8 +32,7 @@
     {
       "includes": [
         "packages/harness/src/loop.ts",
-        "packages/harness/src/workflow/interpret.ts",
-        "packages/db/src/contacts.ts"
+        "packages/harness/src/workflow/interpret.ts"
       ],
       "linter": {
         "rules": {
