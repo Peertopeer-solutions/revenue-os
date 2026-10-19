@@ -1,4 +1,4 @@
-// The guard() pipeline: config-driven checks that run before ANY side effect (docs/security.md S8.2; AGENTS.md:
+// The guard() pipeline: config-driven checks that run before ANY side effect (AGENTS.md:
 // guardrails run before every send, with no code path around them). Hooks are ordered; first failing verdict wins.
 // One check per file: approval (autonomy.ts), do-not-call (do-not-call.ts), WhatsApp opt-in (whatsapp-opt-in.ts),
 // calling hours (calling-hours.ts) and the attempt limit (attempt-cap.ts); all but the first read only the company's

@@ -1,8 +1,8 @@
-// T26.1 — every shared type lives here, nowhere else.
+// The AI engine's shared types (docs/tech-stack.md, section T26.1) — every one lives here, nowhere else.
 // G1: runtime-agnostic.
 import type { z } from "zod";
 
-/** Structural view of packages/db's tx client — the ONLY door to data (T26.1). */
+/** Structural view of packages/db's tx client — the ONLY door to data. */
 export interface OrgScopedDb {
   query(
     text: string,
@@ -10,16 +10,16 @@ export interface OrgScopedDb {
   ): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }>;
 }
 
-// Clock seam (T2): hooks that reason about time (quiet-hours, attempt-cap windows) read
+// Clock seam: hooks that reason about time (quiet-hours, attempt-cap windows) read
 // `ctx.now?.() ?? new Date()` so tests can inject a fixed instant. Optional — absent in prod
 // (falls back to wall-clock), supplied by tests and any deterministic caller.
 //
-// conversationId (T9/M2): the turn's conversation, threaded in by runTurn so a tool's write can
+// conversationId: the turn's conversation, threaded in by runTurn so a tool's write can
 // attribute to the run — book_appointment stamps outcomes.conversation_id, which traces to the run
-// via conversations.workflow_run_id (moat #4, spec §9). Optional: absent outside a turn (unit tests,
+// via conversations.workflow_run_id (AGENTS.md → Conventions: every conversation traces to a run). Optional: absent outside a turn (unit tests,
 // inline callers) where the tool writes a null link.
 //
-// onGuardEvent (task-56): the guard pipeline's observability sink, shaped like the clock seam —
+// onGuardEvent: the guard pipeline's observability sink, shaped like the clock seam —
 // optional, so prod may ignore it. A hook that DECLINES to evaluate (quiet-hours fails open when
 // tz:'contact' cannot be resolved) says so here instead of guessing silently.
 export type OrgCtx = {
@@ -43,8 +43,8 @@ export type Autonomy = "auto" | "approval" | "forbidden";
 export interface Tool<I = unknown> {
   name: string;
   description: string;
-  schema: z.ZodType<I>; // args validated BEFORE anything runs (T11 seatbelt)
-  autonomy: Autonomy; // default; org guardrail_policies may tighten, never loosen
+  schema: z.ZodType<I>; // args validated BEFORE anything runs (runTurn's schema check)
+  autonomy: Autonomy; // the tool's approval level; no company setting changes it today
   execute(ctx: OrgCtx, args: I): Promise<ToolResult>;
 }
 

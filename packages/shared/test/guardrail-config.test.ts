@@ -1,4 +1,4 @@
-// task-52 RED — guardrail-policy config is the SAFETY BOUNDARY. The harness quiet_hours hook
+// Guardrail-policy config is the SAFETY BOUNDARY. The harness quiet_hours hook
 // reads guardrail_policies.config FAIL-OPEN (quietHoursHook, policies/calling-hours.ts): a malformed config silently
 // disables quiet hours for every send. The PUT's strict Zod validation is what stops a bad
 // config reaching the row, so this suite pins the per-key accept/reject matrix directly at the

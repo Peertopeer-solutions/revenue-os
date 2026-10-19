@@ -1,4 +1,4 @@
-// task-25 RED — quiet-hours guardrail hook (moat invariant #4: guardrails-as-config gate the
+// Quiet-hours guardrail hook (guardrails-as-config gate the
 // outbound send pipeline; the Verdict union already reserves reason 'quiet_hours'). Env-free:
 // the pure predicate takes an injected `now`; the hook's DB reads are mocked via a fake
 // OrgScopedDb, and its wall-clock `new Date()` is pinned with bun:test's setSystemTime. The real

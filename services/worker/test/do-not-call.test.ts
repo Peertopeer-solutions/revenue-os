@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { createPool } from "@revenue-os/db";
 import { guard, ToolRegistry } from "@revenue-os/harness";
 import pg from "pg";
+import { OPTED_IN } from "../../../tests/opted-in";
 import { testCompanies } from "../../../tests/test-companies";
 import { type TestUser, testUser } from "../../../tests/test-users";
 import { pool } from "../src/db";
@@ -73,11 +74,11 @@ function phone(): string {
   return `+919800${String(phoneSeq).padStart(6, "0")}`;
 }
 
-/** A lead of `org` with a phone and a WhatsApp number. */
+/** A lead of `org` with a phone and a WhatsApp number, who agreed to WhatsApp messages. */
 async function newLead(org = orgId, number = phone()): Promise<string> {
   const c = await admin.query<{ id: string }>(
-    `insert into contacts (org_id, first_name) values ($1, 'Meera') returning id`,
-    [org],
+    `insert into contacts (org_id, first_name, consent) values ($1, 'Meera', $2) returning id`,
+    [org, OPTED_IN],
   );
   const id = c.rows[0]?.id ?? "";
   await admin.query(
@@ -383,11 +384,13 @@ describe("an imported list", () => {
       body: csv,
     });
 
+  // behaviour already on main: the list now also opts its leads in to WhatsApp, so each refusal stays the block's doing
+
   it("a lead the list marks do-not-call is blocked, whether new or already the company's, and their next send is refused", async () => {
     const [fresh, known, open] = [phone(), phone(), phone()];
     const existing = await newLead(orgId, known);
     const res = await importCsv(
-      `first_name,phone,Do Not Call\nRavi,${fresh},yes\nMeera,${known},Y\nAsha,${open},no\n`,
+      `first_name,phone,Do Not Call,WhatsApp opt-in\nRavi,${fresh},yes,yes\nMeera,${known},Y,\nAsha,${open},no,yes\n`,
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ created: 2, merged: 1, invalid: 0 });

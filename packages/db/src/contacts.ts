@@ -5,7 +5,7 @@ import { normalizePhoneE164 } from "@revenue-os/shared";
 import type pg from "pg";
 import { audit } from "./audit";
 import { withOrg } from "./client";
-import { recordDoNotCall } from "./consent";
+import { recordDoNotCall, recordWhatsAppOptIn } from "./consent";
 
 const CORE_COLUMNS = new Set(["first_name", "last_name", "phone"]);
 // The column a list marks a lead do-not-call in, by any of its usual names, read by its letters and digits alone
@@ -20,6 +20,11 @@ const DO_NOT_CALL_COLUMNS = new Set([
 // What a do-not-call cell says to leave the lead open. Any other value blocks them, as do-not-call blocks when in
 // doubt (docs/decisions-in-force/2026-10-01-guard-postures.md).
 const OPEN = new Set(["", "no", "n", "false", "0"]);
+// The columns a list records a WhatsApp opt-in in, and where the lead gave it, read the same way. Only a clear yes opts
+// a lead in; anything else records nothing, as no opt-in means no WhatsApp message.
+const OPT_IN_COLUMNS = new Set(["whatsappoptin", "waoptin", "whatsappconsent"]);
+const OPT_IN_SOURCE_COLUMNS = new Set(["whatsappoptinsource", "optinsource"]);
+const YES = new Set(["yes", "y", "true", "1"]);
 
 export interface ImportSummary {
   created: number;
@@ -27,13 +32,17 @@ export interface ImportSummary {
   invalid: number;
 }
 
+const letters = (column: string) =>
+  column
+    .toLowerCase()
+    .replace(/\(y\/n\)/g, "")
+    .replace(/[^a-z0-9]/g, "");
 const doNotCallColumn = (column: string) =>
-  DO_NOT_CALL_COLUMNS.has(
-    column
-      .toLowerCase()
-      .replace(/\(y\/n\)/g, "")
-      .replace(/[^a-z0-9]/g, ""),
-  );
+  DO_NOT_CALL_COLUMNS.has(letters(column));
+const consentColumn = (column: string) =>
+  doNotCallColumn(column) ||
+  OPT_IN_COLUMNS.has(letters(column)) ||
+  OPT_IN_SOURCE_COLUMNS.has(letters(column));
 
 /** Whether the row's list marks its lead do-not-call. */
 const saysDoNotCall = (row: Record<string, string>) =>
@@ -41,11 +50,21 @@ const saysDoNotCall = (row: Record<string, string>) =>
     ([k, v]) => doNotCallColumn(k) && !OPEN.has(v.trim().toLowerCase()),
   );
 
+/** Where the row's lead gave their WhatsApp opt-in, when its list says they did: its source column, else the list. */
+function optInSource(row: Record<string, string>): string | null {
+  const cell = (names: Set<string>) =>
+    Object.entries(row)
+      .find(([k]) => names.has(letters(k)))?.[1]
+      ?.trim();
+  if (!YES.has(cell(OPT_IN_COLUMNS)?.toLowerCase() ?? "")) return null;
+  return cell(OPT_IN_SOURCE_COLUMNS)?.slice(0, 200) || "imported list";
+}
+
 /** The row's other filled-in columns, kept as the lead's details. */
 const details = (row: Record<string, string>) =>
   Object.fromEntries(
     Object.entries(row).filter(
-      ([k, v]) => !CORE_COLUMNS.has(k) && !doNotCallColumn(k) && v !== "",
+      ([k, v]) => !CORE_COLUMNS.has(k) && !consentColumn(k) && v !== "",
     ),
   );
 
@@ -119,6 +138,13 @@ export async function importContacts(
       if (saysDoNotCall(row))
         await recordDoNotCall(tx, orgId, contactId, {
           from: "import",
+          userId: actorUserId,
+        });
+      const source = optInSource(row);
+      if (source)
+        // a lead who withdrew stays withdrawn: only their own written YES re-opts them
+        await recordWhatsAppOptIn(tx, orgId, contactId, {
+          source,
           userId: actorUserId,
         });
     }

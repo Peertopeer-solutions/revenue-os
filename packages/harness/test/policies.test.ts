@@ -1,5 +1,5 @@
-// T2 RED — guardrail hooks (dnc, attempt_cap) + the clock seam, extending guard()'s pipeline.
-// Moat invariant #4: guardrails-as-config gate the outbound send pipeline; no code path routes
+// Guardrail hooks (dnc, attempt_cap) + the clock seam, extending guard()'s pipeline.
+// Guardrails-as-config gate the outbound send pipeline; no code path routes
 // around guard(). This suite pins the two NEW hooks and the failure postures that make them safe.
 //
 // ENV-FREE: every ctx is a fake OrgScopedDb that returns canned rows (or throws, to model a DB

@@ -14,6 +14,7 @@ import {
   ToolRegistry,
 } from "@revenue-os/harness";
 import pg from "pg";
+import { OPTED_IN } from "../../../tests/opted-in";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleAgentTurn } from "../src/handlers/agent-turn";
 import { handleCallPost } from "../src/handlers/call-post";
@@ -174,8 +175,8 @@ beforeAll(async () => {
   orgId = (await companies.add("Handlers Org")).id;
   orgB = (await companies.add("Handlers Org B")).id;
   const c = await admin.query(
-    `insert into contacts (org_id, first_name) values ($1, 'Asha') returning id`,
-    [orgId],
+    `insert into contacts (org_id, first_name, consent) values ($1, 'Asha', $2) returning id`,
+    [orgId, OPTED_IN],
   );
   contactId = c.rows[0].id;
   // phone identity (E.164) so the send handlers can resolve `to`
