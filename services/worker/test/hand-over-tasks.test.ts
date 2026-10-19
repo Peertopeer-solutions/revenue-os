@@ -103,7 +103,6 @@ it("a failed call for a run the company doesn't have makes no task", async () =>
   expect(await taskOf(runId)).toEqual([]);
 });
 
-// behaviour already on main: the tick now runs a minute after the run is due, so a database clock ahead of this machine's can't leave it not yet due
 it("a sequence's hand-over step makes a task for the run's lead, with its audit row", async () => {
   // The definition as the database holds it (its steps' `then` is a field, written here as JSON text).
   const runId = await run(
@@ -112,9 +111,7 @@ it("a sequence's hand-over step makes a task for the run's lead, with its audit 
     ),
     "h",
   );
-  // A minute on: the run is due at the database's now(), which keeps microseconds and on this Mac runs a little
-  // ahead of its clock, so `new Date()` taken just after was before it about one time in five, and nothing was due.
-  await tick(appPool, orgId, { now: new Date(Date.now() + 60_000) });
+  await tick(appPool, orgId, { now: new Date() });
   expect(await taskOf(runId)).toEqual([
     {
       kind: "handoff",
