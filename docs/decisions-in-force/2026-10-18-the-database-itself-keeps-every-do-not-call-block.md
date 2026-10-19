@@ -1,0 +1,1 @@
+- 2026-10-18 · **The database itself keeps every do-not-call block** ([#188](https://github.com/Peertopeer-solutions/revenue-os/pull/188)): migration 020's trigger (app.keep_do_not_call) refuses any change that turns contacts.consent's dnc off, from any login, so Slice 2's written-YES item lifts a block through a migration that opens that one path.

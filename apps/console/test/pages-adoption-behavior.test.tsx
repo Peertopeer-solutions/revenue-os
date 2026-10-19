@@ -3,7 +3,8 @@
 // REAL page with its query hook MOCKED (mockModule over bun mock.module) and orgId/conversationId supplied by a
 // static SSR <Router>/<Route> — the ui-smoke + console-boot-honesty precedent, env-free by
 // construction (mocking the api module also keeps lib/api's import.meta.env off the module graph).
-// Conversations & Contacts read features/screens/api; Transcript reads features/conversations/api.
+// Conversations reads features/screens/api, Contacts features/contacts/api (its do-not-call column:
+// contacts-do-not-call.test.tsx); Transcript reads features/conversations/api.
 //
 // One case pins a deliberate visual change: Contacts' header cells carry the standardized TH token
 // `font-medium` the TH primitive gives every header cell.
@@ -11,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Route, Router } from "wouter";
+import * as realContactsApi from "../src/features/contacts/api";
 import * as realConversationsApi from "../src/features/conversations/api";
 import * as realScreensApi from "../src/features/screens/api";
 import { mockModule, visible } from "./test-utils";
@@ -41,6 +43,7 @@ type ContactsData = {
     last_interaction_at: string | null;
     created_at: string;
     latest_conversation_id: string | null;
+    do_not_call: boolean;
   }>;
 };
 type TranscriptData = {
@@ -67,9 +70,14 @@ let TranscriptPage: () => ReactElement;
 const restoreScreens = mockModule(
   "../src/features/screens/api",
   realScreensApi,
+  { useConversationsQuery: () => convState },
+);
+const restoreContacts = mockModule(
+  "../src/features/contacts/api",
+  realContactsApi,
   {
-    useConversationsQuery: () => convState,
     useContactsQuery: () => contactsState,
+    useMarkDoNotCall: () => ({ isPending: false, isError: false }),
   },
 );
 const restoreConversations = mockModule(
@@ -87,6 +95,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   restoreScreens();
+  restoreContacts();
   restoreConversations();
 });
 
@@ -178,6 +187,7 @@ const CONTACT_ROW = {
   last_interaction_at: "2026-07-02T00:00:00Z",
   created_at: "2026-07-01T00:00:00Z",
   latest_conversation_id: CONV,
+  do_not_call: false,
 };
 
 describe("task-31 behavior: Contacts page states + content", () => {
