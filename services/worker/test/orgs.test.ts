@@ -365,6 +365,49 @@ describe("org bootstrap + tenant isolation", () => {
     expect(rows.rowCount).toBe(0);
   });
 
+  it("answers 500, and gives no one access, when the grant's audit row can't be written", async () => {
+    // A real login with a fixed id (made once, kept) and a trigger, installed once and never dropped, that fails the
+    // member.add audit row for that id alone: the membership written before it must go with it.
+    const faulted = "0000a0d1-0000-4000-8000-000000000000";
+    await admin.query(
+      `insert into auth.users (instance_id, id, aud, role, email, raw_app_meta_data, raw_user_meta_data,
+         created_at, updated_at, confirmation_token, recovery_token, email_change_token_new, email_change)
+       values ('00000000-0000-0000-0000-000000000000', $1, 'authenticated', 'authenticated', $2,
+         '{"provider":"email","providers":["email"]}', '{}', now(), now(), '', '', '', '')
+       on conflict do nothing`,
+      [faulted, `audit-fault-${faulted}@example.com`],
+    );
+    await admin.query(`
+      do $$ begin
+        perform pg_advisory_xact_lock(hashtext('test_fault_member_audit'));
+        create or replace function public.test_fault_member_audit() returns trigger language plpgsql as $f$
+        begin
+          if new.action = 'member.add' and new.resource_id = '${faulted}' then
+            raise exception 'member audit fault injection';
+          end if;
+          return new;
+        end $f$;
+        if not exists (select 1 from pg_trigger
+                        where tgrelid = 'public.audit_log'::regclass and tgname = 'test_fault_member_audit') then
+          create trigger test_fault_member_audit before insert on public.audit_log
+            for each row execute function public.test_fault_member_audit();
+        end if;
+      end $$`);
+    const res = await api(`/orgs/${orgA}/members`, userA.token, {
+      method: "POST",
+      body: JSON.stringify({ userId: faulted, role: "viewer" }),
+    });
+    expect({ status: res.status, body: await res.json() }).toEqual({
+      status: 500,
+      body: { error: "internal" },
+    });
+    const rows = await admin.query(
+      `select 1 from org_members where user_id = $1`,
+      [faulted],
+    );
+    expect(rows.rowCount).toBe(0);
+  });
+
   // behaviour already on main: AddMemberSchema refuses each of these bodies before the route reaches the database
   it("answers an admin's blank, malformed or missing user id, or missing role, with 400, and adds no one", async () => {
     const members = async () =>

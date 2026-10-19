@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, expect, it } from "bun:test";
 import { createPool } from "@revenue-os/db";
 import { ToolRegistry } from "@revenue-os/harness";
-import pg from "pg";
+import pg, { type Pool } from "pg";
 import { testCompanies } from "../../../tests/test-companies";
 import { handlePlaceCall } from "../src/handlers/place-call";
 import { handleSendWa } from "../src/handlers/send-wa";
@@ -73,15 +73,16 @@ async function lead(
   return { contactId, runId };
 }
 
-/** Runs the call job for the lead: the numbers the sender was handed (it stops the job once it has one). */
-async function dialled(l: {
-  contactId: string;
-  runId: string;
-}): Promise<string[]> {
-  const to: string[] = [];
+/** Runs the call job for the lead on `pool`: the numbers the sender was handed, into `to` (it stops the job once it
+ * has one). */
+async function dialled(
+  l: { contactId: string; runId: string },
+  pool: Pool = appPool,
+  to: string[] = [],
+): Promise<string[]> {
   await handlePlaceCall(
     {
-      pool: appPool,
+      pool,
       guard: async () => ({ ok: true }),
       sender: {
         place: async (p: { to?: string }) => {
@@ -110,15 +111,15 @@ async function dialled(l: {
   return to;
 }
 
-/** Runs the WhatsApp job for the lead: the numbers the sender was handed. */
-async function messaged(l: {
-  contactId: string;
-  runId: string;
-}): Promise<string[]> {
-  const to: string[] = [];
+/** Runs the WhatsApp job for the lead on `pool`: the numbers the sender was handed, into `to`. */
+async function messaged(
+  l: { contactId: string; runId: string },
+  pool: Pool = appPool,
+  to: string[] = [],
+): Promise<string[]> {
   await handleSendWa(
     {
-      pool: appPool,
+      pool,
       guard: async () => ({ ok: true }),
       sender: {
         send: async (p) => {
@@ -141,14 +142,15 @@ async function messaged(l: {
   return to;
 }
 
-/** What a person is handed for the run: its saved reason and its review tasks (with their audit rows). */
+/** What a person is handed for the run: its saved reason and its review tasks (with the reason and template each
+ * carries, and their audit rows). */
 async function handedOver(runId: string) {
   const run = await admin.query(
     `select last_error from workflow_runs where org_id = $1 and id = $2`,
     [orgId, runId],
   );
   const tasks = await admin.query(
-    `select t.kind, t.title, a.action from tasks t
+    `select t.kind, t.title, t.payload ->> 'reason' as why, t.payload ->> 'template' as template, a.action from tasks t
        left join audit_log a on a.org_id = t.org_id and a.resource_id = t.id::text
       where t.org_id = $1 and t.workflow_run_id = $2`,
     [orgId, runId],
@@ -162,6 +164,8 @@ const NOT_CALLED = {
     {
       kind: "review",
       title: "Call not placed — no number to call",
+      why: "no_number",
+      template: null,
       action: "task.create",
     },
   ],
@@ -195,6 +199,8 @@ it("a lead with no WhatsApp number is never messaged, even with a phone number, 
     {
       kind: "review",
       title: "WhatsApp message not sent — no WhatsApp number",
+      why: "no_whatsapp_number",
+      template: "welcome",
       action: "task.create",
     },
   ]);
@@ -253,4 +259,39 @@ it("a job naming another company's lead never reaches that lead's numbers, and l
   expect(await dialled(job).catch(refused)).toEqual(["refused 23503"]);
   expect(await messaged(job).catch(refused)).toEqual(["refused 23503"]);
   expect((await handedOver(mine.runId)).tasks).toEqual([]);
+});
+
+/** The app's pool, except that the number lookup (any query naming contact_identities) fails as a lost database would. */
+const lookupFails = {
+  connect: async () => {
+    const client = await appPool.connect();
+    return new Proxy(client, {
+      get(target, key) {
+        if (key === "query")
+          return (text: unknown, ...rest: unknown[]) =>
+            String(text).includes("contact_identities")
+              ? Promise.reject(new Error("number lookup failed"))
+              : (target.query as (...a: unknown[]) => unknown)(text, ...rest);
+        const value = Reflect.get(target, key, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+  },
+} as unknown as Pool;
+
+// behaviour already on main: main's own lookups failed the job too; this pins that the one lookup's failure still does
+it("a database error while finding the lead's number fails the job: nothing is sent, and no task or reason is saved", async () => {
+  const l = await lead([
+    ["phone", "+919800000012", true],
+    ["whatsapp", "+919800000013", false],
+  ]);
+  const to: string[] = [];
+  await expect(dialled(l, lookupFails, to)).rejects.toThrow(
+    "number lookup failed",
+  );
+  await expect(messaged(l, lookupFails, to)).rejects.toThrow(
+    "number lookup failed",
+  );
+  expect(to).toEqual([]);
+  expect(await handedOver(l.runId)).toEqual({ reason: null, tasks: [] });
 });
