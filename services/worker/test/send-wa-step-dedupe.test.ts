@@ -4,7 +4,7 @@
 // needs Postgres + pg-boss's installed schema (the scheduler enqueues the jobs this suite then
 // hands to the handler, so the JOB PAYLOAD under test is the real one the scheduler produced —
 // never a hand-written one), so it runs with the local stack's settings (`bun run gate`, CI).
-// Setup mirrors scheduler.test.ts + handlers.test.ts.
+// Setup mirrors scheduler.test.ts + send-wa.test.ts.
 //
 // THE FIXED DEFECT: handleSendWa (src/handlers/send-wa.ts) once keyed its idempotency on run id +
 // template only, while the scheduler's identity for the same send is step-scoped (singleton_key
@@ -48,8 +48,9 @@ const admin = new pg.Pool({
 });
 const appPool = createPool(DB_URL); // also owns pg-boss's tables: clears this file's jobs
 const companies = testCompanies(admin, appPool);
-// pg-boss installs pgboss.* at start(); the send_wa queue must exist before the scheduler's raw
-// insert into pgboss.job_common (FK to pgboss.queue), policy 'short' for the singleton_key dedupe.
+// pg-boss installs pgboss.* at start(); the send_wa queue must exist before the scheduler queues into
+// it (enqueueJob copies the job's settings from the queue's row and refuses a missing queue), policy
+// 'short' for the singleton_key dedupe.
 const boss = new PgBoss({
   connectionString: DB_URL,
   schema: "pgboss",

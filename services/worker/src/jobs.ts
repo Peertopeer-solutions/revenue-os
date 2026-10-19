@@ -12,6 +12,7 @@ import {
   type SendPort,
 } from "@revenue-os/harness";
 import { OrgIdSchema } from "@revenue-os/shared";
+import type { Pool } from "pg";
 import { PgBoss } from "pg-boss";
 import { z } from "zod";
 import { pool } from "./db";
@@ -34,7 +35,10 @@ import { ACTION_QUEUES, discoverDueOrgs, tick } from "./scheduler";
 import { processVapiEvents } from "./vapi/process";
 
 export const WEBHOOK_PROCESS_VAPI = "webhook.process.vapi";
-const CALL_POST_QUEUE = "call.post"; // place_call's dead-letter SINK (handleCallPost drains it)
+const CALL_POST_QUEUE = "call.post"; // the call and WhatsApp jobs' dead-letter SINK (handleCallPost drains it)
+// A send job and its dead letter retry a few times with a growing delay (about 2, 4 and 8 seconds, and some random
+// part), so a short database outage doesn't use up every try at once; a retry never sends twice (src/sends.ts).
+const RETRIES = { retryLimit: 3, retryDelay: 2, retryBackoff: true };
 const TICK_QUEUE = "scheduler.tick"; // the durable pg-boss schedule that fires the scheduler tick
 // A job payload is a boundary (docs/security.md S5.1): validate the tenancy field before a handler re-scopes on it.
 const JobEnvelope = z.object({ orgId: OrgIdSchema });
@@ -56,8 +60,8 @@ export function makeProvider(env: Env): LlmProvider | null {
 
 // Live telephony (Vapi voice + Meta WhatsApp senders), the call-outcome port, the confirmation
 // send seam, and the LLM provider when no key is set are all STUBBED here, each listed as Stub in
-// STATE.md → What works today: production boot wires the SHAPE, and the call replay test
-// (test/m2-replay.test.ts) hands the handlers fakes instead. Every stub THROWS when invoked so a
+// STATE.md → What works today: production boot wires the SHAPE, and tests hand the job runner
+// (startJobs' ports) or the handlers pretend providers instead. Every stub THROWS when invoked so a
 // misconfigured effect fails LOUDLY rather than silently no-op'ing; boot stays green because a
 // stub is a plain object, constructed without a throw.
 function notWired(what: string): never {
@@ -77,15 +81,43 @@ const UNCONFIGURED_PROVIDER: LlmProvider = {
 
 let boss: PgBoss | null = null;
 
+/** What the job handlers reach outside the worker: its database pool, the dialer, the WhatsApp sender, the call's
+ *  outcome and the AI model. */
+export type JobPorts = {
+  pool: Pool;
+  voice: VoiceSenderPort;
+  wa: WaSenderPort;
+  outcome: OutcomePort;
+  provider: LlmProvider;
+};
+
 /**
  * Starts the job runner. `settings` overrides pg-boss's own: a test passes a schema of its own and no clock
  * (test/fixtures/test-job-schema.ts), so the runner it starts never works another company's queued jobs or ticks
- * every company's due runs. The worker itself passes nothing.
+ * every company's due runs. `ports` replaces what the handlers reach outside the worker: a test passes pretend
+ * providers there. The worker itself passes neither.
  */
 export async function startJobs(
   settings: { schema?: string; schedule?: boolean } = {},
+  ports: Partial<JobPorts> = {},
 ): Promise<void> {
   if (boss) return;
+  // What the handlers reach outside the worker. A missing key yields a stub provider (boot stays green — see
+  // makeProvider), and live telephony / send seams are the stubs above, unless a test passes its own.
+  const {
+    pool: db,
+    voice,
+    wa,
+    outcome,
+    provider,
+  } = {
+    pool,
+    voice: VOICE_STUB,
+    wa: WA_STUB,
+    outcome: OUTCOME_STUB,
+    provider: makeProvider(env) ?? UNCONFIGURED_PROVIDER,
+    ...ports,
+  };
   const b = new PgBoss({
     connectionString: env.DATABASE_URL,
     schema: "pgboss",
@@ -107,43 +139,35 @@ export async function startJobs(
   await b.work(WEBHOOK_PROCESS_VAPI, async (jobs) => {
     for (const job of jobs) {
       const { orgId } = JobEnvelope.parse(job.data); // a job payload is a boundary
-      await processVapiEvents(pool, orgId);
+      await processVapiEvents(db, orgId);
     }
   });
 
   // --- the external-action queues and their handlers (src/handlers/) -------------------------
-  // The call.post dead-letter SINK first so place_call can reference it as its deadLetter. Each
-  // action queue is policy 'short': the scheduler's singleton_key dedup rides pgboss.job's job_i1 index
-  // (state='created' AND policy='short') and scheduler.enqueueJob writes 'short' — any other policy
-  // would break exactly-once.
+  // The call.post dead-letter SINK first so the send queues can reference it as their deadLetter: a call or
+  // WhatsApp job that keeps failing reaches a person there. Each action queue is policy 'short': the scheduler's
+  // singleton_key dedup rides pgboss.job's job_i1 index (state='created' AND policy='short'), and
+  // scheduler.enqueueJob refuses a queue on any other policy. Each job the scheduler queues takes its queue's
+  // settings below: its retries, their delay and its dead letter. pg-boss's createQueue leaves a queue that already
+  // exists as it was, so updateQueue gives an existing queue these settings too. A retry runs the handler again,
+  // which never sends twice: it finds the send it saved (src/sends.ts).
   await b.createQueue(CALL_POST_QUEUE);
+  await b.updateQueue(CALL_POST_QUEUE, RETRIES);
   for (const q of ACTION_QUEUES) {
-    await b.createQueue(
-      q,
-      q === "place_call"
-        ? { policy: "short", deadLetter: CALL_POST_QUEUE }
-        : { policy: "short" },
-    );
+    await b.createQueue(q, { policy: "short" });
+    if (q !== "run_agent_turn")
+      await b.updateQueue(q, { ...RETRIES, deadLetter: CALL_POST_QUEUE });
   }
 
-  // Shared handler deps. A missing key yields a stub provider (boot stays green — see makeProvider),
-  // and live telephony / send seams are the stubs above. The guard pipeline is the real one
-  // (guardrails run before every send). Each work loop parses the payload's org id as a boundary.
-  const provider = makeProvider(env) ?? UNCONFIGURED_PROVIDER;
+  // Shared handler deps. The guard pipeline is the real one (guardrails run before every send). Each work loop
+  // parses the payload's org id as a boundary.
   const registry = buildCatalog({ send: UNWIRED_SEND });
 
   await b.work<PlaceCallJob>("place_call", async (jobs) => {
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
       await handlePlaceCall(
-        {
-          pool,
-          guard,
-          sender: VOICE_STUB,
-          provider,
-          registry,
-          outcome: OUTCOME_STUB,
-        },
+        { pool: db, guard, sender: voice, provider, registry, outcome },
         job.data,
       );
     }
@@ -151,20 +175,21 @@ export async function startJobs(
   await b.work<SendWaJob>("send_wa", async (jobs) => {
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
-      await handleSendWa({ pool, guard, sender: WA_STUB }, job.data);
+      await handleSendWa({ pool: db, guard, sender: wa }, job.data);
     }
   });
   await b.work<AgentTurnJob>("run_agent_turn", async (jobs) => {
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
-      await handleAgentTurn({ pool, provider, registry }, job.data);
+      await handleAgentTurn({ pool: db, provider, registry }, job.data);
     }
   });
-  // The dead-letter SINK tolerates a partial/malformed payload by design (handleCallPost self-guards
-  // and never throws), so it takes the raw job data without the strict envelope parse.
+  // The dead-letter SINK tolerates a partial/malformed payload by design (handleCallPost self-guards: it resolves
+  // on one, and throws only when the database fails it, so its queue retries), so it takes the raw job data
+  // without the strict envelope parse.
   await b.work<CallPostJob>(CALL_POST_QUEUE, async (jobs) => {
     for (const job of jobs) {
-      await handleCallPost({ pool }, job.data);
+      await handleCallPost({ pool: db }, job.data);
     }
   });
 

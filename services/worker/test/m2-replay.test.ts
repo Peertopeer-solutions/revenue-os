@@ -1,6 +1,6 @@
 // biome-ignore-all lint/suspicious/noThenProperty: `then` is a workflow step field (data, not a
 // thenable) in the workflow definition JSON, e.g. { kind:"wait", for:"PT2H", then:"…" } — the same
-// suppression scheduler.test.ts / handlers.test.ts carry. The interpreter reads step.then.
+// suppression scheduler.test.ts carries. The interpreter reads step.then.
 //
 // THE MULTI-DAY REPLAY (once the program's acceptance gate). A multi-day lifecycle —
 //   call_1 → no_answer → (wait 2h) → WhatsApp → (wait_until 11:00 next day) → call_2 → BOOKED

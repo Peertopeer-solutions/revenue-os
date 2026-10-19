@@ -1,5 +1,5 @@
-// T5 — the guarded-doorway contract: voice(Vapi) + whatsapp(Meta) sends behind ONE shape, every
-// send passing guard() BEFORE it reaches a sender (moat invariant #4 — no code path around the
+// The guarded-doorway contract: voice(Vapi) + whatsapp(Meta) sends behind ONE shape, every
+// send passing guard() BEFORE it reaches a sender (AGENTS.md hard rail 5 — no code path around the
 // guard). Pure types only — no implementation. Harness types come in via the tsconfig `@harness/*`
 // path alias (type-only, erased at runtime; no @revenue-os/harness runtime dep on this package).
 // G1: runtime-agnostic — no bun:* imports, no Bun globals.
@@ -17,12 +17,12 @@ export interface VoicePayload {
   metadata?: Record<string, unknown>;
 }
 
-/** WhatsApp (Meta) send payload — template + the vars merged upstream (T7). `to` is E.164. */
+/** WhatsApp (Meta) send payload — template + the vars the send_wa job handler merged. `to` is E.164. */
 export interface WaPayload {
   to: string;
   template: string;
-  /** Template variables — the doorway FORWARDS these verbatim; the contact/run-var MERGE is T7's
-   *  send_wa handler, not this doorway. (T1→T7: send_wa vars must never go out empty.) */
+  /** Template variables — the doorway FORWARDS these verbatim; the contact/run-var MERGE is the
+   *  send_wa job handler's, not this doorway's (a send_wa message must never go out empty). */
   vars: Record<string, string>;
 }
 
@@ -35,9 +35,13 @@ export interface WaSender {
   send(payload: WaPayload): Promise<SendResult>;
 }
 
-/** The guard the doorway MUST call before any send (moat #4). Production wires the real
- *  @revenue-os/harness `guard`; tests inject a spy. */
-export type GuardFn = (ctx: OrgCtx, action: GuardedAction) => Promise<Verdict>;
+/** Which company a send is for: all a doorway needs, as it never touches the database itself. */
+export type SendCtx = Pick<OrgCtx, "orgId">;
+
+/** The guard the doorway MUST call before any send (guardrails run before every send). Its caller gives it its
+ *  database: the worker's job handlers run the real @revenue-os/harness `guard` in a short transaction of its own,
+ *  so no transaction is open while the provider answers; tests inject a spy. */
+export type GuardFn = (ctx: SendCtx, action: GuardedAction) => Promise<Verdict>;
 
 /** Injected ports per doorway — sender + guard, both swappable. */
 export interface VoicePorts {

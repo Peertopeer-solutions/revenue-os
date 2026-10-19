@@ -1,14 +1,15 @@
-// T5 — whatsapp(Meta) guarded doorway. MOAT #4: guard() runs BEFORE the sender on every path; a
-// blocking verdict returns the reason and NO send happens. Senders + guard are injected via ports.
-// req.payload.vars are FORWARDED verbatim — the contact/run-var MERGE is T7's send_wa handler.
+// The WhatsApp (Meta) guarded doorway: guard() runs BEFORE the sender on every path (guardrails run before every
+// send, AGENTS.md hard rail 5); a blocking verdict returns the reason and NO send happens. Senders + guard are
+// injected via ports. req.payload.vars are FORWARDED verbatim — the contact/run-var MERGE is the send_wa job
+// handler's (services/worker/src/handlers/send-wa.ts).
 // Harness types are type-only (tsconfig @harness/* alias, erased at runtime — no runtime harness dep).
 // G1: runtime-agnostic — no bun:* imports, no Bun globals.
-import type { GuardedAction, OrgCtx } from "@harness/types";
-import type { DoorwayResult, WaPorts, WaReq } from "./types";
+import type { GuardedAction } from "@harness/types";
+import type { DoorwayResult, SendCtx, WaPorts, WaReq } from "./types";
 
 export async function send(
   ports: WaPorts,
-  ctx: OrgCtx,
+  ctx: SendCtx,
   req: WaReq,
 ): Promise<DoorwayResult> {
   const action: GuardedAction = {

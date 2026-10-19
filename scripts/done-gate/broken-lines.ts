@@ -25,6 +25,8 @@ export const GUARDED: { path: string; kind: Kind | null }[] = [
   // The job handlers that send through those doorways, their only production callers.
   { path: "services/worker/src/handlers/place-call.ts", kind: "guardrail" },
   { path: "services/worker/src/handlers/send-wa.ts", kind: "guardrail" },
+  // The one way those handlers send: the guard and the saved send in one transaction, then the provider (sendOnce).
+  { path: "services/worker/src/sends.ts", kind: "guardrail" },
   // Each company's guardrail settings, as guard() reads them and as the admin-only API changes them.
   { path: "packages/db/src/guardrails.ts", kind: "guardrail" },
   {
