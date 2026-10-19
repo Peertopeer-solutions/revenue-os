@@ -16,7 +16,7 @@ export type Kind = "guardrail" | "tenancy" | "money";
  */
 export const GUARDED: { path: string; kind: Kind | null }[] = [
   // The guard() pipeline every send and every tool's side effect passes, and the calling-hours check it uses.
-  { path: "packages/harness/src/policies.ts", kind: "guardrail" },
+  { path: "packages/harness/src/policies/", kind: "guardrail" },
   { path: "packages/harness/src/quiet-hours.ts", kind: "guardrail" },
   // The agent loop runs guard() before each tool's side effect and turns an approval-gated action into a human task.
   { path: "packages/harness/src/loop.ts", kind: "guardrail" },

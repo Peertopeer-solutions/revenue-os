@@ -10,7 +10,7 @@
 //
 // THE THREE POSTURES PINNED HERE (reviewed line-by-line before any GREEN):
 //   • quietHoursHook, tz:'contact', NO resolvable contact ⇒ FAIL OPEN (null) + an OBSERVABLE
-//     decision. Today it silently falls back to Asia/Kolkata (policies.ts:19,:57-66) — a wrong-tz
+//     decision. Today it silently falls back to Asia/Kolkata (quietHoursHook, policies/calling-hours.ts) — a wrong-tz
 //     guess that blocks at hours nobody configured. A courtesy gate may not guess.
 //   • dncHook, channel-bearing action with NO contact identity ⇒ FAIL CLOSED (block). TESTER
 //     POSITION, flagged for ruling: the T2 contract already fails dnc CLOSED on a read ERROR;
@@ -164,7 +164,7 @@ describe("task-56 AC2 quietHoursHook — tz:'contact' with NO resolvable contact
 });
 
 // TESTER POSITION (flagged for the orchestrator's ruling). dncHook already fails CLOSED when the
-// consent read THROWS (T2 contract, policies.ts:96-99). A channel-bearing action with no
+// consent read THROWS (T2 contract, dncHook in policies/do-not-call.ts). A channel-bearing action with no
 // resolvable contact is the same epistemic state reached one step earlier — the consent value is
 // unknown — so the verdict must be the same: BLOCK. The alternative (pass) means the one input an
 // LLM controls, "which contact id do I put in the args", is also the switch that turns DNC off:

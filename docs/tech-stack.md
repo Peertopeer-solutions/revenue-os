@@ -115,7 +115,7 @@ packages/harness/src/
 ├─ registry.ts     # tool registration + lookup
 ├─ loop.ts         # the async turn loop
 ├─ context.ts      # prompt assembly
-├─ policies.ts     # guard() pipeline
+├─ policies/       # guard() pipeline, one file per check
 ├─ retrieval.ts    # KB + memory retrieval
 ├─ memory.ts       # post-call memory writes
 ├─ llm/            # provider adapters (anthropic.ts, openai.ts) behind one interface

@@ -1,10 +1,10 @@
 // task-52 RED — guardrail-policy config is the SAFETY BOUNDARY. The harness quiet_hours hook
-// reads guardrail_policies.config FAIL-OPEN (policies.ts:25-28): a malformed config silently
+// reads guardrail_policies.config FAIL-OPEN (quietHoursHook, policies/calling-hours.ts): a malformed config silently
 // disables quiet hours for every send. The PUT's strict Zod validation is what stops a bad
 // config reaching the row, so this suite pins the per-key accept/reject matrix directly at the
 // schema. The union MUST live in packages/shared/src/schemas.ts (boundary truth — never declared
 // locally in the route). Grounded in supabase/seeds/real_estate.sql:44-49 + packages/harness/src/
-// policies.ts (HH:MM regex /^([01]\d|2[0-3]):[0-5]\d$/).
+// policies/calling-hours.ts (HH:MM regex /^([01]\d|2[0-3]):[0-5]\d$/).
 //
 // bun:test is allowed in packages/**/test/** (biome.json override line 29). We reach the export
 // through a loose namespace bag so this file TYPECHECKS before the schema exists, yet every case

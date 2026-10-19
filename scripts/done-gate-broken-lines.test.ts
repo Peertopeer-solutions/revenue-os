@@ -36,7 +36,9 @@ const broken = (src: string, line: number) =>
 describe("kindOf: which files are guardrail, tenancy or money code", () => {
   // behaviour already on main: the gate's files are the same in both copies, which differ only in product code
   it("names each kind by path, and leaves out tests, type declarations and other files", () => {
-    expect(kindOf("packages/harness/src/policies.ts")).toBe("guardrail");
+    expect(kindOf("packages/harness/src/policies/do-not-call.ts")).toBe(
+      "guardrail",
+    );
     expect(kindOf("packages/channels/src/whatsapp.ts")).toBe("guardrail");
     expect(kindOf("services/worker/src/routes/guardrail-policies.ts")).toBe(
       "guardrail",
