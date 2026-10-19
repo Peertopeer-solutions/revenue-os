@@ -1,19 +1,19 @@
-// task-56 RED — guardrail ACTIVATION, hook half: what dnc/quiet-hours do when the contact
+// Guardrail ACTIVATION, hook half: what dnc/quiet-hours do when the contact
 // identity behind a send cannot be resolved, and what a degenerate quiet-hours window means.
 // (The loop half — channel + contactId reaching guard() at all — is loop-guard-wiring.test.ts.)
-// Moat invariant #4: guardrails-as-config gate the outbound send pipeline. A guard that evaluates
+// Guardrails-as-config gate the outbound send pipeline. A guard that evaluates
 // against a GUESSED timezone, or that sends to an identity it cannot check, is not a guard.
 //
-// ENV-FREE: fake OrgScopedDb returning canned rows; clock injected via ctx.now (T2 seam) AND the
+// ENV-FREE: fake OrgScopedDb returning canned rows; clock injected via ctx.now (the clock seam, OrgCtx.now) AND the
 // host clock pinned with setSystemTime, so an implementation that ignores ctx.now cannot make a
 // "→ null" assertion pass by accident. The DB-backed path is CI-owned (test/loop.test.ts).
 //
 // THE THREE POSTURES PINNED HERE (reviewed line-by-line before any GREEN):
 //   • quietHoursHook, tz:'contact', NO resolvable contact ⇒ FAIL OPEN (null) + an OBSERVABLE
-//     decision. Today it silently falls back to Asia/Kolkata (policies.ts:19,:57-66) — a wrong-tz
+//     decision. Today it silently falls back to Asia/Kolkata (quietHoursHook, policies/calling-hours.ts) — a wrong-tz
 //     guess that blocks at hours nobody configured. A courtesy gate may not guess.
 //   • dncHook, channel-bearing action with NO contact identity ⇒ FAIL CLOSED (block). TESTER
-//     POSITION, flagged for ruling: the T2 contract already fails dnc CLOSED on a read ERROR;
+//     POSITION, flagged for ruling: the do-not-call contract already fails CLOSED on a read ERROR;
 //     "no identity at all" is strictly less knowledge than a failed read, so it cannot be less
 //     safe. You may not send to someone whose consent you cannot look up.
 //   • quiet_hours start === end ⇒ NO-OP window, never blocks (today: unpinned, incidentally
@@ -31,9 +31,14 @@ import {
   it,
   setSystemTime,
 } from "bun:test";
-import * as policies from "../src/policies";
+import * as callingHours from "../src/policies/calling-hours";
+import * as doNotCall from "../src/policies/do-not-call";
+import * as pipeline from "../src/policies/pipeline";
 import { isWithinQuietHours } from "../src/quiet-hours";
 import type { GuardedAction, OrgScopedDb } from "../src/types";
+
+// The checks under test, each from its own file, read through one namespace as above.
+const policies = { ...callingHours, ...doNotCall, ...pipeline };
 
 type QueryLog = { text: string; values?: unknown[] };
 type GuardEvent = { hook?: string; decision?: string; reason?: string };
@@ -164,13 +169,13 @@ describe("task-56 AC2 quietHoursHook — tz:'contact' with NO resolvable contact
 });
 
 // TESTER POSITION (flagged for the orchestrator's ruling). dncHook already fails CLOSED when the
-// consent read THROWS (T2 contract, policies.ts:96-99). A channel-bearing action with no
+// consent read THROWS (dncHook in policies/do-not-call.ts). A channel-bearing action with no
 // resolvable contact is the same epistemic state reached one step earlier — the consent value is
 // unknown — so the verdict must be the same: BLOCK. The alternative (pass) means the one input an
 // LLM controls, "which contact id do I put in the args", is also the switch that turns DNC off:
 // omit the id, or name a contact in another tenant (RLS returns zero rows), and the hard-safety
 // gate evaporates. A missed send is a courtesy failure; a send to a DNC-listed person is a legal
-// one. The channel-LESS path is untouched — plain tools are never dnc-gated (T2-AC6).
+// one. The channel-LESS path is untouched — plain tools are never dnc-gated (policies.test.ts pins it).
 describe("task-56 AC4 dncHook — a channel-bearing action with NO contact identity FAILS CLOSED", () => {
   it("channel + NO contactId → BLOCK {ok:false, reason:'dnc'} (consent unknowable ⇒ no send)", async () => {
     const { ctx } = makeCtx({

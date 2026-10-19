@@ -180,9 +180,15 @@ async function runIn(definition: unknown, contactId: string, step: string) {
 
 /**
  * The lead's next WhatsApp message and next call, each in a sequence of its own, as the worker's send_wa and
- * place_call jobs make them: what reached the (fake) provider, and the conversations the sends left.
+ * place_call jobs make them: what reached the (fake) provider, and the conversations the sends left. The lead has
+ * agreed to WhatsApp messages first, so a refused message is the block's doing, never a missing opt-in.
  */
 async function nextSends(contactId: string) {
+  await admin.query(
+    `update contacts set consent = consent || '{"whatsapp_optin": {"status": "opted_in", "source": "test fixture"}}'
+      where id = $1`,
+    [contactId],
+  );
   const sent = { whatsapp: 0, calls: 0 };
   const waRun = await runIn(WA_WF, contactId, "w");
   const callRun = await runIn(CALL_WF, contactId, "c");

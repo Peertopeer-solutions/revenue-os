@@ -1,16 +1,16 @@
-// task-56 RED — guardrail ACTIVATION, loop half: the tool loop must hand guard() the CHANNEL and
+// Guardrail ACTIVATION, loop half: the tool loop must hand guard() the CHANNEL and
 // the CONTACT behind a send. Today loop.ts:111-115 builds `{kind:'tool', toolName, autonomy}` and
 // nothing else, so dncHook / quietHoursHook / attemptCapHook (all three in defaultPipeline, all
 // three keyed on action.channel) are INERT on every tool-driven send: they return null before
 // their first DB read. The packages/channels doorways guard their own sends — the loop path does
-// not, and that is a hole in moat invariant #4 ("no code path around guard()"), not a nicety.
+// not, and that is a hole in the rule "guardrails run before every send, with no code path around guard()" (AGENTS.md), not a nicety.
 //
 // GROUND TRUTH (investigated, not assumed):
 //   • The only production send tool is send_confirmation (tools/send-confirmation.ts) — port-only
-//     by moat #4 — and it declares its send in its ZOD-VALIDATED args: {contactId, channel, body}.
+//     by that rule — and it declares its send in its ZOD-VALIDATED args: {contactId, channel, body}.
 //     book_appointment / update_contact carry a contactId but no channel. So "this invocation is
 //     a send on channel X to contact Y" is readable off `parsed.data` at loop.ts:98, AFTER the
-//     T11 seatbelt has validated it and BEFORE guard() runs.
+//     loop's schema check has validated it and BEFORE guard() runs.
 //   • The conversation's own contact is the fallback identity: `conversations.contact_id`, the
 //     same column retrieval.ts:50 reads (nullable — "unknown caller until resolved").
 // These tests pin the CONTRACT (what guard sees, and what happens to the send), never a
@@ -261,9 +261,28 @@ describe("task-56 AC1 — the loop hands guard() the channel + contact behind a 
 // tool-driven send is actually stopped. "Stopped" means BOTH: the send port is never touched, and
 // the blocking reason is persisted on the tool message (loop.ts:146) so the transcript shows why.
 describe("task-56 AC1 end-to-end — defaultPipeline BITES on a tool-driven send", () => {
+  // Every lead here agreed to WhatsApp messages, so only the check each test is about can refuse its send.
+  const optedIn = (
+    contacts: NonNullable<Parameters<typeof makeCtx>[0]>["contacts"] = {},
+  ) =>
+    Object.fromEntries(
+      Object.entries(contacts).map(([id, c]) => [
+        id,
+        {
+          ...c,
+          consent: {
+            ...(c.consent as object),
+            whatsapp_optin: { status: "opted_in", source: "test fixture" },
+          },
+        },
+      ]),
+    );
   const runSend = async (opts: Parameters<typeof makeCtx>[0]) => {
     const { port, calls } = sendPort();
-    const { ctx, queries } = makeCtx(opts);
+    const { ctx, queries } = makeCtx({
+      ...opts,
+      contacts: optedIn(opts.contacts),
+    });
     await runTurn(
       {
         provider: fakeLlm("send_confirmation", CONFIRMATION),

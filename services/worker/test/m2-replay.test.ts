@@ -15,6 +15,7 @@ import { createPool } from "@revenue-os/db";
 import { buildCatalog, type LlmTurn } from "@revenue-os/harness";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
+import { OPTED_IN } from "../../../tests/opted-in";
 import { testCompanies } from "../../../tests/test-companies";
 import {
   handlePlaceCall,
@@ -224,8 +225,8 @@ beforeAll(async () => {
   orgId = (await companies.add("Replay Org")).id;
   contactId = (
     await admin.query(
-      `insert into contacts (org_id, first_name, timezone) values ($1, 'Asha', $2) returning id`,
-      [orgId, TZ],
+      `insert into contacts (org_id, first_name, timezone, consent) values ($1, 'Asha', $2, $3) returning id`,
+      [orgId, TZ, OPTED_IN],
     )
   ).rows[0].id;
   await admin.query(

@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import type { LlmProvider } from "@revenue-os/harness";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
+import { OPTED_IN } from "../../../tests/opted-in";
 import { testCompanies } from "../../../tests/test-companies";
 import { startJobs, stopJobs } from "../src/jobs";
 import { flakyPool } from "./fixtures/flaky-pool";
@@ -104,14 +105,14 @@ afterAll(async () => {
   await admin.end();
 });
 
-/** A lead with a number of their own, and a run of theirs waiting at `step`: on a call step, parked by the scheduler
+/** A lead with a number of their own who agreed to WhatsApp messages, and a run of theirs waiting at `step`: on a call step, parked by the scheduler
  *  for the call job whose send id `sendId` is. */
 async function leadWithRun(step: string, sendId = randomUUID()) {
   const number = `+9197${String(Math.random()).slice(2, 10)}`;
   const contactId = (
     await admin.query(
-      `insert into contacts (org_id, first_name) values ($1, 'Asha') returning id`,
-      [orgId],
+      `insert into contacts (org_id, first_name, consent) values ($1, 'Asha', $2) returning id`,
+      [orgId, OPTED_IN],
     )
   ).rows[0].id;
   await admin.query(

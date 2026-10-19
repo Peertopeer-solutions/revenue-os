@@ -1,4 +1,4 @@
-// task-25 RED — quiet-hours guardrail hook (moat invariant #4: guardrails-as-config gate the
+// Quiet-hours guardrail hook (guardrails-as-config gate the
 // outbound send pipeline; the Verdict union already reserves reason 'quiet_hours'). Env-free:
 // the pure predicate takes an injected `now`; the hook's DB reads are mocked via a fake
 // OrgScopedDb, and its wall-clock `new Date()` is pinned with bun:test's setSystemTime. The real
@@ -6,12 +6,9 @@
 // 'quiet_hours' config {"start":"21:00","end":"09:00","tz":"contact"}; contacts.timezone (text,
 // default 'Asia/Kolkata'). Boundary semantics under test: START inclusive, END exclusive.
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
-import {
-  autonomyHook,
-  defaultPipeline,
-  guard,
-  quietHoursHook,
-} from "../src/policies";
+import { autonomyHook } from "../src/policies/autonomy";
+import { quietHoursHook } from "../src/policies/calling-hours";
+import { defaultPipeline, guard } from "../src/policies/pipeline";
 import { isWithinQuietHours } from "../src/quiet-hours";
 import type { GuardedAction, OrgCtx, OrgScopedDb } from "../src/types";
 
@@ -51,7 +48,15 @@ const activePolicy = (config: unknown) => ({
   active: true,
 });
 const CONTACT_TZ = { start: "21:00", end: "09:00", tz: "contact" };
-const contact = (timezone: unknown) => ({ id: "c1", timezone });
+// The lead agreed to WhatsApp messages, so only calling hours decide a send here.
+const contact = (timezone: unknown) => ({
+  id: "c1",
+  timezone,
+  consent: {
+    dnc: false,
+    whatsapp_optin: { status: "opted_in", source: "test fixture" },
+  },
+});
 const send = (over: Partial<GuardedAction> = {}): GuardedAction => ({
   kind: "tool",
   toolName: "send_whatsapp",

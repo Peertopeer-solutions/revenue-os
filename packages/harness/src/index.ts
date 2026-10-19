@@ -11,7 +11,7 @@ export {
   type TurnDeps,
 } from "./loop";
 export { emitUsage } from "./meter";
-export { autonomyHook, defaultPipeline, guard } from "./policies";
+export { guard } from "./policies";
 export { ToolRegistry } from "./registry";
 export { retrieveMemories } from "./retrieval";
 export { withTimeLimit } from "./time-limit";
