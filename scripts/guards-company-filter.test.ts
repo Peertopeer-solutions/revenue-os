@@ -54,6 +54,7 @@ function guards(
 const UNFILTERED =
   'export const q = (tx) => tx.query("select * from contacts");\n';
 
+// behaviour already on main: its messages insert only moved into conversations.ts, the one file that may write messages
 it("passes every query that names its company, and reads only the product's code", () => {
   const { code, out, own } = guards({
     "packages/db/src/reads.ts": `// Every read the company filter accepts.
