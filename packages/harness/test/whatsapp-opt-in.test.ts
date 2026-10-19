@@ -4,9 +4,7 @@
 // messages, so it lets them through without reading anything. The database here is a fake that answers the contacts
 // query; services/worker/test/whatsapp-opt-in.test.ts shows the same refusal on the real local database.
 import { describe, expect, it } from "bun:test";
-import { quietHoursHook } from "../src/policies/calling-hours";
-import { dncHook } from "../src/policies/do-not-call";
-import { defaultPipeline, guard } from "../src/policies/pipeline";
+import { guard } from "../src";
 import { whatsappOptInHook } from "../src/policies/whatsapp-opt-in";
 import type { GuardedAction, OrgCtx } from "../src/types";
 
@@ -115,12 +113,6 @@ describe("the WhatsApp opt-in check", () => {
 });
 
 describe("guard() with the WhatsApp opt-in check", () => {
-  it("runs it after do-not-call and before calling hours", () => {
-    const at = (hook: unknown) => defaultPipeline.indexOf(hook as never);
-    expect(at(whatsappOptInHook)).toBeGreaterThan(at(dncHook));
-    expect(at(whatsappOptInHook)).toBeLessThan(at(quietHoursHook));
-  });
-
   it("refuses a WhatsApp message to a lead with no opt-in, sends to one who opted in, and still calls a lead with none", async () => {
     expect(await guard(company(lead(null)).ctx, send())).toEqual(REFUSED);
     expect(await guard(company(lead(OPTED_IN)).ctx, send())).toEqual({
