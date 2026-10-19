@@ -1,8 +1,12 @@
-// Boundary truth (T11): every boundary parses with these — never re-declare shapes locally.
+// Boundary truth (AGENTS.md → Conventions: Zod at every boundary): every boundary parses with these — never
+// re-declare shapes locally.
 import { z } from "zod";
 
 export const OrgIdSchema = z.string().uuid();
 export const ConversationIdSchema = z.string().uuid();
+export const ContactIdSchema = z.string().uuid();
+// What the console's contacts list is searched by: a lead's name, or digits of their number.
+export const ContactSearchSchema = z.string().max(100).optional();
 
 export const OrgRoleSchema = z.enum(["admin", "operator", "viewer"]);
 export type OrgRole = z.infer<typeof OrgRoleSchema>;
@@ -35,7 +39,7 @@ export const UpdateOrgSchema = z
   .strict();
 export type UpdateOrg = z.infer<typeof UpdateOrgSchema>;
 
-// Guardrail-policy config is the SAFETY BOUNDARY (task-52). The harness quiet_hours hook reads
+// Guardrail-policy config is the SAFETY BOUNDARY. The harness quiet_hours hook reads
 // guardrail_policies.config FAIL-OPEN (packages/harness/src/policies.ts): a malformed config
 // silently disables the gate for every send. This strict discriminated union is what stops a bad
 // config reaching the row — the PUT route parses it before any write. One union export is the whole
@@ -97,7 +101,8 @@ export const VapiWebhookSchema = z
       .object({
         type: z.string(),
         id: z.string().optional(),
-        timestamp: z.string().optional(),
+        // Vapi sends epoch milliseconds (its API reference types it a double); a string is taken as Postgres reads it.
+        timestamp: z.union([z.number(), z.string()]).optional(),
         call: z.object({ id: z.string() }).passthrough().optional(),
         role: z.enum(["assistant", "user"]).optional(),
         transcript: z.string().optional(),
@@ -108,8 +113,21 @@ export const VapiWebhookSchema = z
   })
   .passthrough();
 export type VapiWebhook = z.infer<typeof VapiWebhookSchema>;
+// The AI's reading of a call, in its end-of-call report: the analysis' structured data, which the assistant's analysis
+// plan asks for. Only an explicit `doNotCall: true` counts, and it may only add a do-not-call block, never lift one
+// or grant consent (docs/decisions-in-force/2026-09-29-a-do-not-call-block-may-come-from-the-ai-s-reading-of-a.md).
+export const VapiReadingSaysDoNotCallSchema = z.object({
+  analysis: z.object({
+    structuredData: z.object({ doNotCall: z.literal(true) }),
+  }),
+});
+// The number a call's lead called from or was called on: the message's customer, or its call's (Vapi's
+// CreateCustomerDTO). Read on its own, so a report with another shape there is still filed.
+export const VapiCustomerSchema = z.object({
+  customer: z.object({ number: z.string() }),
+});
 
-// ── Eval scenarios (task-59) — the three JSONB columns of eval_scenarios. A row that fails ANY
+// ── Eval scenarios — the three JSONB columns of eval_scenarios. A row that fails ANY
 //    of these is a malformed scenario: the eval runner records it and fails ONLY that scenario,
 //    never the whole run. Extra keys pass through (.passthrough) so assertions can carry future
 //    v2 checks the mechanical engine does not yet read.

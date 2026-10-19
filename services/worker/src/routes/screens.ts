@@ -9,7 +9,7 @@ import {
   listTasks,
   memberRole,
 } from "@revenue-os/db";
-import { OrgIdSchema } from "@revenue-os/shared";
+import { ContactSearchSchema, OrgIdSchema } from "@revenue-os/shared";
 import { Hono } from "hono";
 import type { AuthEnv } from "../auth";
 import { pool } from "../db";
@@ -25,10 +25,11 @@ export const screens = new Hono<AuthEnv>()
   })
   .get("/orgs/:orgId/contacts", async (c) => {
     const orgId = OrgIdSchema.parse(c.req.param("orgId"));
+    const search = ContactSearchSchema.parse(c.req.query("q"));
     const actor = c.get("actor");
     const role = await memberRole(pool, orgId, actor.userId);
     if (role === null) return c.json({ error: "forbidden" }, 403);
-    const contacts = await listContacts(pool, orgId);
+    const contacts = await listContacts(pool, orgId, search);
     return c.json({ contacts });
   })
   .get("/orgs/:orgId/conversations", async (c) => {

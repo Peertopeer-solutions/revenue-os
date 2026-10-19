@@ -1,8 +1,8 @@
-// audit() — the observability spine (Layer A). Called INSIDE the same withOrg transaction as
-// the mutation it describes: the audit row commits or rolls back atomically with the change.
-// audit_log is append-only by RLS (sel+ins policies only).
+// audit() — the one writer of audit_log rows (`bun run guards` fails any other insert into it). Called INSIDE the same
+// withOrg transaction as the change it describes, so the row commits or rolls back with the change; the AI engine
+// writes its tool rows through it too. audit_log is append-only by RLS (sel+ins policies only).
 // G1: runtime-agnostic.
-import type pg from "pg";
+import type { Db } from "./client";
 
 export type ActorType = "user" | "agent" | "system" | "integration";
 
@@ -18,7 +18,7 @@ export interface AuditEntry {
 }
 
 export async function audit(
-  tx: pg.PoolClient,
+  tx: Db,
   orgId: string,
   entry: AuditEntry,
 ): Promise<void> {

@@ -125,9 +125,10 @@ packages/harness/src/
 ├─ scoring/
 │  ├─ heuristic.ts # v1 scorer
 │  └─ features.ts  # feature extraction (snapshot into contact_scores.features)
-├─ audit.ts        # emit(audit_log) — called by every side effect
 └─ meter.ts        # emit(usage_events) — called by every priced action
 ```
+(No audit or task writer lives in the harness: audit rows go through `audit()` in packages/db/src/audit.ts and tasks
+for people through `createTask()` in packages/db/src/tasks.ts, each in the turn's own transaction.)
 
 ```ts
 // ---- types.ts (the contracts everything else obeys) ----
@@ -231,7 +232,7 @@ runTurn(ctx, conversationId):
       for call in turn.toolCalls:
           args = tool.schema.parse(call.args)               # hallucination seatbelt (T11)
           verdict = guard(ctx, action(call))                 # S8.2 — before ANY side effect
-          verdict.ok ? result = tool.execute(ctx, args)      # audit.emit on every execute
+          verdict.ok ? result = tool.execute(ctx, args)      # audit() (packages/db) on every execute
                      : result = {ok:false, error:verdict.reason}  # approval_required → create_task instead
           append tool result to messages (messages table, role='tool')
   → returns nothing; all effects are rows                    # stateless turn: crash-safe by construction

@@ -1,8 +1,9 @@
 // The call.post handler: the dead-letter SINK for a failed / retry-exhausted call
 // job. In ONE withOrg(orgId) tx it records the failure (workflow_runs.last_error + a `review`
-// task on the run) so a human can act — and NEVER throws (a poisoned payload, a missing id, or a
-// DB error must not crash the queue; the sink is the last line of defense).
-import { withOrg } from "@revenue-os/db";
+// task for the run's lead, made by createTask with its audit row) so a human can act; a run the company doesn't have
+// gets no task. It NEVER throws (a poisoned payload, a missing id, or a DB error must not crash the queue; the sink is
+// the last line of defense).
+import { createTask, withOrg } from "@revenue-os/db";
 import type { Pool } from "pg";
 import { logger } from "../logger";
 
@@ -17,6 +18,9 @@ export type CallPostDeps = {
 export type CallPostJob = {
   orgId: string;
   runId?: string;
+  /** The failed call's step and its place in it, copied from the call job: they name which call failed. */
+  step?: string;
+  idx?: number;
   action?: { kind: string };
   error?: string;
 };
@@ -26,23 +30,28 @@ export async function handleCallPost(
   job: CallPostJob,
 ): Promise<void> {
   const { orgId, runId, error, action } = job;
+  // The same failed call delivered again asks for the same task: once per call, not per delivery.
+  const once = `call.post:${runId}:${job.step ?? ""}:${job.idx ?? 0}`;
   if (!orgId || !runId) return; // malformed payload — resolve without throwing (the sink can't crash)
 
   try {
     await withOrg(deps.pool, orgId, async (tx) => {
-      await tx.query(
-        `update workflow_runs set last_error = $2, updated_at = now() where id = $1 and org_id = $3`,
+      const run = await tx.query(
+        `update workflow_runs set last_error = $2, updated_at = now() where id = $1 and org_id = $3
+         returning contact_id`,
         [runId, error ?? "call job failed", orgId],
       );
-      await tx.query(
-        `insert into tasks (org_id, workflow_run_id, kind, title, payload)
-         values ($1, $2, 'review', 'Call failed — needs review', $3::jsonb)`,
-        [
-          orgId,
-          runId,
-          JSON.stringify({ error: error ?? null, action: action ?? null }),
-        ],
-      );
+      const contactId = run.rows[0]?.contact_id;
+      if (typeof contactId !== "string") return; // not this company's run, or gone
+      await createTask(tx, orgId, {
+        contactId,
+        workflowRunId: runId,
+        kind: "review",
+        title: "Call failed — needs review",
+        payload: { error: error ?? null, action: action ?? null },
+        actor: { type: "system" },
+        once,
+      });
     });
   } catch (err) {
     // last resort: a dead-letter sink NEVER re-throws into the queue.

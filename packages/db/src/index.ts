@@ -7,11 +7,13 @@ export {
   type WorkflowRow,
 } from "./agents";
 export { type ActorType, type AuditEntry, audit } from "./audit";
-export { createPool, type PoolClient, withOrg } from "./client";
+export { createPool, type Db, type PoolClient, withOrg } from "./client";
+export { recordDoNotCall } from "./consent";
 export {
   type ContactRow,
   type ImportSummary,
   importContacts,
+  leadsWithNumber,
   listContacts,
 } from "./contacts";
 export {
@@ -25,6 +27,7 @@ export {
   listGuardrailPolicies,
   upsertGuardrailPolicy,
 } from "./guardrails";
+export { leadNumber } from "./lead-numbers";
 export {
   type FunnelMetrics,
   funnelMetrics,
@@ -40,4 +43,4 @@ export {
   updateOrg,
   userOrgs,
 } from "./orgs";
-export { listTasks, type TaskRow } from "./tasks";
+export { createTask, listTasks, type TaskKind, type TaskRow } from "./tasks";

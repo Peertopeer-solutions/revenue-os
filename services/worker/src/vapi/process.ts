@@ -3,8 +3,14 @@
 // timestamps give, onto the company's conversation for that call id, each message taking the next seq. Each event
 // is filed on its own: one that fails is marked failed with its reason, and the company's other events still go
 // through (ROADMAP.md, Slice 1).
-import { withOrg } from "@revenue-os/db";
-import { type VapiWebhook, VapiWebhookSchema } from "@revenue-os/shared";
+import { leadsWithNumber, recordDoNotCall, withOrg } from "@revenue-os/db";
+import {
+  normalizePhoneE164,
+  VapiCustomerSchema,
+  VapiReadingSaysDoNotCallSchema,
+  type VapiWebhook,
+  VapiWebhookSchema,
+} from "@revenue-os/shared";
 import type pg from "pg";
 import { logger } from "../logger";
 
@@ -12,6 +18,10 @@ type Tx = pg.PoolClient;
 type Message = VapiWebhook["message"];
 
 const ROLE_MAP = { assistant: "agent", user: "contact" } as const;
+
+/** A message's time as Postgres takes it: Vapi's epoch milliseconds become an ISO time; a string goes as it came. */
+const callTime = (t: Message["timestamp"]) =>
+  typeof t === "number" ? new Date(t).toISOString() : (t ?? null);
 
 /** The company's conversation for this call id, made on its first event. Another company's call id is its own. */
 async function ensureConversation(
@@ -45,7 +55,7 @@ async function fileTranscript(
     tx,
     orgId,
     callId,
-    m.timestamp ?? null,
+    callTime(m.timestamp),
   );
   await tx.query(
     `insert into messages (org_id, conversation_id, seq, role, content)
@@ -55,7 +65,10 @@ async function fileTranscript(
   );
 }
 
-/** The call's end: the conversation completes with its summary, which becomes the lead's latest memory. */
+/**
+ * The call's end: the conversation completes with its summary, which becomes the lead's latest memory. A request in
+ * the AI's reading not to be contacted was recorded before this, on its own (blockFirst).
+ */
 async function fileEndOfCall(
   tx: Tx,
   orgId: string,
@@ -67,7 +80,12 @@ async function fileEndOfCall(
   const done = await tx.query<{ contact_id: string | null }>(
     `update conversations set status = 'completed', ended_at = $3, summary = $4
 		 where org_id = $1 and id = $2 returning contact_id`,
-    [orgId, conversationId, m.timestamp ?? new Date().toISOString(), summary],
+    [
+      orgId,
+      conversationId,
+      callTime(m.timestamp) ?? new Date().toISOString(),
+      summary,
+    ],
   );
   const contactId = done.rows[0]?.contact_id;
   // Fold the summary into long-term memory (verbatim, no embedding yet): insert the new live row, then point the
@@ -89,6 +107,65 @@ async function fileEndOfCall(
   );
 }
 
+/**
+ * An end-of-call report whose AI reading says the lead asked not to be contacted: the call's lead is blocked before
+ * the report is filed, in a savepoint of its own, so a part of the report that can't be filed (an end time Postgres
+ * can't read) never undoes the block. A failure the report causes here undoes only the block, and filing the report
+ * then fails the same way; the database's own trouble fails the whole job, which runs again.
+ */
+async function blockFirst(tx: Tx, orgId: string, payload: unknown) {
+  const m = VapiWebhookSchema.safeParse(payload).data?.message;
+  const callId = m?.call?.id;
+  if (
+    m?.type !== "end-of-call-report" ||
+    !callId ||
+    !VapiReadingSaysDoNotCallSchema.safeParse(m).success
+  )
+    return;
+  await tx.query("savepoint vapi_block");
+  try {
+    const conversationId = await ensureConversation(tx, orgId, callId, null);
+    await blockCallsLead(tx, orgId, conversationId, m);
+  } catch (err) {
+    if (!eventsFault(err)) throw err;
+    await tx.query("rollback to savepoint vapi_block");
+  }
+  await tx.query("release savepoint vapi_block");
+}
+
+/**
+ * The AI's reading of the call asked not to be contacted: block the call's lead, the conversation's own or, on a call
+ * no lead is linked to (one that came in), the company's leads with the number the call came from.
+ */
+async function blockCallsLead(
+  tx: Tx,
+  orgId: string,
+  conversationId: string,
+  m: Message,
+) {
+  const linked = await tx.query<{ contact_id: string | null }>(
+    "select contact_id from conversations where org_id = $1 and id = $2",
+    [orgId, conversationId],
+  );
+  const contactId = linked.rows[0]?.contact_id;
+  const customer =
+    VapiCustomerSchema.safeParse(m).data ??
+    VapiCustomerSchema.safeParse(m.call).data;
+  const number = normalizePhoneE164(customer?.customer.number ?? "");
+  const leads = contactId
+    ? [contactId]
+    : number
+      ? await leadsWithNumber(tx, orgId, number)
+      : [];
+  for (const lead of leads)
+    await recordDoNotCall(tx, orgId, lead, { from: "call", conversationId });
+  if (!leads.length)
+    logger.warn(
+      { org_id: orgId, conversation_id: conversationId },
+      "a do-not-call request was heard on a call no lead of the company is linked to or called from",
+    );
+}
+
 /** Files one stored event. Anything not understood is stored and skipped, never guessed at (docs/security.md S6.5). */
 async function fileEvent(
   tx: Tx,
@@ -108,7 +185,7 @@ async function fileEvent(
   else if (m.type === "end-of-call-report")
     await fileEndOfCall(tx, orgId, callId, m);
   else if (m.type === "status-update")
-    await ensureConversation(tx, orgId, callId, m.timestamp ?? null);
+    await ensureConversation(tx, orgId, callId, callTime(m.timestamp));
   else return "skipped";
   return "processed";
 }
@@ -141,6 +218,7 @@ export async function processVapiEvents(
     );
 
     for (const row of events.rows) {
+      await blockFirst(tx, orgId, row.payload);
       // A failure the event causes undoes only that event's writes and marks it failed. The database's own trouble
       // fails the whole job, so pg-boss runs it again and no event is marked failed for it.
       await tx.query("savepoint vapi_event");
