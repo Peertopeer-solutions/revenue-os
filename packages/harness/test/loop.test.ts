@@ -308,6 +308,7 @@ describe("harness loop", () => {
     expect(contact.rows[0].first_name).toBe("Scripted"); // unchanged
   });
 
+  // behaviour already on main: the exact failure result now pins the tool-call function runTurn hands each call to
   it("hallucinated args die at the Zod seatbelt; the loop persists the failure and survives", async () => {
     const provider = fakeLlm([
       {
@@ -340,6 +341,9 @@ describe("harness loop", () => {
 			 order by seq desc limit 1`,
       [conversationId],
     );
-    expect(JSON.stringify(bad.rows[0].tool_call)).toContain("invalid_args");
+    expect(bad.rows[0].tool_call).toEqual({
+      name: "update_contact",
+      result: { ok: false, error: "invalid_args" },
+    });
   });
 });

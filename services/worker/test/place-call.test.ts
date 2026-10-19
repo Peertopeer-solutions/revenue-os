@@ -232,7 +232,7 @@ describe("place_call handler", () => {
     expect(run.current_step).toBe("c"); // unchanged — the next tick routes the re-entry
   });
 
-  it("the call placed first, its own events filed after: one outbound conversation keeping its lead, run and agent, started at the call's first event", async () => {
+  it("the call placed first, its own events filed after: one outbound conversation keeping its lead, run and agent, started when the job placed the call, an hour before its first event", async () => {
     const wf = await seedWorkflow(CALL_WF);
     const runId = await seedRun(wf, { currentStep: "c", state: { contactId } });
     const ref = `vapi-first-${REF}`;
@@ -251,6 +251,13 @@ describe("place_call handler", () => {
         action: { kind: "place_call", contactId, agentKey: "closer" },
       },
     );
+    const placedAt = (
+      await admin.query(
+        "select started_at from conversations where org_id = $1 and provider_ref = $2",
+        [orgId, ref],
+      )
+    ).rows[0]?.started_at as Date;
+    expect(placedAt).toBeInstanceOf(Date); // the job's open set the start time
     await admin.query(
       `insert into webhook_events (org_id, provider, event_type, dedupe_key, payload)
        values ($1, 'vapi', 'transcript', $2, $3::jsonb)`,
@@ -262,7 +269,7 @@ describe("place_call handler", () => {
             type: "transcript",
             call: { id: ref },
             id: `${ref}-t1`,
-            timestamp: "2026-10-19T09:00:00Z",
+            timestamp: new Date(placedAt.getTime() + 3_600_000).toISOString(),
             role: "user",
             transcript: "Haan, boliye.",
           },
@@ -281,7 +288,7 @@ describe("place_call handler", () => {
         workflow_run_id: runId,
         agent_id: expect.any(String),
         direction: "outbound",
-        started_at: new Date("2026-10-19T09:00:00Z"),
+        started_at: placedAt, // a later event never moves the start
       }),
     ]);
     const said = await admin.query(

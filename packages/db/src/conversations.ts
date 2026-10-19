@@ -212,16 +212,16 @@ export async function addMessage(
     );
   const added = await db.query(
     `insert into messages (org_id, conversation_id, seq, role, content, tool_call, ts)
-     select $1, $2, coalesce(max(seq), 0) + 1, $3, $4, $5::jsonb, coalesce($6::timestamptz, now())
+     select $1, $2, coalesce(max(seq), 0) + 1, $4, $5, $6::jsonb, coalesce($3::timestamptz, now())
        from messages where org_id = $1 and conversation_id = $2
      returning seq`,
     [
       orgId,
       conversationId,
+      m.at ?? null,
       m.role,
       m.content ?? null,
       m.toolCall === undefined ? null : JSON.stringify(m.toolCall),
-      m.at ?? null,
     ],
   );
   return Number(added.rows[0]?.seq);

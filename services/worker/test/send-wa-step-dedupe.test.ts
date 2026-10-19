@@ -113,8 +113,8 @@ async function countWaUsage(runId: string): Promise<number> {
   const r = await admin.query(
     `select count(*)::int n from usage_events
       where kind = 'wa_message'
-        and conversation_id in (select id from conversations where workflow_run_id = $1)`,
-    [runId],
+        and meta ->> 'sendKey' like 'send_wa:' || $1 || ':%'`,
+    [runId], // the run's own sends, by key: its lead's thread follows the newest run
   );
   return r.rows[0].n;
 }
