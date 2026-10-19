@@ -449,8 +449,9 @@ describe("multi-day replay — exactly-once + tenancy", () => {
     await tick(appPool, orgId, { now: new Date() }); // tick 1 → enqueue place_call (runId:c:0), park
     // re-poll the still-parked call step (a retry): re-arm and tick again — the duplicate enqueue
     // must conflict on singleton_key and no-op, NOT throw and NOT double.
+    // an hour in the PAST, so it is due even if the database clock runs ahead of the host's
     await admin.query(
-      `update workflow_runs set wake_at = now(), status = 'waiting' where id = $1`,
+      `update workflow_runs set wake_at = now() - interval '1 hour', status = 'waiting' where id = $1`,
       [runId],
     );
     await expect(

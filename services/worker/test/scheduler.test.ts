@@ -12,7 +12,7 @@ import { testCompanies } from "../../../tests/test-companies";
 import { startRun } from "../src/runs";
 import { tick } from "../src/scheduler";
 
-// app_service is the RLS-bound backend role withOrg connects as (docs/security.md S1.2). Seeds +
+// app_service is the RLS-bound backend role withOrg connects as (docs/security.md, "Tenancy & identity"). Seeds +
 // assertions use the superuser (admin) pool, which bypasses RLS — the functions under test use
 // appPool, which also owns pg-boss's tables, so it reads and clears this file's queued jobs.
 const DB_URL =
@@ -301,8 +301,9 @@ describe("scheduler tick + run writer", () => {
     await tick(appPool, orgId, { now: new Date() }); // tick 1 -> enqueues place_call (runId:c:0), run parks
 
     // re-arm the run at the SAME step (a retry / re-poll of the still-parked call step)
+    // an hour in the PAST, so it is due even if the database clock runs ahead of the host's
     await admin.query(
-      `update workflow_runs set wake_at = now(), status = 'waiting' where id = $1`,
+      `update workflow_runs set wake_at = now() - interval '1 hour', status = 'waiting' where id = $1`,
       [runId],
     );
     // tick 2 must NOT throw — the duplicate enqueue conflicts on singleton_key and no-ops
