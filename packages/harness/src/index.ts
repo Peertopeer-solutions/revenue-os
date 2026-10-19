@@ -14,7 +14,7 @@ export { emitUsage } from "./meter";
 export { autonomyHook, defaultPipeline, guard } from "./policies";
 export { ToolRegistry } from "./registry";
 export { retrieveMemories } from "./retrieval";
-export { TimeLimitError, withTimeLimit } from "./time-limit";
+export { withTimeLimit } from "./time-limit";
 export { buildCatalog, type SendPort } from "./tools";
 export type * from "./types";
 export { interpret } from "./workflow/interpret";

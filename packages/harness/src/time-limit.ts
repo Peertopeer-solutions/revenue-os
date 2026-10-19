@@ -3,7 +3,7 @@
 // G1: runtime-agnostic (setTimeout and AbortController are web standards).
 
 /** An outside service did not answer within its time limit. */
-export class TimeLimitError extends Error {
+class TimeLimitError extends Error {
   constructor(what: string, ms: number) {
     super(`${what} did not answer within ${ms} ms`);
     this.name = "TimeLimitError";
