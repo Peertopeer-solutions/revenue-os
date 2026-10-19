@@ -200,6 +200,58 @@ const importCsv = (csv: string) =>
     body: csv,
   });
 
+/**
+ * Runs `work` while another connection holds the row `lock` selects for update, and cancels `work`'s statement as soon
+ * as it waits on that row: a database failure in the middle of a write. Says how `work` ended.
+ */
+async function cancelledWhileLocked(
+  lock: string,
+  values: unknown[],
+  work: () => Promise<unknown>,
+): Promise<string> {
+  const holder = await admin.connect();
+  try {
+    await holder.query("begin");
+    await holder.query(lock, values);
+    const { pid } = (
+      await holder.query<{ pid: number }>("select pg_backend_pid() as pid")
+    ).rows[0] ?? { pid: 0 };
+    const ended = work().then(
+      () => "finished",
+      (err: Error) => `failed: ${err.message}`,
+    );
+    let waiting: number[] = [];
+    for (let i = 0; i < 200 && !waiting.length; i++) {
+      await Bun.sleep(50);
+      waiting = (
+        await admin.query<{ pid: number }>(
+          `select pid from pg_stat_activity where $1 = any (pg_blocking_pids(pid))`,
+          [pid],
+        )
+      ).rows.map((r) => r.pid);
+    }
+    expect(waiting).toHaveLength(1);
+    await admin.query("select pg_cancel_backend($1)", [waiting[0]]);
+    return await ended;
+  } finally {
+    await holder.query("rollback");
+    holder.release();
+  }
+}
+
+const LOCK_LEAD = "select 1 from contacts where id = $1 for update";
+const lifted = (res: Response) => {
+  if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+};
+/** The company's lead filed under this phone number, or "" when none is. */
+const filedUnder = async (number: string) =>
+  (
+    await admin.query<{ contact_id: string }>(
+      `select contact_id from contact_identities where org_id = $1 and kind = 'phone' and value = $2`,
+      [orgId, number],
+    )
+  ).rows[0]?.contact_id ?? "";
+
 beforeAll(async () => {
   owner = await testUser(admin, "optin-owner", { operator: true });
   stranger = await testUser(admin, "optin-stranger", { operator: true });
@@ -417,6 +469,57 @@ describe("an imported list", () => {
         [lead],
       );
       expect(details.rows[0]?.attributes).toEqual({ city: "Pune" });
+    }
+  });
+});
+
+describe("a database failure mid-write", () => {
+  it("an opt-in and a withdrawal the database cuts off answer 500 and leave the opt-in and audit untouched, and sending them again records each once", async () => {
+    const lead = await newLead();
+    expect(
+      await cancelledWhileLocked(LOCK_LEAD, [lead], async () =>
+        lifted(await optIn(lead, operator.token)),
+      ),
+    ).toBe("failed: HTTP 500");
+    expect(await optInOf(lead)).toBeNull();
+    expect(await audits(lead)).toEqual([]);
+    expect((await optIn(lead, operator.token)).status).toBe(200);
+    expect((await optInOf(lead))?.status).toBe("opted_in");
+
+    expect(
+      await cancelledWhileLocked(LOCK_LEAD, [lead], async () =>
+        lifted(await optOut(lead, operator.token)),
+      ),
+    ).toBe("failed: HTTP 500");
+    expect((await optInOf(lead))?.status).toBe("opted_in");
+    expect(await audits(lead)).toHaveLength(1);
+    expect((await optOut(lead, operator.token)).status).toBe(200);
+    expect((await optInOf(lead))?.status).toBe("withdrawn");
+    expect((await audits(lead)).map((a) => a.action)).toEqual([
+      "contact.whatsapp_opt_in",
+      "contact.whatsapp_opt_out",
+    ]);
+  });
+
+  it("a list with an opt-in column the database cuts off leaves nothing half-done, and importing it again opts its leads in once", async () => {
+    const [fresh, known] = [phone(), phone()];
+    const existing = await newLead(orgId, known);
+    const csv = `phone,whatsapp_opt_in\n${fresh},yes\n${known},yes\n`;
+    // The fresh row is filed and opted in first; the known row's merge then waits on the lead's lock and is cut off.
+    expect(
+      await cancelledWhileLocked(LOCK_LEAD, [existing], async () =>
+        lifted(await importCsv(csv)),
+      ),
+    ).toBe("failed: HTTP 500");
+    expect(await filedUnder(fresh)).toBe("");
+    expect(await optInOf(existing)).toBeNull();
+    expect(await audits(existing)).toEqual([]);
+
+    const again = await importCsv(csv);
+    expect(await again.json()).toEqual({ created: 1, merged: 1, invalid: 0 });
+    for (const lead of [await filedUnder(fresh), existing]) {
+      expect((await optInOf(lead))?.source).toBe("imported list");
+      expect(await audits(lead)).toHaveLength(1);
     }
   });
 });
