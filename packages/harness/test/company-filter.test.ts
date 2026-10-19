@@ -10,7 +10,9 @@ import pg from "pg";
 import { z } from "zod";
 import { testCompanies } from "../../../tests/test-companies";
 import { assembleContext, runTurn, ToolRegistry } from "../src";
-import { attemptCapHook, dncHook, quietHoursHook } from "../src/policies";
+import { attemptCapHook } from "../src/policies/attempt-cap";
+import { quietHoursHook } from "../src/policies/calling-hours";
+import { dncHook } from "../src/policies/do-not-call";
 import { updateContact } from "../src/tools/update-contact";
 import type { GuardedAction, LlmTurn, OrgCtx, PolicyHook } from "../src/types";
 

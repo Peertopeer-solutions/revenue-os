@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createPool, withOrg } from "@revenue-os/db";
 import type { LlmProvider, LlmTurn, SendPort } from "@revenue-os/harness";
 import pg from "pg";
+import { OPTED_IN } from "../tests/opted-in";
 import { testCompanies } from "../tests/test-companies";
 import {
   type CapturedSend,
@@ -66,8 +67,8 @@ beforeAll(async () => {
   );
   agentId = agent.rows[0].id;
   const contact = await admin.query(
-    `insert into contacts (org_id, first_name) values ($1, 'Persona') returning id`,
-    [orgId],
+    `insert into contacts (org_id, first_name, consent) values ($1, 'Persona', $2) returning id`,
+    [orgId, OPTED_IN], // the persona agreed to WhatsApp messages, so a captured send is never refused
   );
   contactId = contact.rows[0].id;
 
