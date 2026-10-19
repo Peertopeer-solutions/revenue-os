@@ -1,4 +1,4 @@
-// The worker's database login cuts off long queries, lock waits and idle transactions (migration 022): every new
+// The worker's database login cuts off long queries, lock waits and idle transactions (migration 023): every new
 // connection as app_service, the login the worker and its job runner use (services/worker/src/db.ts), starts with the
 // three limits set, so a stuck query, lock wait or forgotten transaction ends on its own instead of holding the
 // worker's connections and rows.
@@ -26,7 +26,7 @@ afterAll(async () => {
 });
 
 describe("the worker's database login", () => {
-  // behaviour already on main: migration 022 is applied to the one local database both copies of the code run against; it is the login's own settings that this checks
+  // behaviour already on main: migration 023 is applied to the one local database both copies of the code run against; it is the login's own settings that this checks
   it("starts every connection with limits on long queries, lock waits and idle transactions", async () => {
     const org = (await companies.add("Login Limits")).id;
     const row = await withOrg(appService, org, async (tx) => {
@@ -46,7 +46,7 @@ describe("the worker's database login", () => {
     });
   });
 
-  // behaviour already on main: migration 022 is applied to the one local database both copies of the code run against; it is the login's own settings that this checks
+  // behaviour already on main: migration 023 is applied to the one local database both copies of the code run against; it is the login's own settings that this checks
   it("gives up waiting for a row another transaction holds, instead of waiting for ever", async () => {
     const org = (await companies.add("Login Lock Wait")).id;
     const contact = (

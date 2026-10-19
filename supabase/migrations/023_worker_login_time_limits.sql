@@ -1,4 +1,4 @@
--- 022 — the worker's database login cuts off long queries, lock waits and idle transactions (ROADMAP.md, Slice 1:
+-- 023 — the worker's database login cuts off long queries, lock waits and idle transactions (ROADMAP.md, Slice 1:
 -- "A slow or stuck AI model, dialer or WhatsApp service can't freeze the worker"). app_service is the login the worker
 -- and its job runner connect as (migration 010), so a query that runs away, a wait on a row another transaction holds,
 -- or a transaction left open while nothing happens ends with an error on its own, instead of holding a connection and
