@@ -24,7 +24,12 @@ import type {
   Verdict,
 } from "@harness/types";
 import { voice } from "@revenue-os/channels";
-import { createTask, leadNumber, withOrg } from "@revenue-os/db";
+import {
+  createTask,
+  leadNumber,
+  openConversation,
+  withOrg,
+} from "@revenue-os/db";
 import { runTurn } from "@revenue-os/harness";
 import type { Pool, PoolClient } from "pg";
 import {
@@ -176,19 +181,16 @@ async function fold(
   const now = deps.now?.() ?? new Date();
   await withOrg(deps.pool, orgId, async (tx) => {
     // The call's conversation, keyed by the dialer's call id as the call's own events file it (src/vapi/process.ts),
-    // so whichever of the two comes first makes it, and this fills in its lead, run and agent.
-    const conversationId = (
-      await tx.query(
-        `insert into conversations
-           (org_id, contact_id, workflow_run_id, agent_id, channel, direction, status, provider, provider_ref)
-         values ($1, $2, $3, $4, 'voice', 'outbound', 'active', 'vapi', $5)
-         on conflict (org_id, provider, provider_ref) where provider_ref is not null
-         do update set contact_id = excluded.contact_id, workflow_run_id = excluded.workflow_run_id,
-                       agent_id = excluded.agent_id, direction = excluded.direction
-         returning id`,
-        [orgId, action.contactId, runId, agent.id, providerRef],
-      )
-    ).rows[0]?.id as string;
+    // so whichever of the two comes first opens it, and this fills in its lead, run and agent.
+    const conversationId = await openConversation(tx, orgId, {
+      channel: "voice",
+      direction: "outbound",
+      contactId: action.contactId,
+      workflowRunId: runId,
+      agentId: agent.id,
+      provider: "vapi",
+      providerRef,
+    });
     const state = await waitingForCall(tx, job);
     if (!state) return; // folded by an earlier run of this job, or handed to a person
     const ctx: OrgCtx = { orgId, db: tx };

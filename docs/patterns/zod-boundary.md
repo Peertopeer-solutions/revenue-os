@@ -28,27 +28,19 @@ A schema used inside one module stays next to it: each AI tool declares its argu
 `packages/harness/src/tools/`, and the agent loop parses the model's arguments before the tool runs:
 ```ts
 // packages/harness/src/loop.ts
-      const parsed = tool.schema.safeParse(call.args);
-      if (!parsed.success) {
-        // the seatbelt against made-up arguments: invalid args never reach execute()
-        await appendMessage(ctx, conversationId, {
-          role: "tool",
-          toolCall: {
-            name: call.name,
-            result: { ok: false, error: "invalid_args" },
-          },
-        });
-        continue;
-      }
-      …
-      const verdict = await guard(ctx, action, deps.pipeline);
-      …
-      if (verdict.ok) {
-        …
-        result = await tool.execute(
-          { ...ctx, conversationId },
-          parsed.data as never,
-        );
+  const parsed = tool.schema.safeParse(call.args);
+  if (!parsed.success)
+    // the seatbelt against made-up arguments: invalid args never reach execute()
+    return { name: call.name, result: { ok: false, error: "invalid_args" } };
+…
+  const verdict = await guard(ctx, action, deps.pipeline);
+…
+  if (verdict.ok) {
+    …
+    result = await tool.execute(
+      { ...ctx, conversationId },
+      parsed.data as never,
+    );
 ```
 **Do not copy a tool's argument schema yet:** today's tools take the lead's id (`contactId`) from the model's
 arguments, so a lead's message can steer a write onto another lead of the same company. Slice 3 · "The AI's tools

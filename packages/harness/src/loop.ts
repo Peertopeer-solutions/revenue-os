@@ -1,11 +1,11 @@
-// The AI's turn loop (docs/tech-stack.md T26.5): build the prompt, ask the model, record usage, validate the tool
-// arguments with zod, run guard(), run the tool, write the audit row, append the tool's result as a message, and repeat
-// up to MAX_TOOL_ROUNDS times before saving the model's closing message. The audit row and an approval's task are
-// written by the database package's one writers (audit, createTask), in the turn's own transaction.
+// The AI's turn loop: build the prompt, ask the model, record usage, validate the tool arguments with zod, run guard(),
+// run the tool, write the audit row, add the tool's result as a message, and repeat up to MAX_TOOL_ROUNDS times before
+// saving the model's closing message. The audit row, an approval's task and every message are written by the database
+// package's one writers (audit, createTask, addMessage), in the turn's own transaction.
 // Stateless: every effect is a row; a crash mid-turn loses nothing that matters.
 // G1: runtime-agnostic.
 
-import { audit, createTask } from "@revenue-os/db";
+import { addMessage, audit, createTask } from "@revenue-os/db";
 import { assembleContext } from "./context";
 import { emitUsage } from "./meter";
 import { guard } from "./policies";
@@ -94,32 +94,59 @@ export interface TurnDeps {
   providerName?: string;
 }
 
-async function nextSeq(ctx: OrgCtx, conversationId: string): Promise<number> {
-  const r = await ctx.db.query(
-    `select coalesce(max(seq), 0) + 1 as seq from messages where conversation_id = $1 and org_id = $2`,
-    [conversationId, ctx.orgId],
-  );
-  return Number(r.rows[0]?.seq ?? 1);
-}
-
-async function appendMessage(
+/** One tool call the model asked for: validated, guarded, run (or turned into an approval) → what the transcript keeps. */
+async function runTool(
+  deps: TurnDeps,
   ctx: OrgCtx,
   conversationId: string,
-  row: { role: "agent" | "tool"; content?: string; toolCall?: unknown },
-): Promise<void> {
-  const seq = await nextSeq(ctx, conversationId);
-  await ctx.db.query(
-    `insert into messages (org_id, conversation_id, seq, role, content, tool_call)
-		 values ($1, $2, $3, $4, $5, $6)`,
-    [
-      ctx.orgId,
-      conversationId,
-      seq,
-      row.role,
-      row.content ?? null,
-      row.toolCall === undefined ? null : JSON.stringify(row.toolCall),
-    ],
-  );
+  call: { name: string; args: unknown },
+  round: number,
+): Promise<Record<string, unknown>> {
+  const tool = deps.registry.get(call.name, deps.toolsAllowed);
+  if (!tool)
+    return {
+      name: call.name,
+      result: { ok: false, error: "unknown_or_unallowed_tool" },
+    };
+  const parsed = tool.schema.safeParse(call.args);
+  if (!parsed.success)
+    // the seatbelt against made-up arguments: invalid args never reach execute()
+    return { name: call.name, result: { ok: false, error: "invalid_args" } };
+
+  const channel = wireChannel(parsed.data);
+  const action: GuardedAction = {
+    kind: "tool",
+    toolName: tool.name,
+    autonomy: tool.autonomy,
+    channel,
+    contactId:
+      strField(parsed.data, "contactId") ??
+      (channel ? await conversationContactId(ctx, conversationId) : undefined),
+  };
+  const verdict = await guard(ctx, action, deps.pipeline);
+
+  let result: ToolResult;
+  if (verdict.ok) {
+    // Thread the turn's conversationId so a tool write attributes to the run (book_appointment's
+    // outcome → conversations.workflow_run_id). Additive: tools that ignore it are unaffected.
+    result = await tool.execute(
+      { ...ctx, conversationId },
+      parsed.data as never,
+    );
+    await audit(ctx.db, ctx.orgId, {
+      actorType: "agent",
+      action: `tool.${tool.name}`,
+      resourceType: "conversation",
+      resourceId: conversationId,
+      meta: { round, ok: result.ok },
+    });
+  } else if (verdict.reason === "approval_required") {
+    await askForApproval(ctx, conversationId, tool.name, parsed.data);
+    result = { ok: false, error: "approval_required" };
+  } else {
+    result = { ok: false, error: verdict.reason };
+  }
+  return { name: tool.name, args: parsed.data, result };
 }
 
 export async function runTurn(
@@ -147,79 +174,17 @@ export async function runTurn(
 
     if (!turn.toolCalls || turn.toolCalls.length === 0) {
       if (turn.text)
-        await appendMessage(ctx, conversationId, {
+        await addMessage(ctx.db, ctx.orgId, conversationId, {
           role: "agent",
           content: turn.text,
         });
       return;
     }
 
-    for (const call of turn.toolCalls) {
-      const tool = deps.registry.get(call.name, deps.toolsAllowed);
-      if (!tool) {
-        await appendMessage(ctx, conversationId, {
-          role: "tool",
-          toolCall: {
-            name: call.name,
-            result: { ok: false, error: "unknown_or_unallowed_tool" },
-          },
-        });
-        continue;
-      }
-
-      const parsed = tool.schema.safeParse(call.args);
-      if (!parsed.success) {
-        // the seatbelt against made-up arguments: invalid args never reach execute()
-        await appendMessage(ctx, conversationId, {
-          role: "tool",
-          toolCall: {
-            name: call.name,
-            result: { ok: false, error: "invalid_args" },
-          },
-        });
-        continue;
-      }
-
-      const channel = wireChannel(parsed.data);
-      const action: GuardedAction = {
-        kind: "tool",
-        toolName: tool.name,
-        autonomy: tool.autonomy,
-        channel,
-        contactId:
-          strField(parsed.data, "contactId") ??
-          (channel
-            ? await conversationContactId(ctx, conversationId)
-            : undefined),
-      };
-      const verdict = await guard(ctx, action, deps.pipeline);
-
-      let result: ToolResult;
-      if (verdict.ok) {
-        // Thread the turn's conversationId so a tool write attributes to the run (book_appointment's
-        // outcome → conversations.workflow_run_id). Additive: tools that ignore it are unaffected.
-        result = await tool.execute(
-          { ...ctx, conversationId },
-          parsed.data as never,
-        );
-        await audit(ctx.db, ctx.orgId, {
-          actorType: "agent",
-          action: `tool.${tool.name}`,
-          resourceType: "conversation",
-          resourceId: conversationId,
-          meta: { round, ok: result.ok },
-        });
-      } else if (verdict.reason === "approval_required") {
-        await askForApproval(ctx, conversationId, tool.name, parsed.data);
-        result = { ok: false, error: "approval_required" };
-      } else {
-        result = { ok: false, error: verdict.reason };
-      }
-
-      await appendMessage(ctx, conversationId, {
+    for (const call of turn.toolCalls)
+      await addMessage(ctx.db, ctx.orgId, conversationId, {
         role: "tool",
-        toolCall: { name: tool.name, args: parsed.data, result },
+        toolCall: await runTool(deps, ctx, conversationId, call, round),
       });
-    }
   }
 }

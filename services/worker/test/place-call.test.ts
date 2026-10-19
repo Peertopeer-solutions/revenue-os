@@ -20,6 +20,7 @@ import {
   handlePlaceCall,
   type PlaceCallDeps,
 } from "../src/handlers/place-call";
+import { processVapiEvents } from "../src/vapi/process";
 import { flakyPool } from "./fixtures/flaky-pool";
 
 // admin = superuser (BYPASSRLS): seeds + assertions. appPool = app_service (RLS-bound): the
@@ -229,6 +230,68 @@ describe("place_call handler", () => {
     expect(run.state.lastDisposition).toBe("no_answer");
     expect(run.status).toBe("waiting");
     expect(run.current_step).toBe("c"); // unchanged — the next tick routes the re-entry
+  });
+
+  it("the call placed first, its own events filed after: one outbound conversation keeping its lead, run and agent, started at the call's first event", async () => {
+    const wf = await seedWorkflow(CALL_WF);
+    const runId = await seedRun(wf, { currentStep: "c", state: { contactId } });
+    const ref = `vapi-first-${REF}`;
+    await handlePlaceCall(
+      {
+        pool: appPool,
+        guard: async () => ({ ok: true }),
+        sender: { place: async () => ({ providerRef: ref }) },
+        provider: fakeLlm([{ text: "Namaste.", usage: { in: 1, out: 1 } }]),
+        registry: new ToolRegistry(),
+        outcome: async () => "completed",
+      },
+      {
+        orgId,
+        runId,
+        action: { kind: "place_call", contactId, agentKey: "closer" },
+      },
+    );
+    await admin.query(
+      `insert into webhook_events (org_id, provider, event_type, dedupe_key, payload)
+       values ($1, 'vapi', 'transcript', $2, $3::jsonb)`,
+      [
+        orgId,
+        `vapi:${ref}-t1`,
+        JSON.stringify({
+          message: {
+            type: "transcript",
+            call: { id: ref },
+            id: `${ref}-t1`,
+            timestamp: "2026-10-19T09:00:00Z",
+            role: "user",
+            transcript: "Haan, boliye.",
+          },
+        }),
+      ],
+    );
+    await processVapiEvents(appPool, orgId);
+    const convos = await admin.query(
+      `select id, contact_id, workflow_run_id, agent_id, direction, started_at
+         from conversations where org_id = $1 and provider_ref = $2`,
+      [orgId, ref],
+    );
+    expect(convos.rows).toEqual([
+      expect.objectContaining({
+        contact_id: contactId,
+        workflow_run_id: runId,
+        agent_id: expect.any(String),
+        direction: "outbound",
+        started_at: new Date("2026-10-19T09:00:00Z"),
+      }),
+    ]);
+    const said = await admin.query(
+      "select seq, role, content from messages where conversation_id = $1 order by seq",
+      [convos.rows[0].id],
+    );
+    expect(said.rows).toEqual([
+      { seq: 1, role: "agent", content: "Namaste." },
+      { seq: 2, role: "contact", content: "Haan, boliye." },
+    ]);
   });
 
   it("a blocking guard verdict prevents the send: no conversation, no fold", async () => {

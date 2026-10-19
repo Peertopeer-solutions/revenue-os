@@ -14,7 +14,13 @@
 //   3. Record the outbound message + usage, once.
 import type { GuardedAction, OrgCtx, Verdict } from "@harness/types";
 import { type WaPayload, wa } from "@revenue-os/channels";
-import { createTask, leadNumber, withOrg } from "@revenue-os/db";
+import {
+  addMessage,
+  createTask,
+  leadNumber,
+  openConversation,
+  withOrg,
+} from "@revenue-os/db";
 import { emitUsage } from "@revenue-os/harness";
 import type { Pool } from "pg";
 import {
@@ -139,9 +145,9 @@ const UNANSWERED =
 
 /**
  * 3. record the outbound message + usage, once: the usage row names the send (meta.sendKey), so a later run of the
- * job finds it and records nothing more, and the send's row is locked while it looks, so two runs never both record. The wamid is the outbound MESSAGE id, not a wa THREAD id — provider_ref
- * (unique per thread) stays NULL and the wamid rides the message's tool_call, so distinct sends never collide on
- * convo_provider_ref_uq.
+ * job finds it and records nothing more, and the send's row is locked while it looks, so two runs never both record.
+ * The message goes on the lead's open WhatsApp thread. The wamid is the outbound MESSAGE id, not a thread id, so the
+ * thread's provider_ref stays NULL and the wamid rides the message's tool_call.
  */
 async function record(
   deps: SendWaDeps,
@@ -162,23 +168,19 @@ async function record(
       [orgId, send.key],
     );
     if (recorded.rowCount) return;
-    const convo = await tx.query(
-      `insert into conversations
-         (org_id, contact_id, workflow_run_id, channel, direction, status, provider)
-       values ($1, $2, $3, 'whatsapp', 'outbound', 'active', 'meta_wa') returning id`,
-      [orgId, action.contactId, runId],
-    );
-    const conversationId = convo.rows[0]?.id as string;
-    await tx.query(
-      `insert into messages (org_id, conversation_id, seq, role, content, tool_call)
-       values ($1, $2, 1, 'agent', $3, $4::jsonb)`,
-      [
-        orgId,
-        conversationId,
-        `template:${action.template}`,
-        JSON.stringify({ providerRef }),
-      ],
-    );
+    // the lead's open WhatsApp thread, reused across sends and runs, gets the message as its next line
+    const conversationId = await openConversation(tx, orgId, {
+      channel: "whatsapp",
+      direction: "outbound",
+      contactId: action.contactId,
+      workflowRunId: runId,
+      provider: "meta_wa",
+    });
+    await addMessage(tx, orgId, conversationId, {
+      role: "agent",
+      content: `template:${action.template}`,
+      toolCall: { providerRef },
+    });
     await emitUsage({ orgId, db: tx } satisfies OrgCtx, {
       conversationId,
       kind: "wa_message",

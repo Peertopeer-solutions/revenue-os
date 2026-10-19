@@ -212,4 +212,70 @@ describe("vapi pipeline via pg-boss", () => {
     );
     expect(r.rows[0].status).toBe("skipped");
   }, 30_000);
+  it("a call whose end-of-call report is filed first starts and ends at the report's own times and finishes with how it ended; its lines keep their own times", async () => {
+    const call = `qcall-end-${randomUUID()}`;
+    const report = (id: string, extra: Record<string, unknown>) => ({
+      message: {
+        type: "end-of-call-report",
+        call: { id },
+        id: `${id}-eocr`,
+        timestamp: "2026-07-11T10:05:00Z",
+        ...extra,
+      },
+    });
+    expect(
+      (
+        await post(
+          report(call, {
+            startedAt: "2026-07-11T10:00:00Z",
+            endedAt: "2026-07-11T10:04:30Z",
+            endedReason: "customer-did-not-answer",
+          }),
+        )
+      ).status,
+    ).toBe(202);
+    await waitForDrain();
+    const convo = async (id: string) =>
+      (
+        await admin.query(
+          `select id, status, started_at, ended_at from conversations
+            where org_id = $1 and provider = 'vapi' and provider_ref = $2`,
+          [orgId, id],
+        )
+      ).rows;
+    expect(await convo(call)).toEqual([
+      expect.objectContaining({
+        status: "no_answer",
+        started_at: new Date("2026-07-11T10:00:00Z"),
+        ended_at: new Date("2026-07-11T10:04:30Z"),
+      }),
+    ]);
+    // a report with no times of its own still gets a start, and ends at its timestamp; a line filed later keeps its own time
+    const bare = `qcall-bare-${randomUUID()}`;
+    await post(report(bare, { endedReason: "customer-busy" }));
+    await post({
+      message: {
+        type: "transcript",
+        call: { id: bare },
+        id: `${bare}-t1`,
+        timestamp: "2026-07-11T10:06:00Z",
+        role: "user",
+        transcript: "Hello?",
+      },
+    });
+    await waitForDrain();
+    const [b] = await convo(bare);
+    expect(b).toMatchObject({
+      status: "busy",
+      ended_at: new Date("2026-07-11T10:05:00Z"),
+    });
+    expect(b.started_at).toBeInstanceOf(Date);
+    const line = await admin.query(
+      "select seq, ts from messages where org_id = $1 and conversation_id = $2",
+      [orgId, b.id],
+    );
+    expect(line.rows).toEqual([
+      { seq: 1, ts: new Date("2026-07-11T10:06:00Z") },
+    ]);
+  }, 30_000);
 });

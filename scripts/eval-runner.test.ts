@@ -197,6 +197,49 @@ describe("runScenario conversation driving", () => {
     expect(roles).toContain("contact"); // player turns persisted
     expect(roles).toContain("agent"); // real runTurn persisted the closing text
   });
+
+  it("finishes each scenario's conversation, even one whose driving fails, so the next scenario on the same lead gets its own", async () => {
+    const { send } = makeCaptureSend();
+    const scenario = {
+      id: "x",
+      key: "always_passes",
+      persona: { name: "Trivial", language: "en" },
+      script: { turns: ["says hi"] },
+      assertions: {},
+    };
+    const ok = await withOrg(appService, orgId, (tx) =>
+      runScenario(baseDeps(textLlm(), send), { orgId, db: tx }, scenario),
+    );
+    const broken: LlmProvider = {
+      complete: async () => {
+        throw new Error("model down");
+      },
+    };
+    let failedIn = "";
+    await withOrg(appService, orgId, async (tx) => {
+      await runScenario(
+        baseDeps(broken, send),
+        { orgId, db: tx },
+        scenario,
+      ).catch((err: Error) => {
+        failedIn = err.message;
+      });
+    });
+    expect(failedIn).toBe("model down");
+    const convos = await admin.query(
+      `select id, status, ended_at from conversations
+        where org_id = $1 and contact_id = (select contact_id from conversations where id = $2)
+        order by created_at`,
+      [orgId, ok.conversationId],
+    );
+    expect(convos.rows.at(-2)).toMatchObject({
+      id: ok.conversationId,
+      status: "completed",
+    });
+    expect(convos.rows.at(-1)?.id).not.toBe(ok.conversationId);
+    expect(convos.rows.at(-1)?.status).toBe("completed");
+    expect(convos.rows.at(-1)?.ended_at).toBeInstanceOf(Date);
+  });
 });
 
 // ── Sends are CAPTURED in eval mode, never delivered ────────────────────────────────────────

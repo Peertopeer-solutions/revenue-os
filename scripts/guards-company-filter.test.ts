@@ -159,12 +159,6 @@ export async function writes(tx, orgId, id, first) {
     [orgId, id, first],
   );
   await tx.query(
-    \`insert into messages (org_id, conversation_id, seq, role, content)
-     select $1, $2, coalesce(max(seq), 0) + 1, $3, $4 from messages where org_id = $1 and conversation_id = $2
-     on conflict (org_id, conversation_id, seq) do nothing\`,
-    [orgId, id, "contact", "hello"],
-  );
-  await tx.query(
     \`with new_memory as (
        insert into contact_memories (org_id, contact_id, kind, content) values ($1, $2, 'summary', $3) returning id
      )
@@ -187,6 +181,16 @@ export async function writes(tx, orgId, id, first) {
     [id, orgId, first ?? null],
   );
   await tx.query("delete from tasks t where t.org_id = $1 and t.id = $2", [orgId, id]);
+}
+`,
+    "packages/db/src/conversations.ts": `// The one writer of messages may insert into it.
+export async function add(tx, orgId, id) {
+  await tx.query(
+    \`insert into messages (org_id, conversation_id, seq, role, content)
+     select $1, $2, coalesce(max(seq), 0) + 1, $3, $4 from messages where org_id = $1 and conversation_id = $2
+     on conflict (org_id, conversation_id, seq) do nothing\`,
+    [orgId, id, "contact", "hello"],
+  );
 }
 `,
     "services/worker/src/plumbing.ts": `// Calls that touch no company table, and .query text that is no call.
@@ -220,7 +224,7 @@ export async function plumbing(client, orgId, c) {
     "tests/helper.ts": UNFILTERED,
   });
   expect(own).toContain(BANNER);
-  expect(own).toMatch(/\n\s+PASS \(37 queries in 4 files\)/);
+  expect(own).toMatch(/\n\s+PASS \(37 queries in 5 files\)/);
   expect(out).not.toContain("FAIL");
   expect(code).toBe(0);
 }, 30_000);
@@ -406,6 +410,37 @@ it("lets each table's own file insert into it, and fails any other product file 
     "packages/db/src/orgs.ts:1:",
   ])
     expect(own).not.toContain(owner);
+  expect(own).toContain("FAIL — company filter");
+  expect(code).toBe(1);
+}, 30_000);
+
+// Conversations and messages have one writer, packages/db/src/conversations.ts (openConversation, addMessage,
+// finishConversation): every insert, update or delete of either anywhere else fails, naming that file; reads pass.
+it("lets only conversations.ts write conversations and messages, and fails any other product file's insert, update or delete", () => {
+  const convo = `export const writes = (db, o, c) => [
+  db.query("insert into conversations (org_id, channel, direction) values ($1, 'voice', 'inbound')", [o]),
+  db.query("update conversations set status = 'completed' where org_id = $1 and id = $2", [o, c]),
+  db.query("insert into messages (org_id, conversation_id, seq, role) values ($1, $2, 1, 'agent')", [o, c]),
+  db.query("delete from messages where org_id = $1 and conversation_id = $2", [o, c]),
+  db.query("select id from conversations where org_id = $1 and id = $2 for update", [o, c]),
+];
+`;
+  const { code, own } = guards({
+    "packages/db/src/conversations.ts": convo,
+    "services/worker/src/vapi/process.ts": convo,
+  });
+  const owner = "packages/db/src/conversations.ts";
+  for (const [line, what] of [
+    [2, "inserts into conversations"],
+    [3, "updates conversations"],
+    [4, "inserts into messages"],
+    [5, "deletes from messages"],
+  ])
+    expect(own).toContain(
+      `services/worker/src/vapi/process.ts:${line}: ${what}, which only ${owner} writes: call its function instead`,
+    );
+  expect(own).not.toContain("services/worker/src/vapi/process.ts:6");
+  expect(own).not.toContain(`${owner}:`);
   expect(own).toContain("FAIL — company filter");
   expect(code).toBe(1);
 }, 30_000);

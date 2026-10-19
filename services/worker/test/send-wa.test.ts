@@ -569,3 +569,72 @@ describe("send_wa never sends the same message twice", () => {
     ]);
   });
 });
+
+describe("send_wa on the lead's thread", () => {
+  it("two sends to one lead, from two runs, go on the lead's one open WhatsApp thread as lines 1 and 2; it follows the newer run", async () => {
+    const lead = (
+      await admin.query(
+        `insert into contacts (org_id, first_name) values ($1, 'Meera') returning id`,
+        [orgId],
+      )
+    ).rows[0].id;
+    await admin.query(
+      `insert into contact_identities (org_id, contact_id, kind, value, is_primary)
+       values ($1, $2, 'whatsapp', '+919876500077', true)`,
+      [orgId, lead],
+    );
+    let n = 0;
+    const deps: SendWaDeps = {
+      pool: appPool,
+      guard: async () => ({ ok: true }),
+      sender: {
+        send: async () => {
+          n += 1;
+          return { providerRef: `wamid.thread${n}-${REF}` };
+        },
+      },
+    };
+    const runs: string[] = [];
+    for (const template of ["welcome", "reminder"]) {
+      const runId = await seedRun(await seedWorkflow(CALL_WF), {
+        currentStep: "end",
+        contact: lead,
+        state: { contactId: lead },
+      });
+      runs.push(runId);
+      await handleSendWa(deps, {
+        orgId,
+        runId,
+        sendId: randomUUID(),
+        step: "w",
+        idx: 0,
+        action: { kind: "send_wa", contactId: lead, template, vars: {} },
+      });
+    }
+    const threads = await admin.query(
+      `select id, workflow_run_id, status, started_at from conversations
+        where org_id = $1 and contact_id = $2 and channel = 'whatsapp'`,
+      [orgId, lead],
+    );
+    expect(threads.rows).toEqual([
+      expect.objectContaining({ workflow_run_id: runs[1], status: "active" }),
+    ]);
+    expect(threads.rows[0].started_at).toBeInstanceOf(Date);
+    const said = await admin.query(
+      "select seq, content, tool_call from messages where conversation_id = $1 order by seq",
+      [threads.rows[0].id],
+    );
+    expect(said.rows).toEqual([
+      {
+        seq: 1,
+        content: "template:welcome",
+        tool_call: { providerRef: `wamid.thread1-${REF}` },
+      },
+      {
+        seq: 2,
+        content: "template:reminder",
+        tool_call: { providerRef: `wamid.thread2-${REF}` },
+      },
+    ]);
+  });
+});

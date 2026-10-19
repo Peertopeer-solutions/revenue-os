@@ -6,6 +6,11 @@
 // thin CLI shell (reads argv, calls runEvals, process.exit) — importing it into a test would fire
 // its top-level side effects, so the tests import this module instead.
 import {
+  addMessage,
+  finishConversation,
+  openConversation,
+} from "@revenue-os/db";
+import {
   buildCatalog,
   type LlmProvider,
   type Msg,
@@ -214,24 +219,6 @@ async function resolveContactId(
   return created.rows[0]?.id as string;
 }
 
-/** Persist a scripted contact utterance as the next transcript row. */
-async function appendContactMessage(
-  ctx: OrgCtx,
-  conversationId: string,
-  content: string,
-): Promise<void> {
-  const seqRes = await ctx.db.query(
-    "select coalesce(max(seq), 0) + 1 as seq from messages where org_id = $1 and conversation_id = $2",
-    [ctx.orgId, conversationId],
-  );
-  const seq = Number(seqRes.rows[0]?.seq ?? 1);
-  await ctx.db.query(
-    `insert into messages (org_id, conversation_id, seq, role, content)
-     values ($1, $2, $3, 'contact', $4)`,
-    [ctx.orgId, conversationId, seq, content],
-  );
-}
-
 /** Ground truth: must_capture fields are read BACK from the contact ROW (snake_case columns),
  *  not echoed from tool-call args; the outcome is the append-only outcomes row for this run. */
 async function observe(
@@ -310,12 +297,12 @@ export async function runScenario(
   const registry = buildCatalog({ send });
 
   const contactId = await resolveContactId(ctx, scenario.persona.name);
-  const convo = await ctx.db.query(
-    `insert into conversations (org_id, contact_id, agent_id, channel, direction, status)
-     values ($1, $2, $3, 'whatsapp', 'inbound', 'active') returning id`,
-    [ctx.orgId, contactId, deps.agentId],
-  );
-  const conversationId = convo.rows[0]?.id as string;
+  const conversationId = await openConversation(ctx.db, ctx.orgId, {
+    channel: "whatsapp",
+    direction: "inbound",
+    contactId,
+    agentId: deps.agentId,
+  });
   const turnCtx: OrgCtx = { ...ctx, conversationId };
   const turnDeps = {
     provider: deps.provider,
@@ -326,13 +313,24 @@ export async function runScenario(
 
   // Drive the conversation: each contact turn comes from the INJECTED player; each agent reply
   // goes through the REAL runTurn with the injected provider (never Anthropic in tests).
+  // Each scenario's conversation is finished, even when driving it fails, so the next scenario on the same lead opens
+  // its own instead of reusing this one as the lead's open thread.
   const transcript: Msg[] = [];
-  for (let i = 0; i < MAX_PERSONA_TURNS; i++) {
-    const utterance = await deps.player(scenario, i, transcript);
-    if (utterance === null || utterance === undefined) break;
-    await appendContactMessage(ctx, conversationId, utterance);
-    transcript.push({ role: "contact", content: utterance });
-    await runTurn(turnDeps, turnCtx, conversationId);
+  try {
+    for (let i = 0; i < MAX_PERSONA_TURNS; i++) {
+      const utterance = await deps.player(scenario, i, transcript);
+      if (utterance === null || utterance === undefined) break;
+      await addMessage(ctx.db, ctx.orgId, conversationId, {
+        role: "contact",
+        content: utterance,
+      });
+      transcript.push({ role: "contact", content: utterance });
+      await runTurn(turnDeps, turnCtx, conversationId);
+    }
+  } finally {
+    await finishConversation(ctx.db, ctx.orgId, conversationId, {
+      status: "completed",
+    });
   }
 
   const observed = await observe(

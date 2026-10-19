@@ -17,9 +17,13 @@ export {
   listContacts,
 } from "./contacts";
 export {
+  addMessage,
   type ConversationRow,
+  type ConvoStatus,
   conversationMessages,
+  finishConversation,
   listConversations,
+  openConversation,
   type TranscriptRow,
 } from "./conversations";
 export {
