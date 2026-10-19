@@ -324,6 +324,37 @@ async function applyTransitions(
 }
 
 /**
+ * Queues an external action's job, and records the channel attempt only when the job is actually queued (singleton_key
+ * may dedupe a re-tick of a still-parked run: no new job means no new attempt). For a call, the send id of the call
+ * job the run now waits for: the new job's or, when its job is still queued (deduplicated), the one the run names.
+ */
+async function queueExternal(
+  tx: PoolClient,
+  orgId: string,
+  run: RunRow,
+  at: { step: string; idx: number },
+  action: Action,
+  { attempts, iso }: { attempts: Attempts; iso: string },
+): Promise<string | undefined> {
+  const sendId = randomUUID();
+  const enqueued = await enqueueJob(
+    tx,
+    orgId,
+    { runId: run.id, ...at, sendId },
+    action,
+  );
+  if (enqueued && action.kind === "send_wa")
+    pushAttempt(attempts, "whatsapp", iso);
+  if (action.kind !== "place_call") return;
+  if (enqueued) {
+    pushAttempt(attempts, "voice", iso);
+    return sendId;
+  }
+  const queued = run.state?.callSendId;
+  return typeof queued === "string" ? queued : undefined;
+}
+
+/**
  * Enqueue an external action as a pgboss job on the queue named after the action kind. Writes the
  * DEFAULT partition `pgboss.job_common` directly: pg-boss v12 partitions `job` BY LIST(name) and
  * every writer — pg-boss's own `send` included — targets the leaf partition, never the parent
@@ -381,37 +412,6 @@ async function enqueueJob(
   if (queue === "short in job_common") return queued > 0;
   // coverage gap: every database the tests use has the action queues, policy 'short', so none meets a missing one
   throw new Error(`queue ${action.kind}: ${queue ?? "missing"}`);
-}
-
-/**
- * Queues an external action's job, and records the channel attempt only when the job is actually queued (singleton_key
- * may dedupe a re-tick of a still-parked run: no new job means no new attempt). For a call, the send id of the call
- * job the run now waits for: the new job's or, when its job is still queued (deduplicated), the one the run names.
- */
-async function queueExternal(
-  tx: PoolClient,
-  orgId: string,
-  run: RunRow,
-  at: { step: string; idx: number },
-  action: Action,
-  { attempts, iso }: { attempts: Attempts; iso: string },
-): Promise<string | undefined> {
-  const sendId = randomUUID();
-  const enqueued = await enqueueJob(
-    tx,
-    orgId,
-    { runId: run.id, ...at, sendId },
-    action,
-  );
-  if (enqueued && action.kind === "send_wa")
-    pushAttempt(attempts, "whatsapp", iso);
-  if (action.kind !== "place_call") return;
-  if (enqueued) {
-    pushAttempt(attempts, "voice", iso);
-    return sendId;
-  }
-  const queued = run.state?.callSendId;
-  return typeof queued === "string" ? queued : undefined;
 }
 
 /** Apply an inline (no job hop) action in the same tx: outcomes / tasks writes. */
