@@ -58,3 +58,19 @@ it("the call and WhatsApp queues an older worker made get the worker's retry set
     { name: "send_wa", ...retries, dead_letter: "call.post" },
   ]);
 });
+
+it("every queue's running jobs tell pg-boss they are alive, so the job of a worker that died is picked up again within a minute", async () => {
+  const r = await admin.query(
+    `select name, heartbeat_seconds from ${jobs.settings.schema}.queue order by name`,
+  );
+  expect(r.rows).toEqual(
+    [
+      "call.post",
+      "place_call",
+      "run_agent_turn",
+      "scheduler.tick",
+      "send_wa",
+      "webhook.process.vapi",
+    ].map((name) => ({ name, heartbeat_seconds: 30 })),
+  );
+});

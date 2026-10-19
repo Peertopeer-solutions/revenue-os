@@ -5,9 +5,12 @@ services:
     build: { context: .., dockerfile: docker/Dockerfile, args: { RELEASE: "${RELEASE:-}" } }
     env_file: ../.env
     restart: unless-stopped
+    # A stop or redeploy sends SIGTERM: the worker takes no new job and lets running ones finish for up to 60 s
+    # (STOP_WAIT_MS in services/worker/src/jobs.ts). Docker waits this long before it kills it.
+    stop_grace_period: 75s
     expose: ["8080"]
   caddy:
-    image: caddy:2.11.4 # G2: exact pin (was caddy:2 — the one floating tag in the stack)
+    image: caddy:2.11.4 # exact pin, as AGENTS.md → Conventions asks (was caddy:2 — the one floating tag in the stack)
     restart: unless-stopped
     # 443 only. Docker-published ports bypass ufw, so the PROVIDER firewall (Cloudflare ranges
     # only, runbook §0) is the wall. No 80: the origin cert means no ACME challenge to answer.
