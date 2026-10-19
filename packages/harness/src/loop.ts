@@ -97,14 +97,14 @@ export async function runTurn(
         signal,
       }),
     );
-    const done = await step((ctx) =>
+    const again = await step((ctx) =>
       saveRound(deps, ctx, conversationId, round, seen, turn),
     );
-    if (done) return;
+    if (!again) return;
   }
 }
 
-/** Saves one round's answer and runs its tools; says whether the turn is over. */
+/** Saves one round's answer and runs its tools; says whether the turn goes on to another round. */
 async function saveRound(
   deps: TurnDeps,
   ctx: OrgCtx,
@@ -126,7 +126,7 @@ async function saveRound(
     unit: "tokens",
     meta: { in: turn.usage.in, out: turn.usage.out, round },
   });
-  if ((await nextSeq(ctx, conversationId)) !== seen) return true; // a message came meanwhile: this answer is stale
+  if ((await nextSeq(ctx, conversationId)) !== seen) return false; // a message came meanwhile: this answer is stale
 
   if (!turn.toolCalls || turn.toolCalls.length === 0) {
     if (turn.text)
@@ -134,12 +134,12 @@ async function saveRound(
         role: "agent",
         content: turn.text,
       });
-    return true;
+    return false;
   }
   for (const call of turn.toolCalls)
     await appendMessage(ctx, conversationId, {
       role: "tool",
       toolCall: await runToolCall(deps, ctx, conversationId, round, call),
     });
-  return false;
+  return true;
 }

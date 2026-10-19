@@ -3,7 +3,7 @@
 // job's company.
 //   1. In one short transaction: reload the conversation FOR UPDATE; NO-OP if this trigger was already processed. The
 //      per-trigger marker is DURABLE and message-derived (NOT the conversation status column): a turn answers the
-//      latest unanswered inbound, so once an agent/tool message sits after every contact message there is nothing to
+//      latest unanswered inbound, so once the agent's reply sits after every contact message there is nothing to
 //      process. Then load the conversation's agent (the company's own or a shared template: system_prompt +
 //      tools_allowed).
 //   2. runTurn with OrgUnits: each round reads in a short transaction, asks the model (within its time limit) with
@@ -48,13 +48,14 @@ export async function handleAgentTurn(
     ).rows[0];
     if (!convo) return; // RLS-hidden or gone
 
-    // per-trigger idempotency: is there an inbound message NOT yet answered by an agent/tool turn?
+    // per-trigger idempotency: is there an inbound message the agent has NOT yet replied to? A tool message alone is no
+    // reply: a turn whose model failed after a tool round was saved is finished by its job's next run, never dropped.
     const pending = await tx.query(
       `select 1 from messages
         where org_id = $2 and conversation_id = $1 and role = 'contact'
           and seq > coalesce(
             (select max(seq) from messages
-              where org_id = $2 and conversation_id = $1 and role in ('agent','tool')),
+              where org_id = $2 and conversation_id = $1 and role = 'agent'),
             0)
         limit 1`,
       [conversationId, orgId],
