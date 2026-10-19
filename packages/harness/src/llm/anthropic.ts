@@ -1,4 +1,4 @@
-// T3 — raw-`fetch` Anthropic (Claude) Messages adapter behind LlmProvider.
+// The raw-`fetch` Anthropic (Claude) Messages adapter behind LlmProvider.
 // docs/tech-stack.md T19: "raw fetch, no SDK" — no @anthropic-ai dependency (BOM/T19).
 // One POST to /v1/messages per turn; response content blocks → LlmTurn.
 // G1: runtime-agnostic — no bun:* imports, no Bun.* globals (fetch is a standard global).
@@ -26,7 +26,7 @@ type AnthropicResponse = {
   usage?: { input_tokens?: number; output_tokens?: number };
 };
 
-/** task-57 — a non-2xx /v1/messages response. LlmProvider.complete has no error channel, so a
+/** A non-2xx /v1/messages response. LlmProvider.complete has no error channel, so a
  *  throw is the only honest failure signal: parsing an error envelope yields a contentless turn
  *  the loop would record as a completed (silent) turn, and the job would never be retried.
  *  `status` is what a retry policy keys on (429/529 retryable, 401 not). */
