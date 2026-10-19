@@ -20,6 +20,7 @@ import type { Pool } from "pg";
 // but NOT for value imports. Value imports must reach the package SOURCE by relative path — exactly
 // how this file already imports `../services/worker/src/...` below. bun + tsc both resolve these.
 import { withOrg } from "../packages/db/src/client";
+import { recordWhatsAppOptIn } from "../packages/db/src/consent";
 import { buildCatalog } from "../packages/harness/src/tools";
 import {
   handlePlaceCall,
@@ -128,6 +129,8 @@ export async function demo(deps: DemoDeps): Promise<DemoResult> {
        values ($1, $2, 'phone', $3, true)`,
       [orgId, id, contact.phone],
     );
+    // The scripted lead agreed to WhatsApp messages on the enquiry form, so the guard lets the confirmation through.
+    await recordWhatsAppOptIn(tx, orgId, id, { source: "demo enquiry form" });
     return id;
   });
   const runId = await startRun(pool, orgId, {

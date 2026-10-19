@@ -6,13 +6,13 @@
 import { doNotCallLeadRefused } from "./slice-1-do-not-call";
 import { attachAcrossCompaniesRefused } from "./slice-1-links";
 import { signUpAndStrangerRefused } from "./slice-1-sign-in";
+import { noOptInLeadRefused } from "./slice-1-whatsapp-opt-in";
 import { imageNamesItsCommit, readyWithoutDatabase } from "./slice-1-worker";
 import type { Step } from "./step";
 
 // The checks the Proof line names that no step makes yet, in its words.
 export const NOT_YET = [
   "`bun run demo` takes one scripted lead from enrolment to a booked site visit, each printed step reaching its outcome",
-  "a lead with no WhatsApp opt-in is refused a message",
   "a user from another company is refused this company's data",
   "a replayed duplicate event and a worker killed mid-job cause no repeated call or message and leave no lead stuck",
 ];
@@ -31,6 +31,7 @@ export const everyCheckHasAStep: Step = {
 export const steps: Step[] = [
   signUpAndStrangerRefused,
   doNotCallLeadRefused,
+  noOptInLeadRefused,
   attachAcrossCompaniesRefused,
   readyWithoutDatabase,
   imageNamesItsCommit,

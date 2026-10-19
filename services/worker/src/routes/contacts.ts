@@ -1,23 +1,61 @@
-// A company's leads: the CSV import (how a company brings its own lead list, until any CRM sync) and a person marking
-// a lead do-not-call from the console — validate → authorize → do → audit.
+// A company's leads: the CSV import (how a company brings its own lead list, until any CRM sync), a person marking
+// a lead do-not-call from the console, and recording a lead's WhatsApp opt-in or its withdrawal — validate →
+// authorize → do → audit.
 import {
   importContacts,
   memberRole,
+  type OptInSource,
   recordDoNotCall,
+  recordWhatsAppOptIn,
+  withdrawWhatsAppOptIn,
   withOrg,
 } from "@revenue-os/db";
-import { ContactIdSchema, OrgIdSchema, parseCsv } from "@revenue-os/shared";
-import { Hono } from "hono";
+import {
+  ContactIdSchema,
+  OrgIdSchema,
+  parseCsv,
+  WhatsAppOptInSchema,
+} from "@revenue-os/shared";
+import { type Context, Hono } from "hono";
 import type { AuthEnv } from "../auth";
 import { pool } from "../db";
 
-const MAX_CSV_BYTES = 10 * 1024 * 1024; // S5.7: CSV ≤ 10MB
+/**
+ * Records the lead's WhatsApp opt-in, or its withdrawal, with where they gave it: operator or admin only. A lead who
+ * withdrew is refused a new opt-in (409): only their own written YES re-opts them (Slice 2).
+ */
+async function setOptIn(
+  c: Context<AuthEnv>,
+  write: typeof recordWhatsAppOptIn,
+  optedIn: boolean,
+) {
+  const orgId = OrgIdSchema.parse(c.req.param("orgId"));
+  const contactId = ContactIdSchema.parse(c.req.param("contactId"));
+  const actor = c.get("actor");
+  const role = await memberRole(pool, orgId, actor.userId);
+  if (role !== "operator" && role !== "admin")
+    return c.json({ error: "forbidden" }, 403);
+  const body = WhatsAppOptInSchema.safeParse(
+    await c.req.json().catch(() => null),
+  );
+  if (!body.success) return c.json({ error: "invalid_request" }, 400);
+  const by: OptInSource = { source: body.data.source, userId: actor.userId };
+  const said = await withOrg(pool, orgId, (tx) =>
+    write(tx, orgId, contactId, by),
+  );
+  if (said === "not_found") return c.json({ error: "not_found" }, 404);
+  if (optedIn && said === "withdrawn")
+    return c.json({ error: "opt_in_withdrawn" }, 409);
+  return c.json({ whatsapp_opt_in: optedIn });
+}
+
+const MAX_CSV_BYTES = 10 * 1024 * 1024; // a CSV is at most 10MB
 
 export const contacts = new Hono<AuthEnv>()
   .post("/orgs/:orgId/contacts/import", async (c) => {
     const orgId = OrgIdSchema.parse(c.req.param("orgId"));
     const actor = c.get("actor");
-    const role = await memberRole(pool, orgId, actor.userId); // S1.7 — mutations are operator+
+    const role = await memberRole(pool, orgId, actor.userId); // changes need an operator or admin
     if (role !== "operator" && role !== "admin")
       return c.json({ error: "forbidden" }, 403);
 
@@ -26,11 +64,11 @@ export const contacts = new Hono<AuthEnv>()
 
     const rows = parseCsv(raw);
     if (rows.length === 0 || !("phone" in (rows[0] ?? {}))) {
-      return c.json({ error: "invalid_request" }, 400); // S5.1 — before any writes
+      return c.json({ error: "invalid_request" }, 400); // refused before any write
     }
 
     const summary = await importContacts(pool, orgId, rows, actor.userId);
-    return c.json(summary); // S5.8: counts only
+    return c.json(summary); // counts only, never the leads
   })
   // Blocks every later message and call to the lead; nothing here lifts a block (only their written YES, Slice 2).
   .post("/orgs/:orgId/contacts/:contactId/do-not-call", async (c) => {
@@ -48,4 +86,10 @@ export const contacts = new Hono<AuthEnv>()
     );
     if (said === "not_found") return c.json({ error: "not_found" }, 404);
     return c.json({ do_not_call: true });
-  });
+  })
+  .post("/orgs/:orgId/contacts/:contactId/whatsapp-opt-in", (c) =>
+    setOptIn(c, recordWhatsAppOptIn, true),
+  )
+  .post("/orgs/:orgId/contacts/:contactId/whatsapp-opt-out", (c) =>
+    setOptIn(c, withdrawWhatsAppOptIn, false),
+  );

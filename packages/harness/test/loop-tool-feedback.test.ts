@@ -1,4 +1,4 @@
-// task-57 RED — H3: a tool result must re-enter the prompt, or the loop re-sends.
+// A tool result must re-enter the prompt, or the loop re-sends.
 //
 // TODAY: on a tool round loop.ts:197-200 appends ONLY a role:'tool' row whose `content` is NULL
 // (the payload lives in the `tool_call` jsonb), and the assistant turn that REQUESTED the call is
@@ -102,7 +102,15 @@ function makeCtx(): { ctx: OrgCtx; messages: MessageRow[] } {
         return { rows: [], rowCount: 0 }; // unconfigured = no quiet hours, no attempt cap
       if (/from\s+contacts/i.test(text))
         return {
-          rows: [{ consent: { dnc: false }, timezone: "Asia/Kolkata" }],
+          rows: [
+            {
+              consent: {
+                dnc: false,
+                whatsapp_optin: { status: "opted_in", source: "test fixture" },
+              },
+              timezone: "Asia/Kolkata",
+            },
+          ],
           rowCount: 1,
         };
       return { rows: [], rowCount: 0 };
