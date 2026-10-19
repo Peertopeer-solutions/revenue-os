@@ -1,6 +1,6 @@
 // The run writer. Creates a workflow_run at the definition's entry step, schedulable at once
 // (wake_at = now, status 'pending'). The scheduler tick (scheduler.ts) drives it from there. The
-// only DB door is withOrg (docs/security.md S1.3): one org-scoped tx. The sequence is the company's
+// only DB door is withOrg (docs/security.md, "Tenancy & identity"): one org-scoped tx. The sequence is the company's
 // own or a shared template; another company's sequence is "not found". A lead already in the sequence (an open run:
 // pending, running or waiting) is refused with AlreadyInSequenceError; migration 025's key makes that hold however
 // close together two enrolments come.
