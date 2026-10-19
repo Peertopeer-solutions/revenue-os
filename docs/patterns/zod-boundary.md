@@ -27,7 +27,7 @@ The console parses a save's body with it before sending (`docs/patterns/tanstack
 A schema used inside one module stays next to it: each AI tool declares its arguments' schema in its own file under
 `packages/harness/src/tools/`, and the agent loop parses the model's arguments before the tool runs:
 ```ts
-// packages/harness/src/loop.ts
+// packages/harness/src/tool-call.ts
   const parsed = tool.schema.safeParse(call.args);
   if (!parsed.success)
     // the seatbelt against made-up arguments: invalid args never reach execute()
@@ -36,7 +36,7 @@ A schema used inside one module stays next to it: each AI tool declares its argu
   const verdict = await guard(ctx, action, deps.pipeline);
 …
   if (verdict.ok) {
-    …
+…
     result = await tool.execute(
       { ...ctx, conversationId },
       parsed.data as never,

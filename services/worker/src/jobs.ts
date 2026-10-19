@@ -32,6 +32,7 @@ import {
 } from "./handlers/send-wa";
 import { logger } from "./logger";
 import { ACTION_QUEUES, discoverDueOrgs, tick } from "./scheduler";
+import { TIME_LIMITS, type TimeLimits } from "./time-limits";
 import { processVapiEvents } from "./vapi/process";
 
 export const WEBHOOK_PROCESS_VAPI = "webhook.process.vapi";
@@ -82,13 +83,14 @@ const UNCONFIGURED_PROVIDER: LlmProvider = {
 let boss: PgBoss | null = null;
 
 /** What the job handlers reach outside the worker: its database pool, the dialer, the WhatsApp sender, the call's
- *  outcome and the AI model. */
+ *  outcome and the AI model, and how long they wait for each (src/time-limits.ts). */
 export type JobPorts = {
   pool: Pool;
   voice: VoiceSenderPort;
   wa: WaSenderPort;
   outcome: OutcomePort;
   provider: LlmProvider;
+  limits: Partial<TimeLimits>;
 };
 
 /**
@@ -110,12 +112,14 @@ export async function startJobs(
     wa,
     outcome,
     provider,
+    limits,
   } = {
     pool,
     voice: VOICE_STUB,
     wa: WA_STUB,
     outcome: OUTCOME_STUB,
     provider: makeProvider(env) ?? UNCONFIGURED_PROVIDER,
+    limits: TIME_LIMITS,
     ...ports,
   };
   const b = new PgBoss({
@@ -167,7 +171,7 @@ export async function startJobs(
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
       await handlePlaceCall(
-        { pool: db, guard, sender: voice, provider, registry, outcome },
+        { pool: db, guard, sender: voice, provider, registry, outcome, limits },
         job.data,
       );
     }
@@ -175,13 +179,13 @@ export async function startJobs(
   await b.work<SendWaJob>("send_wa", async (jobs) => {
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
-      await handleSendWa({ pool: db, guard, sender: wa }, job.data);
+      await handleSendWa({ pool: db, guard, sender: wa, limits }, job.data);
     }
   });
   await b.work<AgentTurnJob>("run_agent_turn", async (jobs) => {
     for (const job of jobs) {
       JobEnvelope.parse(job.data);
-      await handleAgentTurn({ pool: db, provider, registry }, job.data);
+      await handleAgentTurn({ pool: db, provider, registry, limits }, job.data);
     }
   });
   // The dead-letter SINK tolerates a partial/malformed payload by design (handleCallPost self-guards: it resolves

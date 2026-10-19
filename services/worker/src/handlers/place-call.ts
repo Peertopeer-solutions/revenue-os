@@ -1,5 +1,6 @@
 // The place_call job handler. A call is never blindly repeated: the job may run twice (delivered twice, or run again
-// after it failed), but it dials at most once, and no database transaction is open while the dialer answers. Every
+// after it failed), but it dials at most once. No database transaction is open while an outside service answers (the
+// dialer, the AI model, the call's outcome), and each has a time limit (src/time-limits.ts). Every
 // query also filters by the job's company (the run's sequence and the call's agent may be shared templates).
 //   1. In one short transaction: reload the run FOR UPDATE and NO-OP if stale (it no longer waits for this job's
 //      call: an outcome is folded, status != 'waiting', current_step is no longer a call step, or the run is not the
@@ -8,12 +9,13 @@
 //      the lead to a person when none was saved.
 //   2. Send the call at most once (src/sends.ts sendOnce): guard() BEFORE the dial, through the channels voice
 //      doorway (voice.place), the call saved with the guard's verdict; the dial with no transaction open; its answer
-//      saved. A blocking verdict => no dial. A dial that throws may still have placed the call, so the lead is handed
-//      to a person and the run parked as failed instead.
-//   3. Record the call's conversation (provider vapi, provider_ref), drive it via runTurn(injected provider) so
-//      messages + usage land, resolve the call OUTCOME via the injected `outcome` port, FOLD it into
-//      state.lastDisposition, and RE-ARM (status waiting, wake_at now, current_step UNCHANGED) so the next tick
-//      routes it.
+//      saved. A blocking verdict => no dial. A dial that throws, or doesn't answer in time, may still have placed the
+//      call, so the lead is handed to a person and the run parked as failed instead.
+//   3. Record the call's conversation (provider vapi, provider_ref) in a short transaction; drive it via
+//      runTurn(injected provider) with each database step in its own short transaction, so messages + usage land;
+//      resolve the call OUTCOME via the injected `outcome` port with no transaction open; then, in a last short
+//      transaction that locks the run and finds it still waiting for this call, FOLD the outcome into
+//      state.lastDisposition and RE-ARM (status waiting, wake_at now, current_step UNCHANGED) so the next tick routes it.
 // @revenue-os/channels is an internal workspace dep (no BOM row, like @revenue-os/harness).
 
 import type { ToolRegistry } from "@harness/registry";
@@ -30,7 +32,7 @@ import {
   openConversation,
   withOrg,
 } from "@revenue-os/db";
-import { runTurn } from "@revenue-os/harness";
+import { runTurn, withTimeLimit } from "@revenue-os/harness";
 import type { Pool, PoolClient } from "pg";
 import {
   findSend,
@@ -40,6 +42,7 @@ import {
   sendKey,
   sendOnce,
 } from "../sends";
+import { TIME_LIMITS, type TimeLimits } from "../time-limits";
 
 /** Voice sender port — a structural superset of channels' VoiceSender (kept local so the type
  *  surface needs no channels dep). The handler passes the injected sender into voice.place. */
@@ -60,10 +63,11 @@ export type GuardPort = (
 /** DESIGN DECISION (disposition flow): a "disposition port" — how the call OUTCOME reaches the
  *  handler (vs extending the voice result, or a call.post hop). Tests inject the fake voice provider
  *  (test/fixtures/fake-channels.ts), which resolves the scripted outcome; the worker still wires a
- *  stub that throws (jobs.ts OUTCOME_STUB, listed as a stub in STATE.md). */
+ *  stub that throws (jobs.ts OUTCOME_STUB, listed as a stub in STATE.md). It is an outside service: it gets no
+ *  database, is called with no transaction open, and `signal` aborts when its time limit runs out. */
 export type OutcomePort = (
-  ctx: OrgCtx,
-  conversationId: string,
+  call: { orgId: string; conversationId: string },
+  signal: AbortSignal,
 ) => Promise<string>;
 
 export type PlaceCallDeps = {
@@ -73,6 +77,7 @@ export type PlaceCallDeps = {
   provider: LlmProvider; // the runTurn bridge's LLM (tests inject a scripted one)
   registry: ToolRegistry; // runTurn's tool catalog (empty is fine for a text-only turn)
   outcome: OutcomePort;
+  limits?: Partial<TimeLimits>; // TIME_LIMITS where unset
   now?: () => Date;
 };
 
@@ -149,10 +154,15 @@ export async function handlePlaceCall(
     return fold(deps, job, agent, earlier.providerRef); // dialled before; its outcome is still to fold
   if (earlier || !to) return; // blocked or already handed over; or no number, handed to a person above
 
-  // 2. guard BEFORE the dial; the call is saved with the guard's verdict, then dialled with no transaction open.
+  // 2. guard BEFORE the dial; the call is saved with the guard's verdict, then dialled with no transaction open, within
+  // the dialer's time limit.
+  const ms = deps.limits?.dialer ?? TIME_LIMITS.dialer;
+  const sender: VoiceSenderPort = {
+    place: (p) => withTimeLimit("the dialer", ms, () => deps.sender.place(p)),
+  };
   const placed = await sendOnce(deps.pool, orgId, send, deps.guard, (guard) =>
     voice.place(
-      { sender: deps.sender, guard },
+      { sender, guard },
       { orgId },
       {
         contactId: action.contactId,
@@ -170,7 +180,8 @@ export async function handlePlaceCall(
 const UNANSWERED =
   "an earlier run of this job saved the call but not the dialer's answer";
 
-/** 3. record the call's conversation, drive its turn, then FOLD the outcome and RE-ARM (the next tick routes). */
+/** 3. record the call's conversation, drive its turn, then FOLD the outcome and RE-ARM (the next tick routes). Each step
+ *  is a short transaction of its own; the AI model and the call's outcome are asked with none open. */
 async function fold(
   deps: PlaceCallDeps,
   job: PlaceCallJob,
@@ -179,10 +190,10 @@ async function fold(
 ): Promise<void> {
   const { orgId, runId, action } = job;
   const now = deps.now?.() ?? new Date();
-  await withOrg(deps.pool, orgId, async (tx) => {
+  const call = await withOrg(deps.pool, orgId, async (tx) => {
     // The call's conversation, keyed by the dialer's call id as the call's own events file it (src/vapi/process.ts),
     // so whichever of the two comes first opens it, and this fills in its lead, run and agent.
-    const conversationId = await openConversation(tx, orgId, {
+    const id = await openConversation(tx, orgId, {
       channel: "voice",
       direction: "outbound",
       contactId: action.contactId,
@@ -191,20 +202,40 @@ async function fold(
       provider: "vapi",
       providerRef,
     });
-    const state = await waitingForCall(tx, job);
-    if (!state) return; // folded by an earlier run of this job, or handed to a person
-    const ctx: OrgCtx = { orgId, db: tx };
+    if (!(await waitingForCall(tx, job))) return; // folded by an earlier run of this job, or handed over
+    // An earlier run of this job saved the call's turn, then failed before folding: its turn is not run, or billed, twice.
+    const spoken = await tx.query(
+      `select 1 from messages where org_id = $1 and conversation_id = $2 and role = 'agent' limit 1`,
+      [orgId, id],
+    );
+    return { conversationId: id, spoken: (spoken.rowCount ?? 0) > 0 };
+  });
+  if (!call) return;
+  const { conversationId } = call;
+  if (!call.spoken)
     await runTurn(
       {
         provider: deps.provider,
         registry: deps.registry,
         toolsAllowed: agent.tools_allowed ?? [],
         systemPrompt: agent.system_prompt ?? "",
+        modelTimeLimitMs: deps.limits?.model ?? TIME_LIMITS.model,
       },
-      ctx,
+      {
+        orgId,
+        inTransaction: (work) =>
+          withOrg(deps.pool, orgId, (tx) => work({ orgId, db: tx })),
+      },
       conversationId,
     );
-    const disposition = await deps.outcome(ctx, conversationId);
+  const disposition = await withTimeLimit(
+    "the call's outcome",
+    deps.limits?.outcome ?? TIME_LIMITS.outcome,
+    (signal) => deps.outcome({ orgId, conversationId }, signal),
+  );
+  await withOrg(deps.pool, orgId, async (tx) => {
+    const state = await waitingForCall(tx, job);
+    if (!state) return; // folded meanwhile by another run of this job, or handed to a person
     await tx.query(
       `update workflow_runs
           set state = $2::jsonb, status = 'waiting', wake_at = $3, updated_at = now()

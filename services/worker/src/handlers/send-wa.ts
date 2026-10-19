@@ -9,8 +9,9 @@
 //      when none was.
 //   2. Send the message at most once (src/sends.ts sendOnce): guard() BEFORE the send (guardrails run before every
 //      send) via the channels wa doorway (wa.send), the message saved with the guard's verdict; the send with no
-//      transaction open; its answer saved. A blocking verdict => no send. A send that throws may still have reached
-//      the provider, so the lead is handed to a person instead; the run's sequence goes on.
+//      transaction open, within the WhatsApp service's time limit (src/time-limits.ts); its answer saved. A blocking
+//      verdict => no send. A send that throws, or doesn't answer in time, may still have reached the provider, so the
+//      lead is handed to a person instead; the run's sequence goes on.
 //   3. Record the outbound message + usage, once.
 import type { GuardedAction, OrgCtx, Verdict } from "@harness/types";
 import { type WaPayload, wa } from "@revenue-os/channels";
@@ -21,7 +22,7 @@ import {
   openConversation,
   withOrg,
 } from "@revenue-os/db";
-import { emitUsage } from "@revenue-os/harness";
+import { emitUsage, withTimeLimit } from "@revenue-os/harness";
 import type { Pool } from "pg";
 import {
   findSend,
@@ -31,6 +32,7 @@ import {
   sendKey,
   sendOnce,
 } from "../sends";
+import { TIME_LIMITS, type TimeLimits } from "../time-limits";
 
 /** WhatsApp sender port — structural superset of channels' WaSender (local, no channels dep). */
 export type WaSenderPort = {
@@ -50,6 +52,7 @@ export type SendWaDeps = {
   pool: Pool;
   guard: WaGuardPort;
   sender: WaSenderPort;
+  limits?: Partial<TimeLimits>; // TIME_LIMITS where unset
   now?: () => Date;
 };
 
@@ -122,10 +125,16 @@ export async function handleSendWa(
     return;
   }
 
-  // 2. guard BEFORE the send; the message is saved with the guard's verdict, then sent with no transaction open.
+  // 2. guard BEFORE the send; the message is saved with the guard's verdict, then sent with no transaction open, within
+  // the WhatsApp service's time limit.
+  const ms = deps.limits?.whatsapp ?? TIME_LIMITS.whatsapp;
+  const sender: WaSenderPort = {
+    send: (p) =>
+      withTimeLimit("the WhatsApp service", ms, () => deps.sender.send(p)),
+  };
   const sent = await sendOnce(deps.pool, orgId, send, deps.guard, (guard) =>
     wa.send(
-      { sender: deps.sender, guard },
+      { sender, guard },
       { orgId },
       {
         contactId: action.contactId,

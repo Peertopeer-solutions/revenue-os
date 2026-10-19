@@ -20,6 +20,7 @@ export const GUARDED: { path: string; kind: Kind | null }[] = [
   { path: "packages/harness/src/quiet-hours.ts", kind: "guardrail" },
   // The agent loop runs guard() before each tool's side effect and turns an approval-gated action into a human task.
   { path: "packages/harness/src/loop.ts", kind: "guardrail" },
+  { path: "packages/harness/src/tool-call.ts", kind: "guardrail" },
   // The send doorways: guard() runs before the sender on every path (hard rail 5).
   { path: "packages/channels/src/", kind: "guardrail" },
   // The job handlers that send through those doorways, their only production callers.
