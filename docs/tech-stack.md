@@ -25,7 +25,7 @@
 
 **Decision (two distinct commitments):**
 - **Bun as toolchain — unconditional.** Package manager, test runner (`bun test`), script runner, dev loop (`bun --watch`), native `.env` loading, native TS. No fallback exists or is needed; this also deletes pnpm, Vitest, tsx, nodemon, and dotenv from the BOM.
-- **Bun as production runtime — with one escape hatch.** The worker/API container runs Bun. The fallback is the Docker base image (`oven/bun` → `node:22`), a one-line change.
+- **Bun as production runtime — with one escape hatch.** The worker/API container runs Bun. The fallback is the Docker base image (`oven/bun` → `node:22`), a one-line change. One exception since 2026-10-20: the voice service (`services/voice`) runs on Node, because LiveKit's agent library needs it; Bun bundles it, and its Node tests run in their own lane of the done gate (docs/decisions-in-force/2026-10-20-calls-run-on-livekit-agents-and-voicelink-not-vapi.md).
 
 **Guardrails (revised — the old "Node CI test lane" was incoherent because `bun:test` files can't run on Node; Devesh caught it):**
 - **G1 — runtime-agnostic packages, lint-enforced.** No `bun:*` imports and no `Bun.` globals in `packages/*` (Bun-specific code lives only in app entrypoints). Enforced by Biome's restricted-imports rule — or a 20-line CI grep script if the rule tier shifts. This is what keeps the base-image fallback a one-day job instead of a rewrite.
@@ -76,7 +76,7 @@ Unchanged decision; now with the mental model spelled out — **read Appendix A*
 **Regions (India-first — revised from v1's Hetzner default, which has no India location):**
 - **Supabase project: Mumbai (`ap-south-1`).** Data locality for Indian tenants (DPDP-friendly), low latency for console + tool-call queries.
 - **VPS: DigitalOcean Bangalore (BLR1) or Vultr Mumbai**, ~$6–12/mo. Cloudflare's Indian POPs serve Pages/edge locally.
-- **Voice latency truth:** the VPS is **not in the audio path** — live audio runs caller ↔ telephony ↔ Vapi's media/ASR/LLM/TTS stack. The VPS *is* in the path for mid-call **tool calls** (Vapi → our server → response), which is one reason it sits in India and why the task-8 spike measures full round trips on real Indian mobile calls. See T10 VQG.
+- **Voice latency truth:** the VPS is **not in the audio path** — live audio runs caller ↔ carrier (VoiceLink) ↔ LiveKit's India phone line ↔ the voice service hosted in LiveKit's Mumbai region, with speech, model and voice from services in India. The database *is* in the path for mid-call **tool calls** (voice service → packages/harness tools → database), which is one reason it sits in Mumbai. See T10 VQG.
 - Origin lockdown (only Cloudflare can reach the VPS, SSH hardening, etc.): **`security.md` S3.**
 
 **State never self-hosts at this stage** (D13). Railway/Fly remain the sanctioned lazy path — same Docker image.
@@ -85,11 +85,11 @@ Unchanged decision; now with the mental model spelled out — **read Appendix A*
 
 Console: `@supabase/supabase-js` (PKCE flow). Worker/API: verify JWTs with `jose` (issuer/audience/exp checks) — no heavyweight SDK needed server-side. Machines: hashed `api_keys` (db-design §4). Enterprise SAML later via WorkOS *alongside*, on demand.
 
-## T10 · Voice & channels — **Vapi + Meta WhatsApp Cloud API, gated by VQG**
+## T10 · Voice & channels — **LiveKit Agents + VoiceLink, Meta WhatsApp Cloud API, gated by VQG**
 
-Decision unchanged (owned interface in `packages/channels`; Vapi is an implementation behind it; Indian SIP spike = task 8, week 3). **New: the Voice Quality Gate (VQG)** — Devesh's requirement formalized with honest physics:
+Owned interface in `packages/channels`. Since 2026-10-20 the dialer behind it is our own voice service on LiveKit Agents (Node, `services/voice`), calling through VoiceLink with Plivo as the standby carrier, because hosted Vapi cannot carry Indian calls (docs/decisions-in-force/2026-10-20-calls-run-on-livekit-agents-and-voicelink-not-vapi.md; the spike of 16 to 18 October measured a reply delay of about 1.4 s at the median). **New: the Voice Quality Gate (VQG)** — Devesh's requirement formalized with honest physics:
 
-- **Metric definition:** voice-to-voice latency = end of caller speech → first agent audio, measured on **real Indian mobile-network calls**, logged per turn into `conversations.qa`.
+- **Metric definition:** voice-to-voice latency = end of caller speech → first agent audio, measured on **real Indian mobile-network calls**, logged per turn as timing rows the voice service writes (Slice 4).
 - **Initial targets (calibrate after the task-8 spike):** p50 ≤ **800ms**, p90 ≤ **1200ms**, p99 ≤ **1800ms**. Sub-800ms **p99** with an LLM in the loop over Indian carriers is beyond today's state of the art industry-wide — leading stacks land ~700–900ms *median*; the gate is set where excellent is achievable and measurable, and tightens as the stack improves.
 - **Language bar:** Hinglish/Hindi eval-persona suite scores ≥ threshold (comprehension, code-switch handling, forbidden-claims = 0) before activation — same eval gate machinery as everything else.
 - **Latency levers, in order of payoff:** fast realtime model tier; streaming at every hop; endpointing/silence tuning; Indic-optimized TTS (Sarvam-class) per language; **sub-300ms acknowledgment sounds/backchannels** (perceived latency collapses even when compute latency can't); prompt slimming; tool-call parallelism and speculative work.
@@ -188,14 +188,14 @@ Stored in `workflows.definition`, validated by `workflow/schema.ts`. Step kinds 
 
 | Column | Consumed by | Effect |
 |---|---|---|
-| `model` (e.g. "anthropic:fast") | llm/ adapter selection · Vapi assistant sync | which brain, per surface |
-| `system_prompt` | context.ts (async) · Vapi assistant (realtime) | the personality + rules evals test |
+| `model` (e.g. "anthropic:fast") | llm/ adapter selection · the voice service at call set-up | which brain, per surface |
+| `system_prompt` | context.ts (async) · the voice service (realtime) | the personality + rules evals test |
 | `tools_allowed[]` | registry lookup = registry ∩ this list | capability allow-list — S8.1 boundary |
-| `voice_config` | packages/channels/vapi assistant sync job | per-language ASR/TTS map, first message |
+| `voice_config` | the voice service at call set-up | per-language speech-to-text and voice settings, first message |
 | `language_config` | channels + context | detection policy, supported langs |
 | `key`+`version`, `status` | everywhere via FK | immutability + "which prompt produced this call?" |
 
-A `sync_vapi_assistant` job pushes active agent versions to Vapi via API; the Vapi assistant id is stored in `agents` metadata — **config flows one way: our rows → provider, never hand-edited in Vapi's dashboard.**
+The voice service reads the active role version when a call is set up; nothing is pushed to a provider — **config flows one way: our rows → the call, never hand-edited in a provider's dashboard.**
 
 ### T26.4 Jobs & durability — the exact wiring
 
@@ -210,7 +210,6 @@ A `sync_vapi_assistant` job pushes active agent versions to Vapi via API; the Va
 | `call.post` | conversationId | summarize + extract + memory.write + require-disposition task if untagged |
 | `score.contact` | contactId, trigger | features.extract → heuristic → contact_scores insert + tasks.priority update |
 | `kb.ingest` | documentId | chunk → embed → knowledge_chunks; status ready/failed |
-| `assistant.sync` | agentId | push agent version → Vapi |
 | `webhook.process.vapi` | webhookEventId | receiver-enqueued drain of a `webhook_events` row; org id rides the job payload because RLS makes a cross-org sweep impossible for `app_service` |
 
 **The scheduler tick, precisely:** `SELECT … FROM workflow_runs WHERE status IN ('pending','waiting') AND wake_at <= now() FOR UPDATE SKIP LOCKED LIMIT 50` → for each: load pinned workflow version → `interpret(def, state, {type:'wake'})` → inside **one transaction**: insert pg-boss jobs for `Transition.actions` + update the run (nextStep/wakeAt/status). Same-DB queue = job enqueue and state advance commit atomically — the exactly-once glue Temporal sells, at our size, for free.
@@ -219,7 +218,7 @@ A `sync_vapi_assistant` job pushes active agent versions to Vapi via API; the Va
 
 ### T26.5 LLM orchestration — both surfaces, mechanically
 
-**Realtime (in-call):** the conversational loop runs inside Vapi (their latency stack; model from `agents.model`). Our involvement per turn: Vapi → our `/webhooks/vapi` tool-call event → verify signature → Zod-parse args → `guard()` → `tool.execute()` → respond JSON (**tool budget: 800ms p95** — why the VPS is in Mumbai, T8) → Vapi speaks on. Transcript events stream into `messages` by `seq`.
+**Realtime (in-call):** the live audio loop runs in the voice service on LiveKit Agents (model from the role's rows, hosted in India). Our involvement per turn: speech-to-text → the model with the role version's prompt and tools → each tool call Zod-parsed → `guard()` → `tool.execute()` through packages/harness (**tool budget: 800ms p95** — why the database is in Mumbai, T8) → the voice speaks on. Transcript lines go into `messages` by `seq`, and each reply's timings into the per-turn rows.
 
 **Async (everything else) — `loop.ts` turn algorithm:**
 ```
@@ -267,7 +266,7 @@ The proof of "use-case agnostic": onboarding a new vertical = one seed file + ze
 
 ### T26.8 Non-goals (so nobody "helpfully" adds them)
 
-No streaming voice loop in our code (Vapi's job) · no in-memory agent state (rows or it didn't happen) · no dynamic tool creation by the model · no framework adoption (D15) · no per-vertical code paths (T26.7) · no vector DB, no Redis, no second queue (T24 rejected list).
+No voice loop that decides anything (the voice service only speaks and listens; every decision comes from the brain) · no in-memory agent state (rows or it didn't happen) · no dynamic tool creation by the model · no framework adoption (D15; LiveKit Agents in the voice service, for the live audio loop alone, is the one exception: 2026-10-20) · no per-vertical code paths (T26.7) · no vector DB, no Redis, no second queue (T24 rejected list).
 
 ---
 
@@ -287,7 +286,7 @@ One `embed(texts[]) → vector[]` interface in `packages/harness`; the provider/
 
 ## T19 · LLM access — raw `fetch` adapters, model tiers by task
 
-No SDK lock: a thin provider adapter (`complete()`, `stream()`) per vendor over `fetch`, selected by config. **Tiers:** realtime voice = fast/small model chosen inside Vapi config; post-call summaries + extraction = mid-tier; scoring features + evals = mid-tier; nothing premium until a measured quality gap demands it. Every call emits `usage_events` (cost) + `audit_log` (trace).
+No SDK lock: a thin provider adapter (`complete()`, `stream()`) per vendor over `fetch`, selected by config. **Tiers:** realtime voice = a fast model hosted in India, named in the role's rows (Slice 4); post-call summaries + extraction = mid-tier; scoring features + evals = mid-tier; nothing premium until a measured quality gap demands it. Every call emits `usage_events` (cost) + `audit_log` (trace).
 
 ---
 
@@ -329,8 +328,8 @@ Cloud free tier; on the console *and* T15 landing from day one — events are ch
 
 ## T22 · Environments & release flow
 
-- **local** — Bun + `supabase start` (full local stack) + Vapi test assistant.
-- **staging** — separate Supabase project (free tier, also Mumbai) + second compose stack on the same VPS + Pages preview. Real Vapi test number pointed here. Every merge to `main` auto-deploys staging.
+- **local** — Bun + `supabase start` (full local stack) + the voice service on Node against LiveKit's local server.
+- **staging** — separate Supabase project (free tier, also Mumbai) + second compose stack on the same VPS + Pages preview. The VoiceLink test line dials from here. Every merge to `main` auto-deploys staging.
 - **prod** — promoted from staging by tagged release; migrations run first (expand-contract), health-gated cutover.
 Config via environment; the only secret stores are GitHub Environments (CI), the VPS `.env` (0600), and Supabase Vault (tenant creds) — S5.
 
