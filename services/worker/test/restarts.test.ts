@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
+import { OPTED_IN } from "../../../tests/opted-in";
 import { testCompanies } from "../../../tests/test-companies";
 import { startJobs, stopJobs } from "../src/jobs";
 import { testJobSchema } from "./fixtures/test-job-schema";
@@ -128,15 +129,15 @@ afterAll(async () => {
   await admin.end();
 });
 
-/** A lead with a number of their own, and a run of theirs waiting at `step`: on the call step, parked for the call
+/** A lead with a number of their own who agreed to WhatsApp messages, and a run of theirs waiting at `step`: on the call step, parked for the call
  *  job whose send id it holds. Returns that lead's call or WhatsApp job, ready to queue. */
 async function lead(kind: "place_call" | "send_wa") {
   const number = `+9197${String(Math.random()).slice(2, 10)}`;
   const sendId = randomUUID();
   const contactId = (
     await admin.query(
-      `insert into contacts (org_id, first_name) values ($1, 'Asha') returning id`,
-      [orgId],
+      `insert into contacts (org_id, first_name, consent) values ($1, 'Asha', $2) returning id`,
+      [orgId, OPTED_IN],
     )
   ).rows[0].id;
   await admin.query(
