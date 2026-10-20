@@ -112,6 +112,9 @@ export const VapiWebhookSchema = z
         transcript: z.string().optional(),
         summary: z.string().optional(),
         endedReason: z.string().optional(),
+        // An end-of-call report's own start and end of the call, as ISO times.
+        startedAt: z.string().optional(),
+        endedAt: z.string().optional(),
       })
       .passthrough(),
   })

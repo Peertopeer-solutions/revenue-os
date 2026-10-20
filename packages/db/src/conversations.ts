@@ -1,11 +1,13 @@
-// The console's conversation reads: the live monitor's list and one conversation's transcript (shown as text,
-// docs/security.md S7.1). Each filters by company, on top of the database's per-company rules: another company's
-// conversation is not found, so the transcript read returns null (the route maps that to 404 and never leaks that
-// it exists); the company's own conversation with no messages is a valid empty array.
+// Conversations: the one way each is opened, given a message and finished (openConversation, addMessage,
+// finishConversation, which every part of the product calls), and the console's reads: the live monitor's list and
+// one conversation's transcript (shown as text, docs/security.md S7.1). Each read filters by company, on top of the
+// database's per-company rules: another company's conversation is not found, so the transcript read returns null (the
+// route maps that to 404 and never leaks that it exists); the company's own conversation with no messages is a valid
+// empty array.
 // G1: runtime-agnostic — no bun:* imports, no Bun globals.
 import { ConversationIdSchema } from "@revenue-os/shared";
 import type pg from "pg";
-import { withOrg } from "./client";
+import { type Db, withOrg } from "./client";
 
 export interface TranscriptRow {
   seq: number;
@@ -68,4 +70,211 @@ export async function listConversations(
     );
     return result.rows;
   });
+}
+
+// ── The one way each conversation operation is written (`bun run guards` fails an insert into conversations or
+// messages, or any other write to them, in any other file). Each takes the caller's withOrg transaction as a plain
+// `Db`, so its rows commit or roll back with the caller's change.
+
+export type ConvoStatus =
+  | "completed"
+  | "no_answer"
+  | "busy"
+  | "voicemail"
+  | "failed"
+  | "canceled";
+
+/**
+ * Opens a conversation and returns its id; its start time is the time given, or now.
+ * - A call (a provider and its call id): the company's conversation for that call id, whichever writer comes first
+ *   (the call's own events, or the job that placed it). A second open only fills what is still missing, keeps the
+ *   earliest start time, and marks the call outbound when the job that placed it says so; it never overwrites.
+ * - A thread (a lead, no call id: WhatsApp now): the lead's open thread on that channel is reused, and follows the
+ *   newest run that writes to it (docs/decisions-in-force/2026-10-19-a-lead-s-open-thread-is-reused.md). Two opens
+ *   at once for one lead and channel take turns, so they never make two threads.
+ * - Anyone else (no lead, no call id): a new conversation.
+ */
+export async function openConversation(
+  db: Db,
+  orgId: string,
+  c: {
+    channel: "voice" | "whatsapp" | "sms" | "email";
+    direction: "inbound" | "outbound";
+    contactId?: string;
+    workflowRunId?: string;
+    agentId?: string;
+    provider?: string;
+    providerRef?: string;
+    startedAt?: string | null;
+  },
+): Promise<string> {
+  const values = [
+    orgId,
+    c.contactId ?? null,
+    c.workflowRunId ?? null,
+    c.agentId ?? null,
+    c.channel,
+    c.direction,
+    c.provider ?? null,
+    c.providerRef ?? null,
+    c.startedAt ?? null,
+  ];
+  const opened = c.providerRef
+    ? await db.query(
+        `insert into conversations
+           (org_id, contact_id, workflow_run_id, agent_id, channel, direction, status, provider, provider_ref, started_at)
+         values ($1, $2, $3, $4, $5, $6, 'active', $7, $8, coalesce($9::timestamptz, now()))
+         on conflict (org_id, provider, provider_ref) where provider_ref is not null do update set
+           contact_id = coalesce(conversations.contact_id, excluded.contact_id),
+           workflow_run_id = coalesce(conversations.workflow_run_id, excluded.workflow_run_id),
+           agent_id = coalesce(conversations.agent_id, excluded.agent_id),
+           direction = case when excluded.direction = 'outbound' then excluded.direction
+                            else conversations.direction end,
+           started_at = least(conversations.started_at, excluded.started_at)
+         returning id`,
+        values,
+      )
+    : (c.contactId && (await openThread(db, orgId, c.contactId, c))) ||
+      (await db.query(
+        `insert into conversations
+             (org_id, contact_id, workflow_run_id, agent_id, channel, direction, status, provider, provider_ref, started_at)
+           values ($1, $2, $3, $4, $5, $6, 'active', $7, $8, coalesce($9::timestamptz, now()))
+           returning id`,
+        values,
+      ));
+  return String(opened.rows[0]?.id);
+}
+
+/** The lead's newest open thread on the channel, now following the given run, or nothing: the opener then inserts one.
+ *  A lock per company, lead and channel, held to the end of the caller's transaction, makes two opens take turns. */
+async function openThread(
+  db: Db,
+  orgId: string,
+  contactId: string,
+  c: {
+    channel: string;
+    workflowRunId?: string;
+    agentId?: string;
+    provider?: string;
+  },
+) {
+  await db.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    `thread:${orgId}:${contactId}:${c.channel}`,
+  ]);
+  const reused = await db.query(
+    `update conversations
+        set workflow_run_id = coalesce($4, workflow_run_id),
+            agent_id = coalesce(agent_id, $5),
+            provider = coalesce(provider, $6)
+      where org_id = $1 and id = (
+        select id from conversations
+         where org_id = $1 and contact_id = $2 and channel = $3 and provider_ref is null
+           and status in ('queued', 'ringing', 'active')
+         order by created_at desc, id desc limit 1)
+      returning id`,
+    [
+      orgId,
+      contactId,
+      c.channel,
+      c.workflowRunId ?? null,
+      c.agentId ?? null,
+      c.provider ?? null,
+    ],
+  );
+  return reused.rowCount ? reused : undefined;
+}
+
+/**
+ * Adds a message as the conversation's next line and returns its seq. Two writers at once take turns on the
+ * conversation's row, and the insert, a statement of its own after the lock, sees the other's line, so every line gets
+ * the next seq and none is lost. Seq is the order lines were saved; `at` is the event's own time
+ * (docs/decisions-in-force/2026-10-19-a-message-s-seq-is-the-order-it-was-saved.md). Another company's conversation,
+ * or none, is refused.
+ */
+export async function addMessage(
+  db: Db,
+  orgId: string,
+  conversationId: string,
+  m: {
+    role: "agent" | "contact" | "human_agent" | "system" | "tool";
+    content?: string | null;
+    toolCall?: unknown;
+    at?: string | null;
+  },
+): Promise<number> {
+  const convo = await db.query(
+    "select id from conversations where org_id = $1 and id = $2 for no key update",
+    [orgId, conversationId],
+  );
+  if (!convo.rows[0])
+    throw new Error(
+      `conversation ${conversationId} is not one of this company's`,
+    );
+  const added = await db.query(
+    `insert into messages (org_id, conversation_id, seq, role, content, tool_call, ts)
+     select $1, $2, coalesce(max(seq), 0) + 1, $4, $5, $6::jsonb, coalesce($3::timestamptz, now())
+       from messages where org_id = $1 and conversation_id = $2
+     returning seq`,
+    [
+      orgId,
+      conversationId,
+      m.at ?? null,
+      m.role,
+      m.content ?? null,
+      m.toolCall === undefined ? null : JSON.stringify(m.toolCall),
+    ],
+  );
+  return Number(added.rows[0]?.seq);
+}
+
+/**
+ * Finishes a conversation with its status and, when one is known, its outcome: one of this company's dispositions, by
+ * key (interested, not_interested, callback…); a key the company doesn't have is refused. It finishes once: a later
+ * finish keeps the status and end time and only fills what is still missing. Returns the conversation's lead.
+ */
+export async function finishConversation(
+  db: Db,
+  orgId: string,
+  conversationId: string,
+  f: {
+    status: ConvoStatus;
+    endedAt?: string | null;
+    summary?: string | null;
+    outcome?: string;
+  },
+): Promise<{ contactId: string | null }> {
+  let dispositionId: unknown = null;
+  if (f.outcome !== undefined) {
+    dispositionId = (
+      await db.query(
+        "select id from dispositions where org_id = $1 and key = $2",
+        [orgId, f.outcome],
+      )
+    ).rows[0]?.id;
+    if (!dispositionId)
+      throw new Error(`"${f.outcome}" is not one of this company's outcomes`);
+  }
+  const done = await db.query(
+    `update conversations
+        set status = case when status in ('queued', 'ringing', 'active') then $3::app.convo_status else status end,
+            ended_at = coalesce(ended_at, $4::timestamptz, now()),
+            summary = coalesce(summary, $5),
+            disposition_id = coalesce(disposition_id, $6)
+      where org_id = $1 and id = $2
+      returning contact_id`,
+    [
+      orgId,
+      conversationId,
+      f.status,
+      f.endedAt ?? null,
+      f.summary ?? null,
+      dispositionId,
+    ],
+  );
+  const row = done.rows[0];
+  if (!row)
+    throw new Error(
+      `conversation ${conversationId} is not one of this company's`,
+    );
+  return { contactId: (row.contact_id as string | null) ?? null };
 }

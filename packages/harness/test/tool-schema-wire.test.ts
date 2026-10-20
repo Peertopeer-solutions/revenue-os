@@ -109,6 +109,8 @@ function expectJsonSchema(name: string, live: unknown) {
 /** Write-only fake db: the text-only turn never reads a row it cares about. */
 const stubDb: OrgScopedDb = {
   query: async (text: string) => {
+    if (/from conversations/i.test(text))
+      return { rows: [{ id: CONVERSATION }], rowCount: 1 }; // the conversation addMessage locks
     if (/coalesce\(max\(seq\)/i.test(text))
       return { rows: [{ seq: 1 }], rowCount: 1 };
     return { rows: [], rowCount: 0 };
