@@ -19,16 +19,10 @@ const appPool = createPool(
     "postgresql://app_service:app_service_local@127.0.0.1:54322/postgres",
 );
 const companies = testCompanies(admin);
-let [orgId, contactId, workflowId] = ["", "", ""];
+let [orgId, workflowId] = ["", ""];
 
 beforeAll(async () => {
   orgId = (await companies.add("Sends Org")).id;
-  contactId = (
-    await admin.query(
-      `insert into contacts (org_id, first_name) values ($1, 'Asha') returning id`,
-      [orgId],
-    )
-  ).rows[0].id;
   workflowId = (
     await admin.query(
       `insert into workflows (org_id, key, version, status, definition)
@@ -45,8 +39,15 @@ afterAll(async () => {
   await admin.end();
 });
 
-/** A call saved as `status` on a run of its own waiting on the call. */
+/** A call saved as `status` on a run of its own waiting on the call, for a lead of its own (a lead can be in the
+ *  same sequence only once at a time, migration 025). */
 async function savedCall(status: string): Promise<Send> {
+  const contactId = (
+    await admin.query(
+      `insert into contacts (org_id, first_name) values ($1, 'Asha') returning id`,
+      [orgId],
+    )
+  ).rows[0].id;
   const runId = (
     await admin.query(
       `insert into workflow_runs (org_id, workflow_id, contact_id, status, current_step)
