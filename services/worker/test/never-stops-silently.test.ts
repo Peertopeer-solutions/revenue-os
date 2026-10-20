@@ -113,7 +113,7 @@ async function getRun(id: string) {
 /** The place_call jobs pg-boss holds for a run, oldest first. */
 async function callJobs(runId: string) {
   return (
-    await admin.query<{ id: string; state: string; data: PlaceCallJob }>(
+    await appPool.query<{ id: string; state: string; data: PlaceCallJob }>(
       `select id, state, data from pgboss.job_common
         where name = 'place_call' and data ->> 'runId' = $1 order by created_on`,
       [runId],
@@ -123,14 +123,14 @@ async function callJobs(runId: string) {
 
 /** A job's end as pg-boss leaves its row: every try used up ('failed'), or still at work ('active', 'retry'). */
 const jobEnds = (jobId: string, state: string) =>
-  admin.query(`update pgboss.job_common set state = $2 where id = $1`, [
+  appPool.query(`update pgboss.job_common set state = $2 where id = $1`, [
     jobId,
     state,
   ]);
 
 /** The dead letter pg-boss queues for a call job that failed every try, carrying the job's data, left as `state`. */
 const deadLetter = (job: PlaceCallJob, state: string) =>
-  admin.query(
+  appPool.query(
     `insert into pgboss.job_common (name, data, state, policy) values ('call.post', $1::jsonb, $2, 'standard')`,
     [JSON.stringify(job), state],
   );
@@ -339,6 +339,35 @@ describe("a call that can't go ahead never stops the lead's sequence silently", 
     expect(run).toMatchObject({ status: "waiting", current_step: "c" });
     expect(new Date(run.wake_at).getTime()).toBe(t0.getTime() + HOUR);
     expect(await reviewTasks(runId)).toEqual([]);
+  });
+});
+
+describe("a held-back call leaves a run that has moved on as it is", () => {
+  // behaviour already on main: main acts on no held-back call at all; this pins that acting on one never touches a run that has moved on
+  it("a run a person ended while the guardrails were answering is not woken or handed over again", async () => {
+    for (const reason of ["quiet_hours", "dnc"] as const) {
+      const { runId } = await leadInSequence();
+      const t0 = new Date();
+      const job = await parkOnCall(runId, t0);
+      const call = deps({ ok: true }, t0);
+      call.guard = async () => {
+        await admin.query(
+          `update workflow_runs set status = 'canceled', last_error = 'ended by a person' where id = $1`,
+          [runId],
+        );
+        return { ok: false, reason };
+      };
+      await handlePlaceCall(call, job.data);
+
+      const run = await getRun(runId);
+      expect(run).toMatchObject({
+        status: "canceled",
+        last_error: "ended by a person",
+      });
+      expect(run.state.callSendId).toBe(job.data.sendId);
+      expect(run.attempts.voice).toHaveLength(1);
+      expect(await reviewTasks(runId)).toEqual([]);
+    }
   });
 });
 

@@ -30,13 +30,7 @@ import { voice } from "@revenue-os/channels";
 import { leadNumber, openConversation, withOrg } from "@revenue-os/db";
 import { runTurn, withTimeLimit } from "@revenue-os/harness";
 import type { Pool, PoolClient } from "pg";
-import {
-  callHeldBack,
-  handToPerson,
-  NO_NUMBER,
-  noAgent,
-  type Stop,
-} from "../call-stops";
+import { callHeldBack, handToPerson, NO_NUMBER, noAgent } from "../call-stops";
 import {
   findSend,
   handOver,
@@ -126,11 +120,6 @@ export async function handlePlaceCall(
       return {
         handedOver: await handOver(tx, orgId, send, new Error(UNANSWERED)),
       };
-    // held back by the guardrails before: an earlier run of this job saved that, then failed before acting on it
-    if (earlier?.status === "blocked") {
-      await callHeldBack(tx, orgId, send, earlier.reason, now);
-      return { handedOver: true };
-    }
     const agent = (
       await tx.query(
         `select id, system_prompt, tools_allowed from agents
@@ -139,14 +128,15 @@ export async function handlePlaceCall(
         [action.agentKey, orgId],
       )
     ).rows[0] as Agent | undefined;
-    const stopped = async (stop: Stop) => {
-      await handToPerson(tx, orgId, send, stop);
-      return { handedOver: true };
-    };
-    if (!agent) return stopped(noAgent(action.agentKey)); // no active agent to place the call, or to drive its turn
-    // no number to call (none on file, or the lead was deleted or merged): nothing is placed
-    if (!earlier && !to) return stopped(NO_NUMBER);
-    return { agent, to, send, earlier };
+    // Held back by the guardrails before (an earlier run of this job saved that, then failed before acting on it); no
+    // active agent to place the call or drive its turn; no number to call (none on file, or the lead was deleted or
+    // merged): nothing is placed.
+    if (earlier?.status === "blocked")
+      await callHeldBack(tx, orgId, send, earlier.reason, now);
+    else if (!agent)
+      await handToPerson(tx, orgId, send, noAgent(action.agentKey));
+    else if (!earlier && !to) await handToPerson(tx, orgId, send, NO_NUMBER);
+    else return { agent, to, send, earlier };
   });
   if (!claim || "handedOver" in claim) return;
   const { agent, to, send, earlier } = claim;
