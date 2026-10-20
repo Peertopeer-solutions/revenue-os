@@ -18,7 +18,7 @@ const admin = new pg.Pool({
   max: 4,
 });
 const appPool = new pg.Pool({ connectionString: DB_URL, max: 4 });
-const companies = testCompanies(admin, appPool);
+const companies = testCompanies(admin);
 
 const DEFINITION = { entry: "end", steps: { end: { kind: "end" } } };
 let orgA = "";
