@@ -232,10 +232,13 @@ describe("scheduler tick + run writer", () => {
 
     expect((await jobsFor(`${poisonRun}:wa:0`)).length).toBe(0); // enqueue rolled back with the failed advance
     const tasks = await admin.query(
-      `select id from tasks where workflow_run_id = $1`,
+      `select kind, title from tasks where workflow_run_id = $1`,
       [poisonRun],
     );
-    expect(tasks.rows.length).toBe(0); // inline write rolled back too
+    // the inline write never landed; the one task hands the failed run's lead to a person
+    expect(tasks.rows).toEqual([
+      { kind: "review", title: "Sequence stopped — it could not go on" },
+    ]);
     const run = await getRun(poisonRun);
     expect(run.current_step).toBe("wa"); // run did NOT advance
     expect(run.status).not.toBe("completed");
@@ -558,6 +561,7 @@ describe("every job the scheduler queues keeps its queue's retry and failure set
     expect(scheduled.rows[0].dead_letter).toBe("call.post");
   });
 
+  // behaviour already on main: main queues the second visit's job with its own send id too; the edit stops faking a run that still waits for its first call
   it("each queued job carries a send id of its own, which a later visit to the same step does not share", async () => {
     const runId = await seedRun(await seedWorkflow(CALL_WF), {
       currentStep: "c",
@@ -571,8 +575,10 @@ describe("every job the scheduler queues keeps its queue's retry and failure set
       `update pgboss.job set state = 'completed' where singleton_key = $1`,
       [`${runId}:c:0`],
     );
+    // (routing onto the step again leaves the run waiting for no call, as the scheduler writes it)
     await admin.query(
-      `update workflow_runs set status = 'waiting', wake_at = now() - interval '1 minute' where id = $1`,
+      `update workflow_runs set status = 'waiting', wake_at = now() - interval '1 minute', state = state - 'callSendId'
+        where id = $1`,
       [runId],
     );
     await tick(appPool, orgId, { now: new Date() });

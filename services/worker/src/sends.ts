@@ -38,16 +38,26 @@ export async function findSend(
   tx: PoolClient,
   orgId: string,
   key: string,
-): Promise<{ status: SendStatus; providerRef: string | null } | undefined> {
+): Promise<
+  | { status: SendStatus; providerRef: string | null; reason: string | null }
+  | undefined
+> {
   const r = await tx.query<{
     status: SendStatus;
     provider_ref: string | null;
+    reason: string | null;
   }>(
-    `select status, provider_ref from sends where org_id = $1 and send_key = $2`,
+    `select status, provider_ref, reason from sends where org_id = $1 and send_key = $2`,
     [orgId, key],
   );
   const row = r.rows[0];
-  return row && { status: row.status, providerRef: row.provider_ref };
+  return (
+    row && {
+      status: row.status,
+      providerRef: row.provider_ref,
+      reason: row.reason,
+    }
+  );
 }
 
 /** The guardrail check every send passes, given its database by sendOnce (the handlers' GuardPort). */
