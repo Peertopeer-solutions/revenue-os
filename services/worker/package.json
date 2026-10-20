@@ -8,7 +8,7 @@
     "@revenue-os/db": "workspace:*",
     "@revenue-os/harness": "workspace:*",
     "@revenue-os/shared": "workspace:*",
-    "hono": "4.13.8",
+    "hono": "4.13.11",
     "jose": "6.2.3",
     "pg-boss": "12.26.0",
     "pino": "10.3.1",
