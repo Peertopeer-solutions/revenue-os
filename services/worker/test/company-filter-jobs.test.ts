@@ -81,15 +81,21 @@ const sequence = (org: string | null, definition: unknown) =>
     ],
   );
 
-/** A waiting run, due at `wakeAt` (never, by default, so no scheduler picks it up). */
-const run = (
+/** A waiting run, due at `wakeAt` (never, by default, so no scheduler picks it up). A lead can be in the same
+ *  sequence only once at a time (migration 025), so an earlier test's open run of this lead and sequence ends first. */
+const run = async (
   org: string,
   workflow: string,
   contact: string,
   step: string,
   wakeAt: Date | null = null,
-) =>
-  id(
+) => {
+  await admin.query(
+    `update workflow_runs set status = 'canceled'
+      where org_id = $1 and workflow_id = $2 and contact_id = $3 and status in ('pending', 'running', 'waiting')`,
+    [org, workflow, contact],
+  );
+  return id(
     `insert into workflow_runs (org_id, workflow_id, contact_id, status, current_step, state, wake_at)
      values ($1, $2, $3, 'waiting', $4, $5::jsonb, $6) returning id`,
     [
@@ -101,6 +107,7 @@ const run = (
       wakeAt,
     ],
   );
+};
 
 /** A conversation whose lead's last message is still unanswered. */
 async function conversation(org: string, contact: string, agentId: string) {
