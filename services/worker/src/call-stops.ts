@@ -190,7 +190,7 @@ async function callResult(
 ): Promise<string | undefined> {
   const r = await tx.query<{ status: string; outcome: string | null }>(
     `select c.status, d.key as outcome from conversations c
-       left join dispositions d on d.org_id = c.org_id and d.id = c.disposition_id
+       left join dispositions d on d.org_id = $1 and d.id = c.disposition_id
       where c.org_id = $1 and c.provider = 'vapi' and c.provider_ref = $2
         and c.status not in ('queued', 'ringing', 'active')`,
     [orgId, providerRef],
