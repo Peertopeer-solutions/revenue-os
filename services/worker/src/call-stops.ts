@@ -79,7 +79,7 @@ export async function endRun(
   await tx.query(
     `update workflow_runs set status = 'failed', last_error = $2, updated_at = now()
       where id = $1 and org_id = $3 and status in ('pending', 'waiting')`,
-    [runId, reason.slice(0, 500), orgId],
+    [runId, reason, orgId],
   );
 }
 
@@ -139,7 +139,7 @@ export async function pickUpCall(
     `select 1 from pgboss.job_common
       where name in ('place_call', $1) and state in ('created', 'retry', 'active') and data @> $2::jsonb
       limit 1`,
-    [CALL_POST_QUEUE, JSON.stringify({ runId: run.id, sendId })],
+    [CALL_POST_QUEUE, JSON.stringify({ orgId, runId: run.id, sendId })],
   );
   if (live.rowCount) {
     await tx.query(
