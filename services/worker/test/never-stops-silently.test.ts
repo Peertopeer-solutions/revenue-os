@@ -192,6 +192,19 @@ async function parkOnCall(runId: string, at: Date) {
   return jobs[0];
 }
 
+/** A run parked on its call at t0, the call placed by its job, whose outcome never came (the job failed). */
+async function placedWithoutResult() {
+  const lead = await leadInSequence();
+  const t0 = new Date();
+  const job = await parkOnCall(lead.runId, t0);
+  const call = deps({ ok: true }, t0, async () => {
+    throw new Error("no outcome");
+  });
+  await expect(handlePlaceCall(call, job.data)).rejects.toThrow("no outcome");
+  expect(call.dialled()).toBe(1);
+  return { ...lead, t0, job };
+}
+
 beforeAll(async () => {
   await boss.start();
   await boss.createQueue("place_call", { policy: "short" });
@@ -372,19 +385,6 @@ describe("a held-back call leaves a run that has moved on as it is", () => {
 });
 
 describe("a call still waiting for its result an hour after it was queued is picked up again", () => {
-  /** A run parked on its call at t0, the call placed by its job, whose outcome never came (the job failed). */
-  async function placedWithoutResult() {
-    const lead = await leadInSequence();
-    const t0 = new Date();
-    const job = await parkOnCall(lead.runId, t0);
-    const call = deps({ ok: true }, t0, async () => {
-      throw new Error("no outcome");
-    });
-    await expect(handlePlaceCall(call, job.data)).rejects.toThrow("no outcome");
-    expect(call.dialled()).toBe(1);
-    return { ...lead, t0, job };
-  }
-
   it("no result came and the job and its dead letter failed every try: the lead is handed to a person, and the call is never placed again", async () => {
     const { runId, contactId, t0, job } = await placedWithoutResult();
     await jobEnds(job.id, "failed");
@@ -586,6 +586,78 @@ describe("a sequence the scheduler can't drive hands its lead to a person", () =
         title: "Sequence stopped — it could not go on",
         reason: "unknown step: ghost",
       },
+    ]);
+  });
+
+  it("a sequence whose definition is invalid ends the run with the reason and a review task on the lead", async () => {
+    const { runId, contactId } = await leadInSequence({
+      steps: { c: { kind: "call" } },
+    });
+    await tick(appPool, orgId, { now: new Date() });
+
+    const run = await getRun(runId);
+    expect(run.status).toBe("failed");
+    expect(run.last_error).toContain("entry");
+    expect(await reviewTasks(runId)).toEqual([
+      {
+        contact_id: contactId,
+        title: "Sequence stopped — it could not go on",
+        reason: run.last_error,
+      },
+    ]);
+  });
+});
+
+describe("the pickup reads only the company's own call results", () => {
+  it("another company's finished call under the same call id is never folded into this company's run", async () => {
+    const { runId, contactId, t0, job } = await placedWithoutResult();
+    await jobEnds(job.id, "failed");
+    await deadLetter(job.data, "failed");
+    const ref = (
+      await admin.query(
+        `select provider_ref from sends where workflow_run_id = $1`,
+        [runId],
+      )
+    ).rows[0].provider_ref;
+    // a call id is unique only within a company: another company files a finished call under the same id
+    const other = (await companies.add("Never silent, the other company")).id;
+    await admin.query(
+      `insert into webhook_events (org_id, provider, event_type, dedupe_key, payload)
+       values ($1, 'vapi', 'end-of-call-report', $2, $3::jsonb)`,
+      [
+        other,
+        `vapi:${ref}-end`,
+        JSON.stringify({
+          message: {
+            type: "end-of-call-report",
+            call: { id: ref },
+            endedReason: "customer-ended-call",
+          },
+        }),
+      ],
+    );
+    await processVapiEvents(appPool, other);
+
+    await tick(appPool, orgId, { now: new Date(t0.getTime() + HOUR) });
+    expect(await getRun(runId)).toMatchObject({
+      status: "failed",
+      current_step: "c",
+      last_error: "the call went out, but no result came within 60 minutes",
+    });
+    expect(await reviewTasks(runId)).toEqual([
+      {
+        contact_id: contactId,
+        title: "This call went out, but no result came",
+        reason: "no_result",
+      },
+    ]);
+    const theirs = await admin.query(
+      `select org_id, status, workflow_run_id from conversations where provider_ref = $1 order by org_id = $2`,
+      [ref, orgId],
+    );
+    expect(theirs.rows).toEqual([
+      { org_id: other, status: "completed", workflow_run_id: null },
+      { org_id: orgId, status: "active", workflow_run_id: runId },
     ]);
   });
 });
