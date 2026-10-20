@@ -3,7 +3,15 @@
 // timestamps give, onto the company's conversation for that call id, each message taking the next seq. Each event
 // is filed on its own: one that fails is marked failed with its reason, and the company's other events still go
 // through (ROADMAP.md, Slice 1).
-import { leadsWithNumber, recordDoNotCall, withOrg } from "@revenue-os/db";
+import {
+  addMessage,
+  type ConvoStatus,
+  finishConversation,
+  leadsWithNumber,
+  openConversation,
+  recordDoNotCall,
+  withOrg,
+} from "@revenue-os/db";
 import {
   normalizePhoneE164,
   VapiCustomerSchema,
@@ -23,51 +31,51 @@ const ROLE_MAP = { assistant: "agent", user: "contact" } as const;
 const callTime = (t: Message["timestamp"]) =>
   typeof t === "number" ? new Date(t).toISOString() : (t ?? null);
 
-/** The company's conversation for this call id, made on its first event. Another company's call id is its own. */
-async function ensureConversation(
+/** The company's conversation for this call id, opened on its first event (or by the job that placed the call). */
+const ensureConversation = (
   tx: Tx,
   orgId: string,
   callId: string,
   startedAt: string | null,
-): Promise<string> {
-  const r = await tx.query(
-    `insert into conversations (org_id, channel, direction, status, provider, provider_ref, started_at)
-		 values ($1, 'voice', 'inbound', 'active', 'vapi', $2, $3)
-		 on conflict (org_id, provider, provider_ref) where provider_ref is not null
-		 do update set provider = excluded.provider
-		 returning id`,
-    [orgId, callId, startedAt],
-  );
-  const id = r.rows[0]?.id;
-  if (typeof id !== "string")
-    throw new Error("conversation upsert returned no id");
-  return id;
-}
+) =>
+  openConversation(tx, orgId, {
+    channel: "voice",
+    direction: "inbound",
+    provider: "vapi",
+    providerRef: callId,
+    startedAt,
+  });
 
-/** One transcript line, appended as the conversation's next message. */
+/** One transcript line, added as the conversation's next message at the time Vapi gives it. */
 async function fileTranscript(
   tx: Tx,
   orgId: string,
   callId: string,
   m: Message & { transcript: string; role: keyof typeof ROLE_MAP },
 ) {
-  const conversationId = await ensureConversation(
-    tx,
-    orgId,
-    callId,
-    callTime(m.timestamp),
-  );
-  await tx.query(
-    `insert into messages (org_id, conversation_id, seq, role, content)
-		 select $1, $2, coalesce(max(seq), 0) + 1, $3, $4 from messages where org_id = $1 and conversation_id = $2
-		 on conflict (org_id, conversation_id, seq) do nothing`,
-    [orgId, conversationId, ROLE_MAP[m.role], m.transcript],
-  );
+  const at = callTime(m.timestamp);
+  const conversationId = await ensureConversation(tx, orgId, callId, at);
+  await addMessage(tx, orgId, conversationId, {
+    role: ROLE_MAP[m.role],
+    content: m.transcript,
+    at,
+  });
 }
 
+/** How a call ended, from Vapi's endedReason; the call's outcome arrives with Slice 4's end-of-call item. */
+const ENDED_AS: [RegExp, ConvoStatus][] = [
+  [/did-not-answer|no-answer/, "no_answer"],
+  [/busy/, "busy"],
+  [/voicemail/, "voicemail"],
+  [/error|fail/, "failed"],
+];
+const callStatus = (reason = ""): ConvoStatus =>
+  ENDED_AS.find(([re]) => re.test(reason))?.[1] ?? "completed";
+
 /**
- * The call's end: the conversation completes with its summary, which becomes the lead's latest memory. A request in
- * the AI's reading not to be contacted was recorded before this, on its own (blockFirst).
+ * The call's end: the conversation finishes with how it ended, its start and end times and its summary, which becomes
+ * the lead's latest memory. A request in the AI's reading not to be contacted was recorded before this, on its own
+ * (blockFirst).
  */
 async function fileEndOfCall(
   tx: Tx,
@@ -75,19 +83,18 @@ async function fileEndOfCall(
   callId: string,
   m: Message,
 ) {
-  const conversationId = await ensureConversation(tx, orgId, callId, null);
-  const summary = m.summary ?? null;
-  const done = await tx.query<{ contact_id: string | null }>(
-    `update conversations set status = 'completed', ended_at = $3, summary = $4
-		 where org_id = $1 and id = $2 returning contact_id`,
-    [
-      orgId,
-      conversationId,
-      callTime(m.timestamp) ?? new Date().toISOString(),
-      summary,
-    ],
+  const conversationId = await ensureConversation(
+    tx,
+    orgId,
+    callId,
+    m.startedAt ?? null,
   );
-  const contactId = done.rows[0]?.contact_id;
+  const summary = m.summary ?? null;
+  const { contactId } = await finishConversation(tx, orgId, conversationId, {
+    status: callStatus(m.endedReason),
+    endedAt: m.endedAt ?? callTime(m.timestamp),
+    summary,
+  });
   // Fold the summary into long-term memory (verbatim, no embedding yet): insert the new live row, then point the
   // contact's previous live summary at it. Scoped by CONTACT, as an org-wide supersede would bury every other
   // contact's memory. An unknown caller (no contact) or a report with nothing to say makes no memory.
