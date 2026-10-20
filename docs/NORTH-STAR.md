@@ -35,7 +35,8 @@ implementation:
 
 We build it to enterprise standard: no patch work, one implementation per job, every replacement running beside the
 old part until it passes, and every part proven by Slice 3's proof, through a test chat in the console, before
-WhatsApp or a phone line carries it.
+WhatsApp or a phone line carries it. How each part is built, and which code it keeps or replaces, is in
+`docs/brain.md` (agreed by Devesh on 2026-10-21).
 
 ## The beachhead: where we start
 
@@ -63,8 +64,10 @@ seed pack and, where needed, one new tool or connector. Slice 3's proof runs tha
 
 ## Shape rules: how we build so the product grows without a rewrite
 
-1. **No industry words in core code.** `bun run guards` fails a word such as "site visit", "property" or "flat"
-   in the core folders. Industry words live in seed packs and company settings.
+1. **No industry words in core code.** `bun run guards` fails a word such as "site visit", "BHK" or "RERA" in the
+   engine's own folder, packages/harness/src. Industry words live in seed packs and company settings. "property" and
+   "flat" are not checked, because they are ordinary programming words (JSON Schema's `properties`, JavaScript's
+   `flat()`) that every engine file would trip.
 2. **Every input is an event; every action is a tool.** A reply, a call result, a timer, a CRM change or an
    instruction from the team is an event about a contact, and it wakes that contact's agent through one door.
    Every action the agent takes is a tool, and every tool passes guard() and the pause switch before it acts.
