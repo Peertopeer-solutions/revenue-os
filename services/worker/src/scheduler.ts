@@ -9,7 +9,8 @@
 // SKIP LOCKED that another tick holds is skipped, not blocked. A run whose apply hits a DB error
 // rolls its whole tx back — enqueue included — and is left 'waiting', never advanced (atomicity).
 // A run whose definition dangles (interpret throws) is dead-lettered: status 'failed', last_error
-// captured, and the tick keeps going.
+// captured, its lead handed to a person in a review task, and the tick keeps going. A run parked on
+// a call wakes when its time for the call's result is up and is picked up again (src/call-stops.ts).
 import { randomUUID } from "node:crypto";
 import { createTask, type TaskKind, withOrg } from "@revenue-os/db";
 import {
@@ -20,6 +21,7 @@ import {
   type WorkflowState,
 } from "@revenue-os/harness";
 import type { Pool, PoolClient } from "pg";
+import { CALL_RESULT_WAIT_MS, endRun, pickUpCall } from "./call-stops";
 import { logger } from "./logger";
 
 /** The clock seam: the tests' simulated clock injects `now`; production passes new Date(). */
@@ -142,12 +144,15 @@ async function processRun(
       for update skip locked`,
     [id, now, orgId],
   );
-  const run = locked.rows[0];
+  let run = locked.rows[0];
   if (!run) return false; // held by another tick (SKIP LOCKED), or no longer due
 
   // Phase 1 — PURE. Load + validate the definition and walk the interpreter with NO DB writes.
   // Any throw here (unknown step / dangling ref / bad definition) is permanent: dead-letter the
-  // run in THIS tx (nothing else is written yet, so the failed status commits cleanly).
+  // run in THIS tx (nothing else is written yet, so the failed status commits cleanly), and hand its
+  // lead to a person. A run still waiting for its call's result, its time up, is first picked up
+  // (src/call-stops.ts pickUpCall): it never places the call again, and walks on only with the result.
+  let def: Parameters<typeof interpret>[0];
   let walk: {
     steps: { step: string; transition: Transition }[];
     state: WorkflowState;
@@ -161,15 +166,25 @@ async function processRun(
     if (!wf) {
       throw new Error(`workflow not found: ${run.workflow_id}`);
     }
-    const def = WorkflowDefinitionSchema.parse(wf.definition);
+    def = WorkflowDefinitionSchema.parse(wf.definition);
+  } catch (err) {
+    await failRun(tx, orgId, run, errorMessage(err));
+    return true;
+  }
+  const sendId = run.state?.callSendId;
+  if (
+    typeof sendId === "string" &&
+    run.state?.lastDisposition == null &&
+    def.steps[run.current_step]?.kind === "call"
+  ) {
+    const result = await pickUpCall(tx, orgId, run, sendId, now);
+    if (result === undefined) return true; // waits again, tried again later, or handed to a person
+    run = { ...run, state: { ...run.state, lastDisposition: result } };
+  }
+  try {
     walk = drive(def, run, now);
   } catch (err) {
-    await tx.query(
-      `update workflow_runs
-          set status = 'failed', last_error = $2, updated_at = now()
-        where id = $1 and org_id = $3`,
-      [id, errorMessage(err), orgId],
-    );
+    await failRun(tx, orgId, run, errorMessage(err));
     return true;
   }
 
@@ -184,7 +199,7 @@ async function processRun(
  * Bounded retry for the APPLY phase. The run's own tx is already rolled back, so this runs in its
  * OWN withOrg tx (org-scoped: another tenant's run is invisible here) and is the only write that
  * commits for this run this tick. It appends the failure timestamp to attempts.apply_errors and,
- * at MAX_APPLY_FAILURES, dead-letters the run — 'failed' is outside the selection's
+ * at MAX_APPLY_FAILURES, dead-letters the run (failRun) — 'failed' is outside the selection's
  * `status in ('pending','waiting')`, so a poisoned run stops being re-picked. Never throws: a
  * bookkeeping failure may not abort the tick.
  */
@@ -198,30 +213,28 @@ async function recordApplyFailure(
   try {
     await withOrg(pool, orgId, async (tx) => {
       // SKIP LOCKED: a concurrent tick holding the run owns its bookkeeping — never block here.
-      const locked = await tx.query<{ attempts: unknown }>(
-        `select attempts from workflow_runs
+      const locked = await tx.query<{ attempts: unknown; contact_id: string }>(
+        `select attempts, contact_id from workflow_runs
           where id = $1 and org_id = $2 and status in ('pending', 'waiting')
           for update skip locked`,
         [id, orgId],
       );
-      if (!locked.rows[0]) return; // already terminal, or held by another tick
-      const attempts = normalizeAttempts(locked.rows[0].attempts);
+      const run = locked.rows[0];
+      if (!run) return; // already terminal, or held by another tick
+      const attempts = normalizeAttempts(run.attempts);
       pushAttempt(attempts, APPLY_ERRORS, now.toISOString());
-      const failures = attempts[APPLY_ERRORS]?.length ?? 0;
       await tx.query(
-        `update workflow_runs
-            set attempts = $2::jsonb, last_error = $3,
-                status = case when $4::boolean then 'failed' else status end,
-                updated_at = now()
-          where id = $1 and org_id = $5`,
-        [
-          id,
-          JSON.stringify(attempts),
-          errorMessage(err),
-          failures >= MAX_APPLY_FAILURES,
-          orgId,
-        ],
+        `update workflow_runs set attempts = $2::jsonb, last_error = $3, updated_at = now()
+          where id = $1 and org_id = $4`,
+        [id, JSON.stringify(attempts), errorMessage(err), orgId],
       );
+      if ((attempts[APPLY_ERRORS]?.length ?? 0) >= MAX_APPLY_FAILURES)
+        await failRun(
+          tx,
+          orgId,
+          { id, contact_id: run.contact_id },
+          errorMessage(err),
+        );
     });
   } catch (bookkeepingErr) {
     logger.error(
@@ -229,6 +242,25 @@ async function recordApplyFailure(
       "tick: apply-failure bookkeeping failed",
     );
   }
+}
+
+/** Dead-letters a run the scheduler can't drive: failed with why, and its lead handed to a person, once per run. */
+async function failRun(
+  tx: PoolClient,
+  orgId: string,
+  run: { id: string; contact_id: string },
+  reason: string,
+): Promise<void> {
+  await endRun(tx, orgId, run.id, reason);
+  await createTask(tx, orgId, {
+    contactId: run.contact_id,
+    workflowRunId: run.id,
+    kind: "review",
+    title: "Sequence stopped — it could not go on",
+    payload: { reason },
+    actor: { type: "system" },
+    once: `run:${run.id}:failed`,
+  });
 }
 
 /**
@@ -304,7 +336,11 @@ async function applyTransitions(
   const nextStep = final.nextStep ?? finalState.currentStep ?? run.current_step;
   // Persist the WALKED state (lastDisposition cleared on routing advance), dropping the transient
   // currentStep field — the run's step lives in its own column. undefined values are omitted by
-  // JSON.stringify, so no stale currentStep leaks into the state jsonb.
+  // JSON.stringify, so no stale currentStep leaks into the state jsonb. A run parked on a call
+  // wakes when its time for the call's result is up, to be picked up again (pickUpCall).
+  const wakeAt =
+    final.wakeAt ??
+    (callSendId ? new Date(now.getTime() + CALL_RESULT_WAIT_MS) : null);
   await tx.query(
     `update workflow_runs
         set status = $2, current_step = $3, state = $4::jsonb, wake_at = $5,
@@ -315,7 +351,7 @@ async function applyTransitions(
       final.runStatus,
       nextStep,
       JSON.stringify({ ...finalState, currentStep: undefined, callSendId }),
-      final.wakeAt,
+      wakeAt,
       JSON.stringify(attempts),
       final.runStatus === "completed" ? iso : null,
       orgId,
@@ -367,7 +403,8 @@ async function queueExternal(
  * changing a queue in jobs.ts changes its scheduled jobs too; a queue missing, or not policy 'short'
  * in job_common, fails the apply rather than queue a job its settings or dedupe would not hold.
  * Idempotent by singleton_key `<runId>:<step>:<idx>` + policy 'short' (job_i1 dedupes while
- * state='created'), so a re-tick of a still-parked run no-ops. Payload = ids + action only; the
+ * state='created'), so queueing a job still queued no-ops (a run parked on a call is never ticked onto its call
+ * step again: pickUpCall picks it up instead, in src/call-stops.ts). Payload = ids + action only; the
  * job handler re-scopes via withOrg. `sendId` is this job's own: every delivery and retry of the job
  * carries it, so the handler saves its send under it (src/sends.ts) and never sends twice, while a
  * later visit to the same step is a new job with a new id. `step`/`idx` ride the payload too.

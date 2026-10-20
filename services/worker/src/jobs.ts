@@ -15,6 +15,7 @@ import { OrgIdSchema } from "@revenue-os/shared";
 import type { Pool } from "pg";
 import { PgBoss } from "pg-boss";
 import { z } from "zod";
+import { CALL_POST_QUEUE } from "./call-stops";
 import { pool } from "./db";
 import { type Env, env } from "./env";
 import { type AgentTurnJob, handleAgentTurn } from "./handlers/agent-turn";
@@ -36,7 +37,7 @@ import { TIME_LIMITS, type TimeLimits } from "./time-limits";
 import { processVapiEvents } from "./vapi/process";
 
 export const WEBHOOK_PROCESS_VAPI = "webhook.process.vapi";
-const CALL_POST_QUEUE = "call.post"; // the call and WhatsApp jobs' dead-letter SINK (handleCallPost drains it)
+// CALL_POST_QUEUE: the call and WhatsApp jobs' dead-letter SINK (handleCallPost drains it; src/call-stops.ts names it)
 // A send job and its dead letter retry a few times with a growing delay (about 2, 4 and 8 seconds, and some random
 // part), so a short database outage doesn't use up every try at once; a retry never sends twice (src/sends.ts).
 const RETRIES = { retryLimit: 3, retryDelay: 2, retryBackoff: true };
