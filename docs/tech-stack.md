@@ -188,12 +188,15 @@ Stored in `workflows.definition`, validated by `workflow/schema.ts`. Step kinds 
 
 | Column | Consumed by | Effect |
 |---|---|---|
-| `model` (e.g. "anthropic:fast") | llm/ adapter selection · the voice service at call set-up | which brain, per surface |
-| `system_prompt` | context.ts (async) · the voice service (realtime) | the personality + rules evals test |
+| `model` (e.g. "anthropic:claude-sonnet-5-5") | the turn asks for it on every model call; the model client sends only one on the platform's list (packages/shared/src/models.ts) · the voice service at call set-up | which brain, per role version |
+| `system_prompt`, `goal` | the turn's prompt (async) · the voice service (realtime) | the personality + rules evals test; the goal follows the prompt |
+| `rules` (JSON, RoleRulesSchema in packages/shared/src/role.ts) | the tools (approval, booking) · later the planner and the rule check | next steps it may take and how often, when it asks or hands over to a person, approvals (only tighten), outcome names, the appointment kind it books, its holding message |
 | `tools_allowed[]` | registry lookup = registry ∩ this list | capability allow-list — S8.1 boundary |
+| `facts_sections[]`, `test_set[]` | company knowledge (Slice 3) · the live gate | which company facts it reads; the scenarios a stored run must pass before it is tested |
+| `engine` | 'v1' (today's loop) or 'brain' (Slice 3) | which engine runs it |
 | `voice_config` | the voice service at call set-up | per-language speech-to-text and voice settings, first message |
 | `language_config` | channels + context | detection policy, supported langs |
-| `key`+`version`, `status` | everywhere via FK | immutability + "which prompt produced this call?" |
+| `key`+`version`, `status` | everywhere via FK | draft → tested → active (live) → archived; the database changes nothing in a version past draft and puts it tested or live only with a passing stored run of its whole test set (migration 026) |
 
 The voice service reads the active role version when a call is set up; nothing is pushed to a provider — **config flows one way: our rows → the call, never hand-edited in a provider's dashboard.**
 
@@ -286,7 +289,7 @@ One `embed(texts[]) → vector[]` interface in `packages/harness`; the provider/
 
 ## T19 · LLM access — raw `fetch` adapters, model tiers by task
 
-No SDK lock: a thin provider adapter (`complete()`, `stream()`) per vendor over `fetch`, selected by config. **Tiers:** realtime voice = a fast model hosted in India, named in the role's rows (Slice 4); post-call summaries + extraction = mid-tier; scoring features + evals = mid-tier; nothing premium until a measured quality gap demands it. Every call emits `usage_events` (cost) + `audit_log` (trace).
+No SDK lock: a thin provider adapter (`complete()`, `stream()`) per vendor over `fetch`. Each role version names its model as `provider:model-id` from the platform's model list (packages/shared/src/models.ts, with each model's context size and price), and every model call asks for it; the seeded roles name Claude Sonnet 5.5 (docs/decisions-in-force/2026-10-21-the-seeded-roles-default-to-claude-sonnet-5-5.md). Realtime voice = a fast model hosted in India, named in the role's rows (Slice 4); nothing premium until a measured quality gap demands it. Every call emits `usage_events` (cost) + `audit_log` (trace).
 
 ---
 

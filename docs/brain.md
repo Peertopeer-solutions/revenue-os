@@ -209,6 +209,10 @@ plan calls. Both run on the same `runTurn`.
 - **Lifecycle.** `draft` → `tested` (its whole test set passed, stored) → `active` (live) → `archived`. A database
   trigger refuses a change to any column but `status` once a version is not a draft, and refuses `active` without a
   passing stored run for that exact version. So "a live version never changes" is enforced by the database, not by care.
+  As built (migration 026): a passing stored run is one `eval_runs.set_run` whose rows cover every scenario the test set
+  names, all passed, each stamped by the database with a fingerprint of the version's content (`agent_digest`) when
+  written, so a run of an earlier draft never counts; `tested` needs that run too, an empty test set never passes, a
+  draft or tested version may also be archived, and nothing goes back.
 - **Rules** (one JSON object per version): the actions the role may take; how often (for example "at most two
   follow-ups without a reply"); when it asks a person or hands the lead over; which actions need approval; its
   outcome names (for the sales agent `site_visit_booked`); the appointment kind it books; its fallback when the model
@@ -219,10 +223,12 @@ plan calls. Both run on the same `runTurn`.
   `anthropic:claude-sonnet-5-5` (decision 2): a role moves up to Claude Opus 5.5 only when Sonnet fails a test
   conversation that Opus passes, and down to Claude Haiku 5.5 only when Haiku passes the whole set three times.
 - **Which role works a lead.** A new table `agent_assignments` (company, lead, role key, status `active`, `paused`,
-  `with_person` or `ended`, since when, why). The database allows one active assignment per lead. A lead is enrolled
+  `with_person` or `ended`, since when, why). The database holds one assignment row per lead (its every change audited
+  by its one writer, setAssignment in packages/db/src/assignments.ts), so one role at a time works it. A lead is enrolled
   either with a role (the brain) or in a sequence (the old step map, `workflow_runs`), never both: `startRun`
   (services/worker/src/runs.ts), the one enrolment function, which PR 196 makes refuse a second open run of the same
-  sequence, also refuses a lead with an active assignment, and the assignment's writer refuses a lead with an open run.
+  sequence, also refuses a lead whose assignment has not ended (active, paused or with a person), and the assignment's
+  writer refuses a lead with an open run; each locks the lead's row first, so two at once can't both pass.
 - **Which version a lead gets.** Each turn uses the role's live version at that moment and records it. When a new
   version goes live, leads move to it at their next turn (decision 5, agreed). Example: version 4 goes live on Monday;
   a lead chatting since Friday on version 3 gets version 4 at their next message, and each turn row names the version
