@@ -87,7 +87,8 @@ export async function setAssignment(
       [orgId, contactId],
     );
     const runId = run.rows[0]?.id;
-    if (runId) return { ok: false, refused: "in_sequence", runId: String(runId) };
+    if (runId)
+      return { ok: false, refused: "in_sequence", runId: String(runId) };
   }
   const before = (
     await db.query(

@@ -22,6 +22,7 @@ import {
 // re-declared locally). A row that fails ANY of the three is a malformed scenario: it is
 // recorded in errors[] and skipped, never thrown.
 import {
+  type RoleRules,
   ScenarioAssertionsSchema,
   ScenarioPersonaSchema,
   ScenarioScriptSchema,
@@ -86,8 +87,10 @@ export type EvalDeps = {
   send: SendPort; // eval-mode capturing port
   agentId: string;
   workflowId?: string;
+  model: string; // the version's model, `provider:model-id`
   systemPrompt: string;
   toolsAllowed: readonly string[];
+  rules?: RoleRules; // the version's rules, which its tools read
 };
 
 export type ScenarioResult = {
@@ -248,7 +251,9 @@ async function observe(
 }
 
 /** One eval_runs row per scenario, keyed to a PERSISTED eval_scenarios row (FK). A synthetic
- *  scenario absent from the table (unit-test fixture) yields no row — nothing to reference. */
+ *  scenario absent from the table (unit-test fixture) yields no row — nothing to reference. `setRun` names the run of
+ *  the version's test set the row belongs to (migration 026): the database puts a version tested, then live, only
+ *  with one run whose rows cover its whole set and all passed. */
 async function persistRun(
   ctx: OrgCtx,
   deps: EvalDeps,
@@ -256,6 +261,7 @@ async function persistRun(
   passed: boolean,
   details: AssertionDetail[],
   conversationId: string,
+  setRun: string | null,
 ): Promise<string | undefined> {
   const scn = await ctx.db.query(
     "select id from eval_scenarios where org_id = $1 and key = $2 limit 1",
@@ -264,8 +270,8 @@ async function persistRun(
   const scenarioId = scn.rows[0]?.id;
   if (typeof scenarioId !== "string") return undefined;
   const run = await ctx.db.query(
-    `insert into eval_runs (org_id, scenario_id, agent_id, workflow_id, passed, scores, transcript_ref)
-     values ($1, $2, $3, $4, $5, $6::jsonb, $7) returning id`,
+    `insert into eval_runs (org_id, scenario_id, agent_id, workflow_id, passed, scores, transcript_ref, set_run)
+     values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8) returning id`,
     [
       ctx.orgId,
       scenarioId,
@@ -274,6 +280,7 @@ async function persistRun(
       passed,
       JSON.stringify({ assertions: details }),
       conversationId,
+      setRun,
     ],
   );
   return run.rows[0]?.id as string;
@@ -281,11 +288,13 @@ async function persistRun(
 
 const MAX_PERSONA_TURNS = 20;
 
-/** Drive one scenario end-to-end; persist exactly one eval_runs row; return its result. */
+/** Drive one scenario end-to-end; persist exactly one eval_runs row, as part of run `setRun` of the version's test set
+ *  when given; return its result. */
 export async function runScenario(
   deps: EvalDeps,
   ctx: OrgCtx,
   scenario: ParsedScenario,
+  setRun: string | null = null,
 ): Promise<ScenarioResult> {
   // Wrap the injected send so this scenario's captures surface on the result, while the real
   // eval-mode capture port still records them for the caller (an eval never delivers a message).
@@ -307,8 +316,10 @@ export async function runScenario(
   const turnDeps = {
     provider: deps.provider,
     registry,
+    model: deps.model,
     toolsAllowed: deps.toolsAllowed,
     systemPrompt: deps.systemPrompt,
+    rules: deps.rules,
   };
 
   // Drive the conversation: each contact turn comes from the INJECTED player; each agent reply
@@ -350,6 +361,7 @@ export async function runScenario(
     passed,
     details,
     conversationId,
+    setRun,
   );
 
   return {
@@ -362,7 +374,8 @@ export async function runScenario(
   };
 }
 
-/** Run all scenarios (or one, via opts.scenario); exit 1 if any fails, else 0. */
+/** Run all scenarios (or one, via opts.scenario) as one run, every row it stores naming it; exit 1 if any fails, else
+ *  0. A run that covers the version's whole test set and passes lets it go tested (migration 026). */
 export async function runEvals(
   deps: EvalDeps,
   ctx: OrgCtx,
@@ -370,10 +383,11 @@ export async function runEvals(
 ): Promise<EvalSummary> {
   const { scenarios, errors } = await loadScenarios(ctx, opts);
   const results: ScenarioResult[] = [];
+  const setRun = crypto.randomUUID();
 
   for (const scenario of scenarios) {
     try {
-      results.push(await runScenario(deps, ctx, scenario));
+      results.push(await runScenario(deps, ctx, scenario, setRun));
     } catch (err) {
       // A driving failure is a recorded scenario failure, never a crash of the whole run.
       results.push({

@@ -165,7 +165,13 @@ describe("scheduler tick + run writer", () => {
       entry: "wa",
       steps: {
         wa: { kind: "whatsapp", template: "welcome", then: "book" },
-        book: { kind: "tool", tool: "book_appointment", then: "end", args: {} },
+        book: {
+          kind: "tool",
+          tool: "book_appointment",
+          outcome: "meeting_booked",
+          then: "end",
+          args: {},
+        },
         end: { kind: "end" },
       },
     };
@@ -191,7 +197,7 @@ describe("scheduler tick + run writer", () => {
       [runId],
     );
     expect(oc.rows.length).toBe(1);
-    expect(oc.rows[0].kind).toBe("site_visit_booked");
+    expect(oc.rows[0].kind).toBe("meeting_booked"); // the outcome the booking step names
     expect(oc.rows[0].contact_id).toBe(contactId);
 
     // and the run advanced (book_appointment -> end -> completed)
@@ -481,6 +487,7 @@ describe("scheduler tick + run writer", () => {
     expect(rb.attempts.voice ?? []).toEqual([]);
   });
 
+  // behaviour already on main: only the outcome its booking step names, which the step map now needs, was added
   it("advancing OUT of a `call` step CLEARS state.lastDisposition so the next call is FRESH (lastDisposition cleared)", async () => {
     // call_1 got 'no_answer' (the handler folded it). This tick routes call_1 -> call_2. The
     // scheduler MUST clear lastDisposition on advance; else call_2 RE-ENTERS on the STALE
@@ -498,7 +505,13 @@ describe("scheduler tick + run writer", () => {
           agent: "closer",
           on: { no_answer: "giveup", completed: "book" },
         },
-        book: { kind: "tool", tool: "book_appointment", then: "end", args: {} },
+        book: {
+          kind: "tool",
+          tool: "book_appointment",
+          outcome: "site_visit_booked",
+          then: "end",
+          args: {},
+        },
         giveup: { kind: "end" },
         end: { kind: "end" },
       },

@@ -82,7 +82,10 @@ const listed = git(
   ...CORE,
 );
 if (listed === undefined)
-  fail([], "FAIL — industry words: git ls-files failed, so nothing was checked");
+  fail(
+    [],
+    "FAIL — industry words: git ls-files failed, so nothing was checked",
+  );
 // A checkout without the core folders has nothing to check; one that has them but whose files git didn't list would
 // pass having read nothing.
 if (!listed && CORE.some((d) => existsSync(d)))

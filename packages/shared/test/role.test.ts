@@ -122,7 +122,9 @@ describe("a role version, read from its row", () => {
       { ...rules, limits: [{ action: "call", max: 0, withinHours: 1 }] },
       {
         ...rules,
-        limits: [{ action: "call", max: 1, withinHours: 1, withoutReply: true }],
+        limits: [
+          { action: "call", max: 1, withinHours: 1, withoutReply: true },
+        ],
       },
       { ...rules, handOver: ["  "] },
       { ...rules, holdingMessage: "x".repeat(321) },

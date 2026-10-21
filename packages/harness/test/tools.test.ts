@@ -6,6 +6,7 @@
 //     settings are set (`bun run gate`, CI).
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
 import { createPool, withOrg } from "@revenue-os/db";
+import { RoleRulesSchema } from "@revenue-os/shared";
 import pg from "pg";
 import { testCompanies } from "../../../tests/test-companies";
 import { buildCatalog } from "../src/tools";
@@ -19,6 +20,11 @@ import type { OrgScopedDb } from "../src/types";
 
 const ORG = "11111111-1111-1111-1111-111111111111";
 const CONTACT = "22222222-2222-2222-2222-222222222222";
+// A role's rules naming the appointment it books and the outcome a booking records (packages/shared/src/role.ts).
+const MEETINGS = RoleRulesSchema.parse({
+  outcomes: ["meeting_booked"],
+  booking: { kind: "demo_meeting", outcome: "meeting_booked" },
+});
 const validBook = {
   contactId: CONTACT,
   startsAt: "2026-08-01T10:00:00.000Z",
@@ -79,25 +85,37 @@ describe("book_appointment", () => {
     expect(bookAppointment.schema.safeParse(validBook).success).toBe(true);
   });
 
-  it("execute writes an appointments row AND an attributed site_visit_booked outcome on the same ctx.db tx", async () => {
+  it("execute writes an appointment of the role's kind AND an attributed outcome under the role's booking name, on the same ctx.db tx", async () => {
     const { db, calls } = recordingDb({ responder: apptResponder("appt-abc") });
-    const res = await bookAppointment.execute({ orgId: ORG, db }, validBook);
+    const res = await bookAppointment.execute(
+      { orgId: ORG, db, rules: MEETINGS },
+      validBook,
+    );
     expect(res.ok).toBe(true);
 
     const appt = calls.find((c) =>
       /insert\s+into\s+appointments/i.test(c.text),
     );
     const outcome = calls.find((c) => /insert\s+into\s+outcomes/i.test(c.text));
-    expect(appt).toBeDefined();
-    expect(outcome).toBeDefined();
+    expect(appt?.values).toContain("demo_meeting"); // appointments.kind, from the role's rules
     // attribution: the outcome links the freshly-created appointment + records an agent-sourced booking
     expect(outcome?.values).toContain("appt-abc"); // appointment_id from the RETURNING id
-    expect(outcome?.values).toContain("site_visit_booked"); // outcomes.kind (005_outcomes.sql)
+    expect(outcome?.values).toContain("meeting_booked"); // outcomes.kind, the role's booking outcome
     expect(outcome?.values).toContain("agent"); // outcomes.source = app.actor_type
     // both writes on the single ctx.db handle (one enclosing withOrg tx — no second connection)
     expect(calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("execute refuses, writing nothing, for a role whose rules name no booking", async () => {
+    const { db, calls } = recordingDb({ responder: apptResponder("appt-no") });
+    for (const rules of [undefined, RoleRulesSchema.parse({})])
+      expect(
+        await bookAppointment.execute({ orgId: ORG, db, rules }, validBook),
+      ).toEqual({ ok: false, error: "no_booking_rule" });
+    expect(calls).toHaveLength(0);
+  });
+
+  // behaviour already on main: only the role's booking rule it now needs was added to its context
   it("execute is atomic: an outcome-insert failure PROPAGATES so the enclosing withOrg rolls back both rows", async () => {
     const { db, calls } = recordingDb({
       responder: apptResponder("appt-xyz"),
@@ -105,7 +123,7 @@ describe("book_appointment", () => {
     });
     // must reject (not swallow) — a swallowed error would commit an orphan appointment.
     await expect(
-      bookAppointment.execute({ orgId: ORG, db }, validBook),
+      bookAppointment.execute({ orgId: ORG, db, rules: MEETINGS }, validBook),
     ).rejects.toThrow();
     // it got past the appointment insert before the outcome insert blew up
     expect(
@@ -298,24 +316,25 @@ describe.skipIf(!hasDb)(
       await admin.end();
     });
 
-    it("book_appointment persists an appointments row + an attributed site_visit_booked outcome", async () => {
+    it("book_appointment persists an appointment of the role's kind + an attributed outcome under the role's booking name", async () => {
       await withOrg(appService, orgA, (tx) =>
         bookAppointment.execute(
-          { orgId: orgA, db: tx },
+          { orgId: orgA, db: tx, rules: MEETINGS },
           { ...validBook, contactId: contactA },
         ),
       );
       const appt = await admin.query(
-        `select id from appointments where org_id = $1 and contact_id = $2`,
+        `select id, kind from appointments where org_id = $1 and contact_id = $2`,
         [orgA, contactA],
       );
       expect(appt.rowCount).toBe(1);
+      expect(appt.rows[0].kind).toBe("demo_meeting");
       const outcome = await admin.query(
         `select kind, source, appointment_id from outcomes where org_id = $1 and contact_id = $2`,
         [orgA, contactA],
       );
       expect(outcome.rowCount).toBe(1);
-      expect(outcome.rows[0].kind).toBe("site_visit_booked");
+      expect(outcome.rows[0].kind).toBe("meeting_booked");
       expect(outcome.rows[0].source).toBe("agent");
       expect(outcome.rows[0].appointment_id).toBe(appt.rows[0].id); // outcome attributes the appointment
     });

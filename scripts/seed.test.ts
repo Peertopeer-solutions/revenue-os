@@ -2,6 +2,8 @@
 // guardrails / agent v1 / workflow v1 / field definitions / eval personas exist — idempotently.
 import { afterAll, describe, expect, it } from "bun:test";
 import pg from "pg";
+import { WorkflowDefinitionSchema } from "../packages/harness/src/workflow/schema";
+import { RoleVersionSchema } from "../packages/shared/src/role";
 import { ConversationIdSchema } from "../packages/shared/src/schemas";
 import { testCompanies } from "../tests/test-companies";
 import { type Pack, seed } from "./seed";
@@ -106,6 +108,86 @@ describe("seed packs (docs/db-design.md, vertical packs)", () => {
     );
     expect(r.rows[0].agent).toBe("draft");
     expect(r.rows[0].workflow).toBe("draft");
+  });
+
+  it("each pack's sales role is all rows: Claude Sonnet 5.5 from the model list, rules that parse, its facts sections and its own scenarios as its test set", async () => {
+    for (const [pack, booking] of [
+      ["real_estate", { kind: "site_visit", outcome: "site_visit_booked" }],
+      [
+        "b2b_wholesale",
+        { kind: "rep_callback", outcome: "rep_callback_booked" },
+      ],
+    ] as const) {
+      const { orgId } = await workspace(pack);
+      const row = (
+        await admin.query(
+          `select id, org_id, key, version, status, engine, model, system_prompt, goal, rules, tools_allowed,
+                  facts_sections, test_set from agents where org_id = $1 and version = 1`,
+          [orgId],
+        )
+      ).rows[0];
+      const role = RoleVersionSchema.parse(row);
+      expect(role.model).toBe("anthropic:claude-sonnet-5-5");
+      expect(role.goal).not.toBe("");
+      expect(role.rules.booking).toEqual(booking);
+      expect(role.rules.actions.length).toBeGreaterThan(0);
+      expect(role.factsSections.length).toBeGreaterThan(0);
+      const scenarios = (
+        await admin.query(`select key from eval_scenarios where org_id = $1`, [
+          orgId,
+        ])
+      ).rows.map((r) => r.key);
+      expect([...role.testSet].sort()).toEqual([...scenarios].sort());
+      // the step map's booking step, where there is one, records the role's own outcome
+      const definition = WorkflowDefinitionSchema.parse(
+        (
+          await admin.query(
+            `select definition from workflows where org_id = $1 and version = 1`,
+            [orgId],
+          )
+        ).rows[0]?.definition,
+      );
+      for (const step of Object.values(definition.steps))
+        if (step.kind === "tool" && step.tool === "book_appointment")
+          expect(step.outcome).toBe(booking.outcome);
+    }
+  });
+
+  it("re-seeding brings a draft role version up to date and leaves one past draft as it is", async () => {
+    const { orgId, again } = await workspace("real_estate");
+    await admin.query(
+      `update agents set model = 'realtime-tier', goal = '' where org_id = $1 and version = 1`,
+      [orgId],
+    );
+    await again();
+    const draft = (
+      await admin.query(
+        `select model, goal, status from agents where org_id = $1 and version = 1`,
+        [orgId],
+      )
+    ).rows[0];
+    expect(draft.model).toBe("anthropic:claude-sonnet-5-5");
+    expect(draft.goal).not.toBe("");
+    // put it tested through one passing run of its whole set; re-seeding then changes nothing and fails nothing
+    const agentId = (
+      await admin.query(
+        `select id from agents where org_id = $1 and version = 1`,
+        [orgId],
+      )
+    ).rows[0]?.id;
+    await admin.query(
+      `insert into eval_runs (org_id, scenario_id, agent_id, passed, set_run)
+       select $1, id, $2, true, '00000000-0000-4000-8000-000000000026' from eval_scenarios where org_id = $1`,
+      [orgId, agentId],
+    );
+    await admin.query(`update agents set status = 'tested' where id = $1`, [
+      agentId,
+    ]);
+    await again();
+    expect(
+      (await admin.query(`select status from agents where id = $1`, [agentId]))
+        .rows[0]?.status,
+    ).toBe("tested");
   });
 
   it("seeds into the workspace it is given, not the pack's own", async () => {

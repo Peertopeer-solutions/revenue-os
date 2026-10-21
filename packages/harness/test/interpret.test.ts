@@ -1,9 +1,9 @@
 // biome-ignore-all lint/suspicious/noThenProperty: `then` is a workflow step field in the
-// T26.2 definition JSON (e.g. { kind:"wait", for:"PT2H", then:"..." }) — data, not a thenable.
-// T1 (T26.2) — RED spec for the workflow interpreter + definition schema (the "show-runner").
+// definition JSON (docs/tech-stack.md T26.2; e.g. { kind:"wait", for:"PT2H", then:"..." }) — data, not a thenable.
+// The workflow interpreter and definition schema (the step map that drives a sequence).
 //
 // Env-free and PURE: no DB, no pg-boss, no clock reads — every test passes a fixed `now`.
-// These tests ENCODE the contract that the scheduler (T6) and handlers (T7) must satisfy:
+// These tests ENCODE the contract that the scheduler (services/worker/src/scheduler.ts) and the job handlers satisfy:
 //
 //   interpret(def, state, event, now) → Transition
 //     Transition = { actions: Action[]; nextStep: string | null; wakeAt: Date | null; runStatus }
@@ -39,8 +39,8 @@ function deepFreeze<T>(value: T): T {
 
 const WAKE: { type: "wake" } = { type: "wake" };
 
-// The brief's M2 chain: call → wait PT2H → whatsapp → wait_until 11:00 → call → tool → end.
-const M2_DEF = {
+// A full sequence: call → wait PT2H → whatsapp → wait_until 11:00 → call → tool → end.
+const FULL_DEF = {
   entry: "call_1",
   steps: {
     call_1: {
@@ -61,29 +61,63 @@ const M2_DEF = {
       agent: "qualifier",
       on: { completed: "book", no_answer: "end" },
     },
-    book: { kind: "tool", tool: "book_appointment", args: {}, then: "end" },
+    book: {
+      kind: "tool",
+      tool: "book_appointment",
+      outcome: "site_visit_booked",
+      args: {},
+      then: "end",
+    },
     end: { kind: "end" },
   },
 };
 
-describe("workflow definition schema (T26.2)", () => {
+describe("workflow definition schema (docs/tech-stack.md T26.2)", () => {
+  it("refuses a booking step that names no outcome, or one that isn't a word, and takes any other tool step without one", () => {
+    const withBook = (book: Record<string, unknown>) => ({
+      entry: "book",
+      steps: {
+        book: { kind: "tool", then: "end", ...book },
+        end: { kind: "end" },
+      },
+    });
+    for (const bad of [
+      { tool: "book_appointment" },
+      { tool: "book_appointment", outcome: "Meeting Booked" },
+    ])
+      expect(WorkflowDefinitionSchema.safeParse(withBook(bad)).success).toBe(
+        false,
+      );
+    expect(
+      WorkflowDefinitionSchema.safeParse(
+        withBook({
+          tool: "create_task",
+          args: { kind: "callback", title: "x" },
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  // behaviour already on main: only an old code in its comment was reworded
   it("rejects an unknown step kind", () => {
-    // AC #1: the step-kind set is CLOSED; an out-of-set kind must not validate.
+    // The step-kind set is CLOSED; an out-of-set kind must not validate.
     const bad = { entry: "s1", steps: { s1: { kind: "teleport" } } };
     expect(WorkflowDefinitionSchema.safeParse(bad).success).toBe(false);
   });
 
-  it("accepts a valid M2-shaped definition", () => {
-    // AC #2: call→wait PT2H→whatsapp→wait_until 11:00→call→tool book_appointment→end validates.
-    expect(WorkflowDefinitionSchema.safeParse(M2_DEF).success).toBe(true);
+  // behaviour already on main: only an old code in its comment was reworded
+  it("accepts a valid full-sequence definition", () => {
+    // call→wait PT2H→whatsapp→wait_until 11:00→call→tool book_appointment→end validates.
+    expect(WorkflowDefinitionSchema.safeParse(FULL_DEF).success).toBe(true);
   });
 });
 
-describe("workflow interpreter (T26.2, pure)", () => {
+describe("workflow interpreter (docs/tech-stack.md T26.2, pure)", () => {
   const NOW = new Date("2026-07-21T04:00:00.000Z"); // = 09:30 in Asia/Kolkata (UTC+5:30)
 
+  // behaviour already on main: only an old code in its comment was reworded
   it("call step: state.lastDisposition routes via on.<disposition>, emits no action", () => {
-    // AC #3: parked on a call, the folded-in outcome 'no_answer' routes to on.no_answer.
+    // Parked on a call, the folded-in outcome 'no_answer' routes to on.no_answer.
     const def = {
       entry: "call_1",
       steps: {
@@ -111,8 +145,9 @@ describe("workflow interpreter (T26.2, pure)", () => {
     expect(t.wakeAt).toBeNull(); // routing arms no timer
   });
 
+  // behaviour already on main: only an old code in its comment was reworded
   it("wait step: for PT2H arms wakeAt = now + 2h, waiting, no actions", () => {
-    // AC #4.
+    // A wait arms its timer from the fixed now.
     const def = {
       entry: "w",
       steps: {
@@ -127,8 +162,9 @@ describe("workflow interpreter (T26.2, pure)", () => {
     expect(t.nextStep).toBe("nxt"); // resume at the wait's `then` when the timer fires
   });
 
+  // behaviour already on main: only an old code in its comment was reworded
   it("wait_until step: localTime 11:00 (Asia/Kolkata) → next local 11:00 STRICTLY after now", () => {
-    // AC #5. 11:00 IST = 05:30 UTC. Explicit tz + absolute `now` keep this machine-tz-independent.
+    // 11:00 IST = 05:30 UTC. Explicit tz + absolute `now` keep this machine-tz-independent.
     const def = {
       entry: "u",
       steps: {
@@ -159,8 +195,9 @@ describe("workflow interpreter (T26.2, pure)", () => {
     expect(at("2026-07-21T04:00:00.000Z").runStatus).toBe("waiting");
   });
 
+  // behaviour already on main: only an old code in its comment was reworded
   it("whatsapp step: emits send_wa AND arms the following wait in the same transition", () => {
-    // AC #6: single tick — the send goes out and the next timer is armed together.
+    // In a single tick — the send goes out and the next timer is armed together.
     const def = {
       entry: "wa",
       steps: {
@@ -190,8 +227,9 @@ describe("workflow interpreter (T26.2, pure)", () => {
     expect(t.nextStep).toBe("call_2"); // advanced past BOTH the whatsapp and its wait
   });
 
+  // behaviour already on main: only an old code in its comment was reworded
   it("branch step: onDisposition picks the matching arm; unmatched falls through to '*'", () => {
-    // AC #7.
+    // A branch routes on the disposition the call folded in, falling back to its "*" arm.
     const def = {
       entry: "route",
       steps: {
@@ -239,13 +277,19 @@ describe("workflow interpreter (T26.2, pure)", () => {
     expect(fell.nextStep).toBe("give_up"); // the '*' arm
   });
 
-  it("tool step book_appointment (terminal): write_outcome action, nextStep=end, completed", () => {
-    // AC #8. book_appointment records the booked appointment as an OUTCOME (db-design lists
-    // 'site_visit_booked' as an outcome kind), so the interpreter emits a write_outcome action.
+  it("tool step book_appointment (terminal): a write_outcome action under the outcome the step names, nextStep=end, completed", () => {
+    // book_appointment records the booked appointment as an OUTCOME, named by the step's own `outcome` (a row of the
+    // company's sequence), so the interpreter emits a write_outcome action of that name.
     const def = {
       entry: "book",
       steps: {
-        book: { kind: "tool", tool: "book_appointment", args: {}, then: "end" },
+        book: {
+          kind: "tool",
+          tool: "book_appointment",
+          outcome: "meeting_booked",
+          args: {},
+          then: "end",
+        },
         end: { kind: "end" },
       },
     };
@@ -256,14 +300,18 @@ describe("workflow interpreter (T26.2, pure)", () => {
       NOW,
     );
     expect(t.actions).toHaveLength(1);
-    expect(t.actions[0]?.kind).toBe("write_outcome");
+    expect(t.actions[0]).toEqual({
+      kind: "write_outcome",
+      outcome: { kind: "meeting_booked", contactId: "contact-123" },
+    });
     expect(t.nextStep).toBe("end");
     expect(t.runStatus).toBe("completed");
     expect(t.wakeAt).toBeNull();
   });
 
+  // behaviour already on main: only an old code in its comment was reworded
   it("is pure: identical inputs → deep-equal Transitions, no db handle in the signature", () => {
-    // AC #9.
+    // Pure: the same inputs give deep-equal results, and frozen inputs are never mutated.
     const def = deepFreeze({
       entry: "w",
       steps: {

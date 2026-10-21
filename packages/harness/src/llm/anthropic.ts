@@ -41,18 +41,23 @@ class AnthropicHttpError extends Error {
   }
 }
 
+/** Anthropic's own id for `ref`, a `provider:model-id` on the platform's model list; any other is refused. */
+function anthropicId(ref: string): string {
+  const model = modelOf(ref);
+  if (model?.provider !== "anthropic")
+    throw new Error(
+      `${ref || "no model"} is not an Anthropic model on the platform's model list (packages/shared/src/models.ts)`,
+    );
+  return model.id;
+}
+
 export function createAnthropicProvider(config: {
   apiKey: string;
 }): LlmProvider {
   return {
     async complete(req) {
-      const model = modelOf(req.model);
-      if (model?.provider !== "anthropic")
-        throw new Error(
-          `${req.model || "no model"} is not an Anthropic model on the platform's model list (packages/shared/src/models.ts)`,
-        );
       const body = {
-        model: model.id,
+        model: anthropicId(req.model),
         system: req.system,
         max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
         messages: req.messages.map((m) => ({

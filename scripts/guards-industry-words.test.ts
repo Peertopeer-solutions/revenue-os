@@ -28,7 +28,8 @@ function guards(
 ) {
   const dir = mkdtempSync(join(tmpdir(), "guards-industry-"));
   dirs.push(dir);
-  for (const d of copy) cpSync(join(REPO, d), join(dir, d), { recursive: true });
+  for (const d of copy)
+    cpSync(join(REPO, d), join(dir, d), { recursive: true });
   const all = { "docs/patterns/none.md": "# Pattern: none yet\n", ...files };
   for (const [name, body] of Object.entries(all)) {
     mkdirSync(dirname(join(dir, name)), { recursive: true });
@@ -49,7 +50,9 @@ function guards(
 
 it("passes the four core folders as this change leaves them", () => {
   const { own } = guards({}, { copy: CORE });
-  expect(own).toMatch(/^guard industry words ·[^\n]*\n {2}PASS \(\d+ files read\)/);
+  expect(own).toMatch(
+    /^guard industry words ·[^\n]*\n {2}PASS \(\d+ files read\)/,
+  );
 }, 30_000);
 
 it("fails each listed word planted in a core folder, however it is spelled, naming its file and line", () => {

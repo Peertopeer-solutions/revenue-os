@@ -245,9 +245,95 @@ export async function demo(deps: DemoDeps): Promise<DemoResult> {
 // surface above stays free of them. The place_call QUEUE must already exist (created when the worker
 // runs — `bun run dev`); pg-boss itself is a worker dep `scripts/` cannot import. Refuses a database
 // that is not on this machine (scripts/local-url.ts) before it loads or connects to anything. It
-// self-seeds a throwaway ACTIVE demo company (the real_estate seed ships DRAFT), so the demo is
-// self-contained and re-runnable, and its clean-up touches only that company's rows and queued jobs.
+// self-seeds a throwaway demo company whose qualifier goes live through its test set (the real_estate
+// seed ships a DRAFT), so the demo is self-contained and re-runnable, and its clean-up touches only that
+// company's rows and queued jobs.
 // Usage: `bun scripts/demo.ts [disposition]`.
+
+/**
+ * The demo company's qualifier role, version 1, every part of it rows (migration 026), put live as any version is: its
+ * one test conversation runs through the eval runner on the real turn and tools, with this demo's scripted model, and
+ * the database lets it be tested, then live, only once that stored run passes.
+ */
+async function putQualifierLive(
+  admin: Pick<Pool, "query">,
+  pool: Pool,
+  orgId: string,
+  tz: string,
+): Promise<void> {
+  const { createCaptureSend, runEvals } = await import("./eval-runner");
+  const { RoleRulesSchema } = await import("../packages/shared/src/role");
+  const rules = RoleRulesSchema.parse({
+    outcomes: ["site_visit_booked"],
+    booking: { kind: "site_visit", outcome: "site_visit_booked" },
+  });
+  const versionId = (
+    await admin.query(
+      `insert into agents (org_id, key, version, status, model, system_prompt, rules, tools_allowed, test_set)
+       values ($1, 'qualifier', 1, 'draft', 'anthropic:claude-sonnet-5-5', 'You are a qualifier.', $2::jsonb,
+               '{book_appointment}', '{books_a_visit}') returning id`,
+      [orgId, JSON.stringify(rules)],
+    )
+  ).rows[0].id;
+  await admin.query(
+    `insert into eval_scenarios (org_id, key, persona, script, assertions)
+     values ($1, 'books_a_visit', '{"name":"Eval lead","language":"en"}', '{"turns":["Can I visit on Saturday?"]}',
+             '{"expect_outcome":"site_visit_booked"}')`,
+    [orgId],
+  );
+  // The runner's conversation is with the company's first lead, made here so the scripted model can name it.
+  const evalLead = (
+    await admin.query(
+      `insert into contacts (org_id, first_name) values ($1, 'Eval lead') returning id`,
+      [orgId],
+    )
+  ).rows[0].id;
+  let asked = 0;
+  const tried = await withOrg(pool, orgId, (tx) =>
+    runEvals(
+      {
+        provider: {
+          complete: async () =>
+            asked++ === 0
+              ? {
+                  toolCalls: [
+                    {
+                      name: "book_appointment",
+                      args: {
+                        contactId: evalLead,
+                        startsAt: "2030-06-08T05:30:00.000Z",
+                        endsAt: "2030-06-08T06:30:00.000Z",
+                        timezone: tz,
+                      },
+                    },
+                  ],
+                  usage: { in: 6, out: 4 },
+                }
+              : { text: "Booked for Saturday.", usage: { in: 8, out: 3 } },
+        },
+        player: async (scenario, i) => scenario.script.turns[i] ?? null,
+        send: createCaptureSend().send,
+        agentId: versionId,
+        model: "anthropic:claude-sonnet-5-5",
+        systemPrompt: "You are a qualifier.",
+        toolsAllowed: ["book_appointment"],
+        rules,
+      },
+      { orgId, db: tx },
+    ),
+  );
+  if (tried.exitCode !== 0)
+    throw new Error(`the qualifier's test set failed:\n${tried.summary}`);
+  for (const status of ["tested", "active"])
+    await admin.query(
+      `update agents set status = $3 where id = $1 and org_id = $2`,
+      [versionId, orgId, status],
+    );
+  console.log(
+    `\n  version 1 of the qualifier passed its test set (${tried.results.length} conversation) and went live`,
+  );
+}
+
 if (import.meta.main) {
   const { isLocalUrl } = await import("./local-url");
   const dbUrl =
@@ -312,7 +398,13 @@ if (import.meta.main) {
           "*": "end",
         },
       },
-      book: { kind: "tool", tool: "book_appointment", args: {}, then: "end" },
+      book: {
+        kind: "tool",
+        tool: "book_appointment",
+        outcome: "site_visit_booked",
+        args: {},
+        then: "end",
+      },
       callback_task: {
         kind: "tool",
         tool: "create_task",
@@ -330,11 +422,7 @@ if (import.meta.main) {
       [crypto.randomUUID(), `demo-cli-${stamp}`],
     )
   ).rows[0].id;
-  await admin.query(
-    `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-     values ($1, 'qualifier', 1, 'active', 'claude-fake', 'You are a qualifier.', '{book_appointment}')`,
-    [orgId],
-  );
+  await putQualifierLive(admin, pool, orgId, TZ);
   await admin.query(
     `insert into guardrail_policies (org_id, key, config, active)
      values ($1, 'quiet_hours', $2::jsonb, true), ($1, 'attempt_caps', $3::jsonb, true)`,
@@ -398,6 +486,7 @@ if (import.meta.main) {
   // (through app_service, which owns pg-boss's tables), then the company with the rest.
   await admin.query(`delete from usage_events where org_id = $1`, [orgId]);
   await admin.query(`delete from audit_log where org_id = $1`, [orgId]);
+  await admin.query(`delete from eval_runs where org_id = $1`, [orgId]);
   await pool.query(`delete from pgboss.job where data ->> 'orgId' = $1`, [
     orgId,
   ]);

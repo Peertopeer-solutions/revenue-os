@@ -5,6 +5,7 @@
 // same check as scripts/seed.ts (scripts/local-url.ts): no eval ever writes to staging or production from here.
 import { createPool, withOrg } from "@revenue-os/db";
 import { createAnthropicProvider } from "@revenue-os/harness";
+import { RoleVersionSchema } from "@revenue-os/shared";
 import {
   createCaptureSend,
   type EvalDeps,
@@ -63,11 +64,11 @@ async function main(): Promise<void> {
       // version) or the only one there is.
       const agentRow = agentArg
         ? await tx.query(
-            "select id, model, system_prompt, tools_allowed from agents where key = $1 and (org_id = $2 or org_id is null) order by version desc limit 1",
+            "select id, org_id, key, version, status, engine, model, system_prompt, goal, rules, tools_allowed, facts_sections, test_set from agents where key = $1 and (org_id = $2 or org_id is null) order by version desc limit 1",
             [agentArg, orgId],
           )
         : await tx.query(
-            "select id, model, system_prompt, tools_allowed from agents where (org_id = $1 or org_id is null)",
+            "select id, org_id, key, version, status, engine, model, system_prompt, goal, rules, tools_allowed, facts_sections, test_set from agents where (org_id = $1 or org_id is null)",
             [orgId],
           );
       if (agentArg && agentRow.rowCount === 0)
@@ -76,20 +77,18 @@ async function main(): Promise<void> {
         throw new Error(
           `expected exactly one agent (found ${agentRow.rowCount}); pass --agent <key>`,
         );
-      const agent = agentRow.rows[0] as {
-        id: string;
-        model: string;
-        system_prompt: string;
-        tools_allowed: string[] | null;
-      };
+      // The version under test, whole and checked: its model, prompt, tools and rules drive every turn.
+      const version = RoleVersionSchema.parse(agentRow.rows[0]);
 
       const deps: EvalDeps = {
-        provider: createAnthropicProvider({ apiKey, model: agent.model }),
+        provider: createAnthropicProvider({ apiKey }),
         player: scriptPlayer,
         send: createCaptureSend().send,
-        agentId: agent.id,
-        systemPrompt: agent.system_prompt,
-        toolsAllowed: agent.tools_allowed ?? [],
+        agentId: version.id,
+        model: version.model,
+        systemPrompt: version.prompt,
+        toolsAllowed: version.tools,
+        rules: version.rules,
       };
       return runEvals(
         deps,

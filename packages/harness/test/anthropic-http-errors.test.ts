@@ -1,17 +1,16 @@
-// task-57 RED — H2: an Anthropic HTTP error must THROW, never masquerade as "the model said nothing".
+// An Anthropic HTTP error must THROW, never masquerade as "the model said nothing".
 //
-// TODAY: anthropic.ts:55-64 parses the body regardless of status — no res.ok check, no try/catch.
-// A 401/429/500/529 error envelope has no `content` array, so complete() returns
-// {text:"", toolCalls:[], usage:{in:0,out:0}} and loop.ts:116-123 appends nothing and returns
-// NORMALLY. Nothing throws, so pg-boss never retries and the job is recorded as a success; because
-// the agent-turn job's idempotency marker is message-derived, the inbound customer message is left
-// PERMANENTLY unanswered. emitUsage still writes a 0-token row, so the metering trail claims a turn
-// happened. LlmProvider.complete (types.ts:68-75) admits no error channel — throwing is the only
-// honest failure signal, and it is what the durability story (loop.ts:4) already assumes.
+// Why: an error envelope (401, 429, 500, 529) has no `content` array, so a model client that parsed
+// the body regardless of status would return an empty turn, which the turn loop (runTurn in
+// src/loop.ts) saves as nothing and returns from NORMALLY. Nothing would throw, so pg-boss would never
+// retry and the job would count as a success; because the agent-turn job's idempotency marker is
+// message-derived, the lead's message would stay unanswered for good, while a 0-token usage row claimed
+// a turn happened. LlmProvider.complete (src/types.ts) has no error channel, so throwing is the only
+// honest failure signal, and the turn's durability already assumes it.
 //
-// SCOPE (verifier-narrowed): the silent window is EXACTLY "HTTP error status WITH a well-formed
-// JSON body". Transport rejections and non-JSON bodies already propagate — the last three tests
-// pin that behavior so a fix cannot swallow them on the way past.
+// SCOPE: the window is EXACTLY "HTTP error status WITH a well-formed JSON body". Transport rejections
+// and non-JSON bodies propagate on their own — the last three tests pin that behaviour so no change
+// swallows them on the way past.
 //
 // WHAT THESE TESTS PIN: that complete() rejects, and that the HTTP status is discoverable on the
 // thrown error (as an `err.status` property OR in the message — either is fine). Deliberately NOT
@@ -53,9 +52,9 @@ afterEach(() => {
   restoreFetch = null;
 });
 
-const provider = () =>
-  createAnthropicProvider({ apiKey: "test-key", model: "claude-test" });
+const provider = () => createAnthropicProvider({ apiKey: "test-key" });
 const REQ = {
+  model: "anthropic:claude-sonnet-5-5",
   system: "You are a test agent.",
   messages: [{ role: "contact", content: "hi" }] as Msg[],
 };

@@ -38,7 +38,7 @@ A schema used inside one module stays next to it: each AI tool declares its argu
   if (verdict.ok) {
 …
     result = await tool.execute(
-      { ...ctx, conversationId },
+      { ...ctx, conversationId, rules: deps.rules },
       parsed.data as never,
     );
 ```

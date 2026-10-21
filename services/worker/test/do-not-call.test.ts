@@ -253,7 +253,10 @@ beforeAll(async () => {
   orgB = await createOrg(stranger, "Do-not-call other");
   await invite(operator.userId, "operator");
   await invite(viewer.userId, "viewer");
-  await putLive(admin, orgId, { key: "closer", systemPrompt: "You call leads." });
+  await putLive(admin, orgId, {
+    key: "closer",
+    systemPrompt: "You call leads.",
+  });
 }, 30_000);
 
 afterAll(async () => {

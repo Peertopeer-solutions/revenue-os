@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createPool, withOrg } from "@revenue-os/db";
 import type { LlmProvider, LlmTurn, SendPort } from "@revenue-os/harness";
+import { RoleRulesSchema } from "@revenue-os/shared";
 import pg from "pg";
 import { OPTED_IN } from "../tests/opted-in";
 import { testCompanies } from "../tests/test-companies";
@@ -139,8 +140,13 @@ function baseDeps(provider: LlmProvider, send: SendPort): EvalDeps {
     player: cannedPlayer,
     send,
     agentId,
+    model: "anthropic:claude-sonnet-5-5",
     systemPrompt: "You are a scheduler.",
     toolsAllowed: TOOLS,
+    rules: RoleRulesSchema.parse({
+      outcomes: ["site_visit_booked"],
+      booking: { kind: "site_visit", outcome: "site_visit_booked" },
+    }),
   };
 }
 
@@ -452,5 +458,57 @@ describe("runEvals exit discipline + scoping", () => {
     );
     expect(out.results).toHaveLength(1);
     expect(out.results[0].key).toBe("always_passes");
+  });
+});
+
+describe("runEvals stores one run of the version's test set", () => {
+  it("names every row it stores with the same run, so a version whose whole set passed goes tested, and a run of part of the set does not", async () => {
+    const own = (await companies.add("Eval Runner, one run")).id;
+    const version = (
+      await admin.query<{ id: string }>(
+        `insert into agents (org_id, key, version, status, model, system_prompt, test_set)
+         values ($1, 'runs', 1, 'draft', 'anthropic:claude-sonnet-5-5', 'You help.', '{greets,thanks}') returning id`,
+        [own],
+      )
+    ).rows[0]?.id as string;
+    await admin.query(
+      `insert into contacts (org_id, first_name, consent) values ($1, 'Persona', $2)`,
+      [own, OPTED_IN],
+    );
+    for (const key of ["greets", "thanks"])
+      await admin.query(
+        `insert into eval_scenarios (org_id, key, persona, script, assertions)
+         values ($1, $2, '{"name":"Lead","language":"en"}', '{"turns":["hi"]}', '{}')`,
+        [own, key],
+      );
+    const deps = {
+      ...baseDeps(textLlm(), makeCaptureSend().send),
+      agentId: version,
+    };
+    const tested = () =>
+      admin.query(`update agents set status = 'tested' where id = $1`, [
+        version,
+      ]);
+    // part of the set: its run covers one scenario, so the version stays a draft
+    await withOrg(appService, own, (tx) =>
+      runEvals(deps, { orgId: own, db: tx }, { scenario: "greets" }),
+    );
+    await expect(tested()).rejects.toThrow(
+      "no passing stored run of its whole test set",
+    );
+    const whole = await withOrg(appService, own, (tx) =>
+      runEvals(deps, { orgId: own, db: tx }),
+    );
+    expect(whole.exitCode).toBe(0);
+    const runs = await admin.query(
+      `select set_run from eval_runs where org_id = $1 and agent_id = $2 group by set_run order by min(created_at)`,
+      [own, version],
+    );
+    expect(runs.rowCount).toBe(2); // one per call, every row of a call naming it
+    await tested();
+    expect(
+      (await admin.query(`select status from agents where id = $1`, [version]))
+        .rows[0]?.status,
+    ).toBe("tested");
   });
 });

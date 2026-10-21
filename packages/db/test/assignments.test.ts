@@ -176,9 +176,9 @@ describe("setAssignment: one row per lead, its one writer", () => {
     await expect(
       set(orgA, id, "sales", "active", "x".repeat(501)),
     ).rejects.toThrow("check constraint");
-    await expect(
-      set(orgA, id, "sales", "gone" as "ended"),
-    ).rejects.toThrow("check constraint");
+    await expect(set(orgA, id, "sales", "gone" as "ended")).rejects.toThrow(
+      "check constraint",
+    );
   });
 });
 

@@ -35,6 +35,7 @@ A shared template (an agent, sequence or eval scenario with no company) stays re
 ```ts
 // services/worker/src/runs.ts
   return withOrg(pool, orgId, async (tx) => {
+…
     const wf = await tx.query<{ definition: unknown }>(
       `select definition from workflows where id = $1 and (org_id = $2 or org_id is null)`,
       [input.workflowId, orgId],

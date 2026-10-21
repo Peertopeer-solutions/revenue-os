@@ -63,20 +63,15 @@ async function run(agentId: string, rows: [string, boolean][]): Promise<void> {
 }
 
 const statusOf = async (id: string) =>
-  (
-    await admin.query(`select status from agents where id = $1`, [id])
-  ).rows[0]?.status;
+  (await admin.query(`select status from agents where id = $1`, [id])).rows[0]
+    ?.status;
 const setStatus = (id: string, status: string) =>
   admin.query(`update agents set status = $2 where id = $1`, [id, status]);
 
 describe("app.agent_version_lifecycle: a new version starts as a draft", () => {
   it("refuses a version written tested or live, and takes a draft naming every part of its role", async () => {
-    await expect(draft(["a"], "active")).rejects.toThrow(
-      "starts as a draft",
-    );
-    await expect(draft(["a"], "tested")).rejects.toThrow(
-      "starts as a draft",
-    );
+    await expect(draft(["a"], "active")).rejects.toThrow("starts as a draft");
+    await expect(draft(["a"], "tested")).rejects.toThrow("starts as a draft");
     const id = await draft(["a", "b"]);
     const row = (
       await admin.query(
@@ -186,10 +181,9 @@ describe("app.agent_version_lifecycle: a version that is not a draft never chang
       ).rejects.toThrow("version 1 of role-");
     await setStatus(id, "active");
     await expect(
-      admin.query(
-        `update agents set rules = '{"outcomes":[]}' where id = $1`,
-        [id],
-      ),
+      admin.query(`update agents set rules = '{"outcomes":[]}' where id = $1`, [
+        id,
+      ]),
     ).rejects.toThrow("is active: only its status may change");
     await setStatus(id, "archived");
     expect(await statusOf(id)).toBe("archived");

@@ -69,7 +69,13 @@ const DEMO_WF = {
         failed: "end",
       },
     },
-    book: { kind: "tool", tool: "book_appointment", args: {}, then: "end" },
+    book: {
+      kind: "tool",
+      tool: "book_appointment",
+      outcome: "site_visit_booked",
+      args: {},
+      then: "end",
+    },
     callback_task: {
       kind: "tool",
       tool: "create_task",
@@ -404,7 +410,13 @@ const SEEDED_QUAL_WF = {
         "*": "end",
       },
     },
-    book: { kind: "tool", tool: "book_appointment", args: {}, then: "end" },
+    book: {
+      kind: "tool",
+      tool: "book_appointment",
+      outcome: "site_visit_booked",
+      args: {},
+      then: "end",
+    },
     handoff_task: {
       kind: "tool",
       tool: "create_task",

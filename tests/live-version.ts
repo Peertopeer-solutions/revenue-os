@@ -22,7 +22,8 @@ export async function putLive(
   },
   runIn: string | null = orgId,
 ): Promise<string> {
-  if (!runIn) throw new Error("a template's run belongs to a company: pass runIn");
+  if (!runIn)
+    throw new Error("a template's run belongs to a company: pass runIn");
   const version = v.version ?? 1;
   const check = `${v.key}-v${version}-check`;
   const id = (
@@ -57,9 +58,6 @@ export async function putLive(
     [runIn, scenario, id],
   );
   for (const status of ["tested", "active"])
-    await db.query(
-      `update agents set status = $2 where id = $1`,
-      [id, status],
-    );
+    await db.query(`update agents set status = $2 where id = $1`, [id, status]);
   return id;
 }

@@ -1,42 +1,28 @@
 // biome-ignore-all lint/suspicious/noThenProperty: `then` is a workflow step FIELD (data, not a
-// thenable) in the T26.2 definition JSON, e.g. { kind:"tool", tool:"…", then:"end" }.
-// H7 (hole audit, Package 2 / task-58) — RED spec: inline ACTION PAYLOADS are the interpreter's,
-// not the definition's. Env-free and PURE (interpret does zero I/O, fixed `now`).
+// thenable) in the definition JSON (docs/tech-stack.md T26.2), e.g. { kind:"tool", tool:"…", then:"end" }.
+// Inline ACTION PAYLOADS are the interpreter's, not the definition's `args`. Env-free and PURE (interpret does zero
+// I/O, fixed `now`).
 //
-// DEFECT (ground truth, read directly, main@4a3b3fe):
-//   • packages/harness/src/workflow/interpret.ts:163-173 builds the payload as
-//     `{ kind:'site_visit_booked', contactId: state.contactId, ...args }` — args is spread LAST,
-//     so a definition's `args` JSON OVERRIDES the two fields the interpreter's own comment
-//     (:160 "Closed side-effect set") claims it controls. The same line yields
-//     `{ kind:'create_task', task:{ ...args } }` for every non-book_appointment tool, and
-//     `args` is optional (schema.ts:117) so a valid step can produce `task: {}`.
-//   • Nothing validates either payload: Action types them as bare Record<string, unknown>
-//     (schema.ts:73-74) and services/worker/src/scheduler.ts:282-312 destructures them straight
-//     into SQL parameters. outcomes.kind is `text not null` with NO check constraint
-//     (005_outcomes.sql:15), so an overridden kind inserts SILENTLY; tasks.kind/title are
-//     `not null` + a 5-value CHECK (006_harness.sql:87,90), so a `{}` task raises 23502 on
-//     every tick (that is the H5 poison run).
-//   • Cross-tenant edge: outcomes.contact_id → contacts(id) is an FK, and Postgres evaluates
-//     referential integrity with row security BYPASSED — so an args-supplied UUID belonging to
-//     ANOTHER tenant satisfies the FK and lands an outcome in the author's org attributing
-//     revenue to a foreign contact. The denial direction is pinned below.
+// Why: the scheduler (applyInlineAction in services/worker/src/scheduler.ts) writes these payloads straight into SQL
+// parameters. outcomes.kind is `text not null` with no check constraint (migration 005_outcomes.sql), so a name an
+// `args` key slipped in would insert silently; tasks.kind and title are `not null` with a fixed kind set (migration
+// 006_harness.sql), so an empty task would fail on every tick. And outcomes.contact_id is a link Postgres checks with
+// row security bypassed, so an args-supplied id of ANOTHER company's lead would land an outcome attributing revenue to
+// it. A booking step's outcome is named by the step's own `outcome` field, a row of the company's sequence.
 //
 // PINNED here:
 //   1. interpreter-owned fields are AUTHORITATIVE — definition `args` can never repoint an
-//      outcome at another tenant's contact, never rewrite the outcome kind the interpreter
-//      chose, and never change the Action kind itself;
+//      outcome at another tenant's contact, never rename the outcome the step names, and never
+//      change the Action kind itself;
 //   2. author-owned CONTENT still flows (a create_task step's kind/title reach the action) —
 //      the positive control, so "ignore args entirely" is not a passing fix;
 //   3. the interpreter never emits an inline payload the DB would reject: for a payload that
 //      cannot be made valid, EITHER interpret throws loudly (zod at the boundary) OR the payload
 //      it emits is DB-valid (task kind in the CHECK set + a non-empty title).
 //
-// NOT PINNED (deliberately): WHERE the schemas live (packages/shared vs the workflow module),
-//   their names, whether extra args are preserved as task `payload` / outcome `attributes`
-//   (scheduler.ts destructures the remainder into jsonb today), and the exact error text.
-//   Location note: this pins validation at the INTERPRETER, the producer of the action — if the
-//   fix instead validates at the top of applyInlineAction, these tests fail and the layering
-//   decision goes to review.
+// NOT PINNED (deliberately): WHERE the schemas live, their names, whether extra args are preserved as task `payload`
+//   / outcome `attributes` (the scheduler destructures the remainder into jsonb today), and the exact error text.
+//   This pins validation at the INTERPRETER, the producer of the action, not in applyInlineAction.
 import { describe, expect, it } from "bun:test";
 import { interpret } from "../src/workflow/interpret";
 import type { WorkflowDefinition } from "../src/workflow/schema";
@@ -48,14 +34,20 @@ const OWN_CONTACT = "11111111-1111-4111-8111-111111111111";
 /** A contact id belonging to ANOTHER tenant — the FK would accept it, RLS never sees it. */
 const FOREIGN_CONTACT = "22222222-2222-4222-8222-222222222222";
 
-/** tasks.kind check constraint, supabase/migrations/006_harness.sql:87. */
+/** tasks.kind check constraint (the tasks table, migration 006_harness.sql). */
 const TASK_KINDS = ["approval", "callback", "review", "handoff", "manual"];
 
 function bookDef(args: Record<string, unknown>): WorkflowDefinition {
   return {
     entry: "book",
     steps: {
-      book: { kind: "tool", tool: "book_appointment", args, then: "end" },
+      book: {
+        kind: "tool",
+        tool: "book_appointment",
+        outcome: "meeting_booked",
+        args,
+        then: "end",
+      },
       end: { kind: "end" },
     },
   };
@@ -89,7 +81,7 @@ function emitted(def: WorkflowDefinition, contactId = OWN_CONTACT) {
   }
 }
 
-describe("inline action payloads are interpreter-owned (H7)", () => {
+describe("inline action payloads are interpreter-owned", () => {
   it("cross-tenant denial: definition args cannot repoint a booked outcome at another org's contact", () => {
     // The whole point of the FK-bypasses-RLS edge: org A's definition naming org B's contact id.
     const r = emitted(bookDef({ contactId: FOREIGN_CONTACT }));
@@ -108,7 +100,7 @@ describe("inline action payloads are interpreter-owned (H7)", () => {
     expect([OWN_CONTACT, undefined]).toContain(attributedTo);
   });
 
-  it("definition args cannot rewrite the outcome kind the interpreter chose", () => {
+  it("definition args cannot rename the outcome the booking step names", () => {
     // outcomes.kind has NO check constraint, so an overridden kind would insert silently and
     // corrupt the moat table's attribution taxonomy.
     const r = emitted(
@@ -119,7 +111,7 @@ describe("inline action payloads are interpreter-owned (H7)", () => {
       action?.kind === "write_outcome"
         ? (action.outcome as Record<string, unknown>)
         : {};
-    expect(outcome.kind).toBe("site_visit_booked"); // interpret.ts:167 — the closed side-effect set
+    expect(outcome.kind).toBe("meeting_booked"); // the step's own outcome, never an args key
   });
 
   it("definition args cannot change the ACTION kind (the closed side-effect set)", () => {
@@ -135,9 +127,10 @@ describe("inline action payloads are interpreter-owned (H7)", () => {
     expect(action?.kind).toBe("create_task");
   });
 
+  // behaviour already on main: only its comment's line-number citation became the test it names
   it("author-owned task CONTENT still reaches the action (positive control)", () => {
     // "ignore args entirely" must NOT be a passing fix — a tool step's task kind/title are the
-    // definition's to choose (services/worker/test/scheduler.test.ts:234 relies on exactly this).
+    // definition's to choose (services/worker/test/scheduler.test.ts, its "tick is atomic" test, relies on exactly this).
     const r = emitted(
       toolDef("notify_owner", { kind: "callback", title: "Ring Asha back" }),
     );
@@ -152,11 +145,12 @@ describe("inline action payloads are interpreter-owned (H7)", () => {
     expect(task.title).toBe("Ring Asha back");
   });
 
+  // behaviour already on main: only its comments' old codes and line-number citations were reworded
   it("never emits an inline payload the DB would reject — it rejects loudly instead", () => {
-    // Each case is a definition that PASSES WorkflowDefinitionSchema today (schema.ts:114-119:
-    // `tool` is a free string, `args` optional) and produces SQL that violates 006_harness.sql:87,90.
+    // Each case is a definition that PASSES WorkflowDefinitionSchema (its tool step: `tool` is a free string, `args`
+    // optional) and would produce SQL the tasks table's not-null and kind checks refuse (migration 006_harness.sql).
     const cases: { label: string; def: WorkflowDefinition }[] = [
-      // the H5 poison exactly: no args at all -> task {} -> 23502 on kind AND title
+      // the poison run exactly: no args at all -> task {} -> 23502 on kind AND title
       { label: "no args", def: toolDef("notify_owner") },
       // wrong types: kind/title are text not null
       {

@@ -88,10 +88,13 @@ function jsonBodyOf(init: unknown): Record<string, unknown> {
 }
 
 const KEY = "test-key";
-const MODEL = "claude-3-5-sonnet-latest";
-const newProvider = () =>
-  createAnthropicProvider({ apiKey: KEY, model: MODEL });
-const baseReq = { system: "You are a test agent.", messages: [] as Msg[] };
+const MODEL = "anthropic:claude-sonnet-5-5"; // the role version's model, as each call names it
+const newProvider = () => createAnthropicProvider({ apiKey: KEY });
+const baseReq = {
+  model: MODEL,
+  system: "You are a test agent.",
+  messages: [] as Msg[],
+};
 const oneContact: Msg[] = [{ role: "contact", content: "hi" }];
 
 describe("createAnthropicProvider — response → LlmTurn mapping", () => {
@@ -187,6 +190,42 @@ describe("createAnthropicProvider — response → LlmTurn mapping", () => {
   });
 });
 
+describe("createAnthropicProvider — the model is the role version's, on the platform's list", () => {
+  it("sends each listed Anthropic model as its own id, whichever the call names", async () => {
+    const { calls } = installFetch(
+      anthropicBody({ content: [textBlock("ok")] }),
+    );
+    const provider = newProvider();
+    for (const model of [
+      "anthropic:claude-opus-5-5",
+      "anthropic:claude-haiku-5-5",
+    ])
+      await provider.complete({ ...baseReq, model, messages: oneContact });
+    expect(calls.map((c) => jsonBodyOf(c.init).model as string)).toEqual([
+      "claude-opus-5-5",
+      "claude-haiku-5-5",
+    ]);
+  });
+
+  it("refuses, sending nothing, a model off the list, a bare id, a tier name or none", async () => {
+    const { calls } = installFetch(
+      anthropicBody({ content: [textBlock("ok")] }),
+    );
+    for (const model of [
+      "claude-sonnet-5-5",
+      "realtime-tier",
+      "openai:gpt-5",
+      "",
+    ])
+      await expect(
+        newProvider().complete({ ...baseReq, model, messages: oneContact }),
+      ).rejects.toThrow(
+        "is not an Anthropic model on the platform's model list",
+      );
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe("createAnthropicProvider — request shaping", () => {
   it("POSTs exactly once to https://api.anthropic.com/v1/messages with x-api-key + anthropic-version headers", async () => {
     const { calls } = installFetch(
@@ -201,29 +240,32 @@ describe("createAnthropicProvider — request shaping", () => {
     expect(headerOf(init, "anthropic-version")).toBeTruthy();
   });
 
-  it("sends model + system as top-level fields and passes max_tokens (system separate from messages)", async () => {
+  it("sends the listed model's own id + system as top-level fields and passes max_tokens (system separate from messages)", async () => {
     const { calls } = installFetch(
       anthropicBody({ content: [textBlock("ok")] }),
     );
     await newProvider().complete({
+      model: MODEL,
       system: "SYSTEM-PROMPT-MARKER",
       messages: oneContact,
       maxTokens: 512,
     });
     expect(calls).toHaveLength(1);
     const body = jsonBodyOf((calls[0] as Captured).init);
-    expect(body.model).toBe(MODEL);
+    expect(body.model).toBe("claude-sonnet-5-5");
     expect(body.system).toBe("SYSTEM-PROMPT-MARKER");
     expect(body.max_tokens).toBe(512);
     // "system separate": the system prompt must NOT be smuggled into the messages array.
     expect(JSON.stringify(body.messages)).not.toContain("SYSTEM-PROMPT-MARKER");
   });
 
+  // behaviour already on main: only the model each call now names was added to its request
   it("maps our contact/agent roles to Anthropic user/assistant messages", async () => {
     const { calls } = installFetch(
       anthropicBody({ content: [textBlock("ok")] }),
     );
     await newProvider().complete({
+      model: MODEL,
       system: "s",
       messages: [
         { role: "contact", content: "from-contact" },

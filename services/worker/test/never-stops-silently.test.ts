@@ -12,8 +12,8 @@ import { createPool } from "@revenue-os/db";
 import { ToolRegistry, type Verdict } from "@revenue-os/harness";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
-import { OPTED_IN } from "../../../tests/opted-in";
 import { putLive } from "../../../tests/live-version";
+import { OPTED_IN } from "../../../tests/opted-in";
 import { testCompanies } from "../../../tests/test-companies";
 import {
   handlePlaceCall,
