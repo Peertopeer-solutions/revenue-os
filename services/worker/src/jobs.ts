@@ -15,6 +15,7 @@ import { OrgIdSchema } from "@revenue-os/shared";
 import type { Pool } from "pg";
 import { PgBoss } from "pg-boss";
 import { z } from "zod";
+import { CALL_POST_QUEUE } from "./call-stops";
 import { pool } from "./db";
 import { type Env, env } from "./env";
 import { type AgentTurnJob, handleAgentTurn } from "./handlers/agent-turn";
@@ -36,11 +37,19 @@ import { TIME_LIMITS, type TimeLimits } from "./time-limits";
 import { processVapiEvents } from "./vapi/process";
 
 export const WEBHOOK_PROCESS_VAPI = "webhook.process.vapi";
-const CALL_POST_QUEUE = "call.post"; // the call and WhatsApp jobs' dead-letter SINK (handleCallPost drains it)
+// CALL_POST_QUEUE: the call and WhatsApp jobs' dead-letter SINK (handleCallPost drains it; src/call-stops.ts names it)
 // A send job and its dead letter retry a few times with a growing delay (about 2, 4 and 8 seconds, and some random
 // part), so a short database outage doesn't use up every try at once; a retry never sends twice (src/sends.ts).
 const RETRIES = { retryLimit: 3, retryDelay: 2, retryBackoff: true };
 const TICK_QUEUE = "scheduler.tick"; // the durable pg-boss schedule that fires the scheduler tick
+// A running job's worker tells pg-boss it is alive every 15 seconds. A job not heard from for 30 (its worker crashed or
+// was killed) is failed by a live worker's check, run every CHECK_SECONDS, and so runs again within about a minute
+// rather than at its 15-minute expiry; its send is never repeated (src/sends.ts). test/restarts.test.ts kills a worker.
+const HEARTBEAT_SECONDS = 30;
+const CHECK_SECONDS = 15;
+// How long a stopping worker lets its running jobs finish. A job still running then is handed back to its queue, and
+// the next worker runs it again without repeating a send. docker/docker-compose.yml's stop_grace_period allows for it.
+export const STOP_WAIT_MS = 60_000;
 // A job payload is a boundary (docs/security.md S5.1): validate the tenancy field before a handler re-scopes on it.
 const JobEnvelope = z.object({ orgId: OrgIdSchema });
 
@@ -100,7 +109,12 @@ export type JobPorts = {
  * providers there. The worker itself passes neither.
  */
 export async function startJobs(
-  settings: { schema?: string; schedule?: boolean } = {},
+  settings: {
+    schema?: string;
+    schedule?: boolean;
+    superviseIntervalSeconds?: number;
+    monitorIntervalSeconds?: number;
+  } = {},
   ports: Partial<JobPorts> = {},
 ): Promise<void> {
   if (boss) return;
@@ -129,6 +143,8 @@ export async function startJobs(
     // not on the database, so pg-boss must not attempt CREATE SCHEMA (verified: it
     // fails with 42501 otherwise).
     createSchema: false,
+    superviseIntervalSeconds: CHECK_SECONDS,
+    monitorIntervalSeconds: CHECK_SECONDS,
     ...settings,
   });
   b.on("error", (err) => logger.error({ err }, "pg-boss"));
@@ -139,12 +155,6 @@ export async function startJobs(
     retryLimit: 3,
     retryDelay: 60,
     expireInSeconds: 900,
-  });
-  await b.work(WEBHOOK_PROCESS_VAPI, async (jobs) => {
-    for (const job of jobs) {
-      const { orgId } = JobEnvelope.parse(job.data); // a job payload is a boundary
-      await processVapiEvents(db, orgId);
-    }
   });
 
   // --- the external-action queues and their handlers (src/handlers/) -------------------------
@@ -162,6 +172,22 @@ export async function startJobs(
     if (q !== "run_agent_turn")
       await b.updateQueue(q, { ...RETRIES, deadLetter: CALL_POST_QUEUE });
   }
+  await b.createQueue(TICK_QUEUE);
+  // Every queue's jobs say they are alive while they run, from before the first is taken (HEARTBEAT_SECONDS).
+  for (const q of [
+    WEBHOOK_PROCESS_VAPI,
+    CALL_POST_QUEUE,
+    ...ACTION_QUEUES,
+    TICK_QUEUE,
+  ])
+    await b.updateQueue(q, { heartbeatSeconds: HEARTBEAT_SECONDS });
+
+  await b.work(WEBHOOK_PROCESS_VAPI, async (jobs) => {
+    for (const job of jobs) {
+      const { orgId } = JobEnvelope.parse(job.data); // a job payload is a boundary
+      await processVapiEvents(db, orgId);
+    }
+  });
 
   // Shared handler deps. The guard pipeline is the real one (guardrails run before every send). Each work loop
   // parses the payload's org id as a boundary.
@@ -200,7 +226,6 @@ export async function startJobs(
   // --- the scheduler tick, scheduled DURABLY via pg-boss (survives restarts, unlike a
   // per-process setInterval a redeploy would silently drop). 1-minute cron is pg-boss's finest
   // granularity — fine for day-scale runs; the call replay test drives tick() per-org directly.
-  await b.createQueue(TICK_QUEUE);
   await b.work(TICK_QUEUE, async () => {
     await runScheduledTick();
   });
@@ -214,11 +239,23 @@ export async function jobQueueReachable(): Promise<boolean> {
   return boss !== null && (await boss.isInstalled());
 }
 
+/** Stops the job runner: it takes no new job, and lets running ones finish for up to STOP_WAIT_MS. */
 export async function stopJobs(): Promise<void> {
   if (!boss) return;
   const b = boss;
   boss = null;
-  await b.stop({ graceful: true, timeout: 5_000 });
+  await b.stop({ graceful: true, timeout: STOP_WAIT_MS });
+}
+
+/** On a restart or deploy (SIGTERM) or Ctrl-C (SIGINT), the worker stops its job runner (stopJobs), then calls `exit`. */
+export function stopOnSignal(exit: () => void): void {
+  for (const signal of ["SIGTERM", "SIGINT"] as const)
+    process.once(signal, () => {
+      logger.info({ signal }, "stopping: no new jobs; running jobs finish");
+      stopJobs()
+        .catch((err) => logger.error({ err }, "job runner stop failed"))
+        .finally(exit);
+    });
 }
 
 /** Nudge the consumer after a webhook insert commits. Never throws into the receiver:

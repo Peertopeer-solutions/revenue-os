@@ -219,8 +219,19 @@ describe("apply-phase poison runs terminate", () => {
     }).toMatchObject({ terminal: true });
     // …with a reason a human can see in the console (the dead-letter contract, src/scheduler.ts's header).
     expect(run.last_error).not.toBeNull();
-    // …and nothing partial ever committed: every poisoned apply rolled its whole tx back.
-    expect(await countTasks(runId)).toBe(0);
+    // …and nothing partial ever committed: every poisoned apply rolled its whole tx back; the one task is the
+    // review that hands the lead to a person, with the reason.
+    const tasks = await admin.query(
+      `select kind, title, payload ->> 'reason' as reason from tasks where workflow_run_id = $1`,
+      [runId],
+    );
+    expect(tasks.rows).toEqual([
+      {
+        kind: "review",
+        title: "Sequence stopped — it could not go on",
+        reason: run.last_error,
+      },
+    ]);
   }, 30_000);
 
   it("the tick keeps going and never throws while a poisoned run is burning down", async () => {

@@ -333,7 +333,8 @@ describe("links between company records", () => {
     const run = (workflow = "") =>
       withOrg(worker, orgA, (tx) =>
         tx.query(
-          `insert into workflow_runs (org_id, workflow_id, contact_id) values ($1, $2, $3)`,
+          // An ended run: the lead's open run in this sequence from oneOfEach stays the only open one (migration 025).
+          `insert into workflow_runs (org_id, workflow_id, contact_id, status) values ($1, $2, $3, 'completed')`,
           [orgA, workflow, a.contacts],
         ),
       ).then(

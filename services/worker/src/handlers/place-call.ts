@@ -9,7 +9,8 @@
 //      the lead to a person when none was saved.
 //   2. Send the call at most once (src/sends.ts sendOnce): guard() BEFORE the dial, through the channels voice
 //      doorway (voice.place), the call saved with the guard's verdict; the dial with no transaction open; its answer
-//      saved. A blocking verdict => no dial. A dial that throws, or doesn't answer in time, may still have placed the
+//      saved. A blocking verdict => no dial: the lead is tried again later or handed to a person (src/call-stops.ts),
+//      as with no active agent or no number. A dial that throws, or doesn't answer in time, may still have placed the
 //      call, so the lead is handed to a person and the run parked as failed instead.
 //   3. Record the call's conversation (provider vapi, provider_ref) in a short transaction; drive it via
 //      runTurn(injected provider) with each database step in its own short transaction, so messages + usage land;
@@ -26,14 +27,10 @@ import type {
   Verdict,
 } from "@harness/types";
 import { voice } from "@revenue-os/channels";
-import {
-  createTask,
-  leadNumber,
-  openConversation,
-  withOrg,
-} from "@revenue-os/db";
+import { leadNumber, openConversation, withOrg } from "@revenue-os/db";
 import { runTurn, withTimeLimit } from "@revenue-os/harness";
 import type { Pool, PoolClient } from "pg";
+import { callHeldBack, handToPerson, NO_NUMBER, noAgent } from "../call-stops";
 import {
   findSend,
   handOver,
@@ -102,8 +99,11 @@ export async function handlePlaceCall(
   job: PlaceCallJob,
 ): Promise<void> {
   const { orgId, runId, action } = job;
+  const now = deps.now?.() ?? new Date();
 
-  // 1. reload (the stale checks NO-OP before the guard) and look up this job's saved call.
+  // 1. reload (the stale checks NO-OP before the guard) and look up this job's saved call. A call that can't go ahead
+  // (the guardrails held it back, no active agent, no number) is never a silent stop: the lead is tried again later or
+  // handed to a person, with the reason saved (src/call-stops.ts).
   const claim = await withOrg(deps.pool, orgId, async (tx) => {
     if (!(await waitingForCall(tx, job))) return;
     const to = await leadNumber(tx, orgId, action.contactId, "voice");
@@ -128,31 +128,21 @@ export async function handlePlaceCall(
         [action.agentKey, orgId],
       )
     ).rows[0] as Agent | undefined;
-    if (!agent) return; // no active agent to place the call, or to drive its turn
-    if (!earlier && !to) {
-      // No number to call (none on file, or the lead was deleted or merged): nothing is placed, the reason is saved
-      // and a person is handed the lead, never a silent stop.
-      await tx.query(
-        `update workflow_runs set last_error = $2, updated_at = now() where id = $1 and org_id = $3`,
-        [runId, "no number to call", orgId],
-      );
-      await createTask(tx, orgId, {
-        contactId: action.contactId,
-        workflowRunId: runId,
-        kind: "review",
-        title: "Call not placed — no number to call",
-        payload: { reason: "no_number" },
-        actor: { type: "system" },
-        once: `${send.key}:no-number`,
-      });
-    }
-    return { agent, to, send, earlier };
+    // Held back by the guardrails before (an earlier run of this job saved that, then failed before acting on it); no
+    // active agent to place the call or drive its turn; no number to call (none on file, or the lead was deleted or
+    // merged): nothing is placed.
+    if (earlier?.status === "blocked")
+      await callHeldBack(tx, orgId, send, earlier.reason, now);
+    else if (!agent)
+      await handToPerson(tx, orgId, send, noAgent(action.agentKey));
+    else if (!earlier && !to) await handToPerson(tx, orgId, send, NO_NUMBER);
+    else return { agent, to, send, earlier };
   });
   if (!claim || "handedOver" in claim) return;
   const { agent, to, send, earlier } = claim;
   if (earlier?.status === "sent" && earlier.providerRef)
     return fold(deps, job, agent, earlier.providerRef); // dialled before; its outcome is still to fold
-  if (earlier || !to) return; // blocked or already handed over; or no number, handed to a person above
+  if (earlier || !to) return; // handed over already
 
   // 2. guard BEFORE the dial; the call is saved with the guard's verdict, then dialled with no transaction open, within
   // the dialer's time limit.
@@ -173,7 +163,13 @@ export async function handlePlaceCall(
     ),
   );
   if (placed && "sent" in placed) await fold(deps, job, agent, placed.sent);
-  // blocked → no dial, no conversation, no fold; handed over, or another run of the job dials: nothing more
+  // blocked → no dial, no conversation, no fold: tried again later or handed to a person, while the run still waits for
+  // this call; handed over, or another run of the job dials: nothing more
+  else if (placed)
+    await withOrg(deps.pool, orgId, async (tx) => {
+      if (await waitingForCall(tx, job))
+        await callHeldBack(tx, orgId, send, placed.blocked, now);
+    });
 }
 
 /** Why a run of the job hands the lead over when an earlier run saved the call but not the dialer's answer. */
