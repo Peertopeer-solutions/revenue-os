@@ -1,4 +1,4 @@
-// T1 (T26.2) — the pure workflow interpreter (the show-runner's brain).
+// The pure workflow interpreter, the step map that drives a sequence (docs/tech-stack.md T26.2).
 //
 //   interpret(definition, runState, event, now) → Transition
 //
@@ -131,7 +131,8 @@ export function interpret(
           };
         }
         // FRESH entry: place the call and park on this step, waiting for the provider callback.
-        // ponytail: unit tests cover RE-ENTRY only; this arm is exercised by T9/M2 replay.
+        // The unit tests cover RE-ENTRY only; this arm is exercised by the replay test
+        // (services/worker/test/m2-replay.test.ts).
         const action: Action = {
           kind: "place_call",
           contactId: state.contactId ?? "",

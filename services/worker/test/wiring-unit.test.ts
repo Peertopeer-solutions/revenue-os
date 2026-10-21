@@ -90,3 +90,46 @@ describe("T8 LLM: the Claude provider is wired IFF ANTHROPIC_API_KEY is present 
     expect(makeProvider(noKeyEnv)).toBeNull(); // and no Claude provider is produced
   });
 });
+
+describe("the worker's Claude provider names no model of its own", () => {
+  it("sends the model each turn names, from its role version, and refuses one off the platform's list", async () => {
+    const { makeProvider } = await import("../src/jobs");
+    const originalFetch = globalThis.fetch;
+    const sent: unknown[] = [];
+    globalThis.fetch = ((_url: unknown, init?: { body?: string }) => {
+      sent.push(JSON.parse(init?.body ?? "{}").model);
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            content: [{ type: "text", text: "ok" }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    }) as typeof fetch;
+    try {
+      const provider = makeProvider({
+        DATABASE_URL: GOOD_DB,
+        SUPABASE_URL: GOOD_SUPABASE,
+        CORS_ORIGINS: CORS,
+        ANTHROPIC_API_KEY: DUMMY_KEY,
+      });
+      const ask = (model: string) =>
+        provider?.complete({
+          model,
+          system: "s",
+          messages: [{ role: "contact", content: "hi" }],
+        });
+      await ask("anthropic:claude-haiku-5-5");
+      await ask("anthropic:claude-sonnet-5-5");
+      expect(sent).toEqual(["claude-haiku-5-5", "claude-sonnet-5-5"]);
+      await expect(ask("claude-opus-4-8")).rejects.toThrow(
+        "platform's model list",
+      );
+      expect(sent).toHaveLength(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

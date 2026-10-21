@@ -71,6 +71,7 @@
       "name": "@revenue-os/harness",
       "dependencies": {
         "@revenue-os/db": "workspace:*",
+        "@revenue-os/shared": "workspace:*",
         "zod": "4.4.3",
       },
     },

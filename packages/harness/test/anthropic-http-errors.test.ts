@@ -80,7 +80,7 @@ const ERROR_CASES: [number, string][] = [
   [529, "overloaded_error"],
 ];
 
-describe("task-57 H2 — an HTTP error with a JSON body throws (so the queue retries)", () => {
+describe("an HTTP error with a JSON body throws (so the queue retries)", () => {
   for (const [status, type] of ERROR_CASES) {
     it(`HTTP ${status} (${type}) rejects instead of returning an empty turn`, async () => {
       stubStatus(
@@ -98,7 +98,7 @@ describe("task-57 H2 — an HTTP error with a JSON body throws (so the queue ret
   }
 });
 
-describe("task-57 H2 — behavior that must NOT change (guards)", () => {
+describe("behaviour that must NOT change (guards)", () => {
   it("a 200 with a normal body still parses into an LlmTurn", async () => {
     stubStatus(
       200,
