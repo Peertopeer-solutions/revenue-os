@@ -229,9 +229,11 @@ plan calls. Both run on the same `runTurn`.
   it used. A test lead may pin a draft version.
 
 **Industry words.** `bun run guards` gets a check (scripts/guards/industry-words.ts, one file like the others in
-scripts/guards/) that fails an industry word in packages/harness/src, the engine the second role must not change.
-The worker, the senders and packages/db stay out of its scope: they carry channel words (WhatsApp, Vapi) by design,
-and the second-role test already proves the engine needs no change. The words there today move into seed rows:
+scripts/guards/) that fails an industry word in the core folders: packages/harness/src (the engine the second role
+must not change), packages/channels/src, packages/db/src and services/worker/src, the scope Slice 3's item had before
+this design. Channel and provider names (WhatsApp, Vapi, LiveKit) are not industry words and are not on the list. On
+2026-10-21 none of the listed words appeared in the senders, packages/db or the worker; the ones in the engine move
+into seed rows:
 `'site_visit'` and `'site_visit_booked'` and the tool's description "Book a site-visit appointment"
 (packages/harness/src/tools/book-appointment.ts:2, :25, :31 and :43), `site_visit_agreed` in a comment and
 `"site_visit_booked"` (packages/harness/src/workflow/interpret.ts:97 and :200), and a comment naming the seed file
@@ -324,7 +326,10 @@ runs guard() again.
 | outside | becomes an intent at the commit, carried out after it | send a message; later place a call or write to a CRM | Pi hands a failed tool back to the model, which may try again; a tool that sent would send twice |
 
 **One exception: do-not-contact acts at once.** `mark_do_not_contact` is internal, but it does not wait for the
-commit. A lead's "stop contacting me" must hold even if the turn fails afterwards, so the tool calls PR 188's
+commit. The model may call it only with the lead's own words, quoted from one of the lead's messages, which our code
+checks word for word as it checks a memory's quote (part 6); a call with no such quote is refused. AGENTS.md →
+Conventions allowed the model to add a block only when heard on a call (decision of 2026-09-29); Devesh widened it to
+the lead's own written words on 2026-10-21 (decision 6), in the PR that agreed this design. A lead's "stop contacting me" must hold even if the turn fails afterwards, so the tool calls PR 188's
 `recordDoNotCall` (packages/db/src/consent.ts) in a short transaction of its own, the moment guard() passes it. Its
 source gains a third kind, `{ from: 'agent', turnId, messageId }`: the turn and the lead's message whose words it
 quotes; `recordDoNotCall` writes its audit row as it does for a call. It only adds a block (migration 020's trigger
@@ -367,7 +372,8 @@ Tool<I> { name; description; input: ZodType<I> (strict); class: 'read'|'compute'
 **The first tools.** `send_message`, `plan_next_step`, `ask_a_person` (a question task; the agent keeps the lead),
 `hand_over_lead` (the agent stops until a person hands the lead back), `save_memory`, `record_outcome` (one of the
 role's outcome names), `book_appointment` (the role's appointment kind), `read_history`, `mark_do_not_contact` (only
-with the lead's quoted words; it can add a block, never lift one: decision of 2026-09-29; applied at once, see above),
+with the lead's quoted words; it can add a block, never lift one: decisions of 2026-09-29 and 2026-10-21; applied at
+once, see above),
 and, for roles that allow it, `run_code_on_file` (part 9). `ask_a_person` and `hand_over_lead` make their tasks through
 `createTask` (PR 190), never by inserting into `tasks`.
 
@@ -733,7 +739,7 @@ scripts/evals.ts stays the thin command (`bun run evals`). Adds row checks, mark
 **Metering.** Every model call writes a `usage_events` row in its own committed write, with the model, input, output,
 cache-read and cache-write tokens, the company, the lead and the turn (an additive migration adds `contact_id` and
 `turn_id`; today the table has only `conversation_id`, 007_ops.sql:30-41, and the provider is labelled "fake",
-loop.ts:98). Every sandbox second and every message sent is recorded the same way. Money is Slice 6; the daily limit
+loop.ts:99). Every sandbox second and every message sent is recorded the same way. Money is Slice 6; the daily limit
 counts tokens.
 
 **Cost (estimates, prices from the claude-api skill, cached 2026-10-06, ₹88 = $1).** One turn is about 1.5 model
@@ -802,11 +808,11 @@ renumbers its migration.
 | 1 | A role is rows (+ the industry-word guard) | Engine | — | Slice 1 done |
 | 2 | One wake-up function, first wired to today's loop | Engine | old loop behind the new door | 1 |
 | 3 | The test chat (+ `'chat'` channel, `is_test`, its demo rows) | Console | — | 2 |
-| 4 | Each turn on Pi's agent core (lease, dead letter, commit re-check; a minimal prompt: role prompt and conversation) | Engine | old loop, per role version | 2 |
+| 4 | Each turn on Pi's agent core (lease, dead letter with a task, commit re-check of the assignment; a minimal prompt: role prompt and conversation) | Engine | old loop, per role version | 2 |
 | 5 | Tools: one registry and contract (do-not-contact at once, sends rows) | Engine | old tools | 4 |
 | 6 | Company knowledge (+ figures check) | Knowledge | — | 1, and 5 for the check's hook |
-| 7 | Memory with proof | Knowledge | — | 5 |
-| 8 | One next step per lead | Engine | the step map, per lead | 5 |
+| 7 | Memory with proof (+ `save_memory` joins the registry) | Knowledge | — | 5 |
+| 8 | One next step per lead (+ `plan_next_step` joins the registry; the pending step joins the turn's snapshot and lock; the fallback step joins the dead-letter handler) | Engine | the step map, per lead | 5 |
 | 9 | Context assembly (replaces item 4's minimal prompt) | Engine | old context.ts | 6, 7, 8 |
 | 10 | One rule check (+ the pause switch) | Rules | — | 4, 5 |
 | 11 | Contact limits (caps from `sends`) | Rules | — | 10 |
@@ -819,7 +825,11 @@ renumbers its migration.
 | any | Test files type-checked; demo --keep; lint import rules | Quality | — | — |
 
 No item names anything a later item builds: an item that would read a part not built yet (the pause switch, the daily
-limit, memories, facts, the pending step) leaves it to the item that builds it, and that item wires it into the turn.
+limit, memories, facts, the pending step, the fallback step) leaves it to the item that builds it, and that item wires
+it into the turn. So item 4's turn snapshots and locks only the lead's assignment and its dead-letter handler makes a
+task; item 8 adds the pending step to both and the fallback step to the handler. Item 5's registry starts without
+`save_memory` and `plan_next_step`; items 7 and 8 each add their own tool. Parts 1, 4 and 8 above describe the
+whole engine as it stands once every item has landed.
 
 Each item adds its own proof steps to `scripts/proof/slice-3*.ts`, striking its check from the slice's NOT_YET list, as
 Slice 1 does (scripts/proof/slice-1.ts:13-19).
@@ -876,11 +886,12 @@ each hole:
 
 ## Devesh's decisions (2026-10-21)
 
-Five choices cost money, open an account or change what a buyer sees, so they were Devesh's. He answered on
-2026-10-21; each answer is a file in docs/decisions-in-force/ dated that day.
+Five choices cost money, open an account or change what a buyer sees, so they were Devesh's, and a sixth, on consent,
+came from the verifier's review of this design. He answered all six on 2026-10-21; each answer is a file in
+docs/decisions-in-force/ dated that day.
 
 1. **How our own test conversations and the proof reach a model: an Anthropic key paid from his Max plan's API
-   credit.** A Claude Console organisation linked to his Max plan (the link cannot be changed later; the plan's
+   credit.** A Claude Console organisation linked to his Max plan (he cannot change the link himself later, only Anthropic's support can; the plan's
    monthly API credit, $100 on Max 5x or $200 on Max 20x, is not carried over; Anthropic help centre article
    17154008, checked 2026-10-18) with a monthly spending limit, and the key saved as the GitHub Actions secret
    `ANTHROPIC_EVALS_KEY`. Cost: about $150 to $350 a month while Slice 3 is built (part 11), of which the credit pays
@@ -900,6 +911,14 @@ Five choices cost money, open an account or change what a buyer sees, so they we
    may name a short holding message in its rules; it is off by default.
 5. **Which version leads already talking get when a new one goes live: the new one, at their next turn;** each turn
    records the version it used.
+6. **A lead's written "stop" blocks them at once: yes, from their exact words.** The model may add a do-not-call block
+   with the lead's own words quoted word for word from one of their messages, as well as one heard on a call; it can
+   never lift a block, and only the lead's written YES does (decision of 2026-10-02). This widened AGENTS.md →
+   Conventions → Agent harness, whose exception named only calls; the PR that agreed this design changed that line,
+   with its rule-change record. Devesh asked, with it, that every roadmap item with this guardrail be checked: Slice
+   1's do-not-call item (built for calls, the console and imports), Slice 2's stop-word item (now says the AI's path
+   is this tool, quoting the lead), Slice 2's re-consent item (only a written YES lifts a block), Slice 3's tools item,
+   proof step 5 and its "stop contacting me" test conversation, and Slice 6's legal-floor item agree with it.
 
 ## Sources
 

@@ -65,9 +65,9 @@ seed pack and, where needed, one new tool or connector. Slice 3's proof runs tha
 ## Shape rules: how we build so the product grows without a rewrite
 
 1. **No industry words in core code.** `bun run guards` fails a word such as "site visit", "BHK" or "RERA" in the
-   engine's own folder, packages/harness/src. Industry words live in seed packs and company settings. "property" and
+   core folders (the engine, the senders, the database package and the worker). Industry words live in seed packs and company settings. "property" and
    "flat" are not checked, because they are ordinary programming words (JSON Schema's `properties`, JavaScript's
-   `flat()`) that every engine file would trip.
+   `flat()`) that every core file would trip.
 2. **Every input is an event; every action is a tool.** A reply, a call result, a timer, a CRM change or an
    instruction from the team is an event about a contact, and it wakes that contact's agent through one door.
    Every action the agent takes is a tool, and every tool passes guard() and the pause switch before it acts.
@@ -121,7 +121,7 @@ A sandbox is one more tool behind guard() and the pause switch, reached through 
 WhatsApp sender's) so its provider can change. It gets no database access and no secrets; its network is off, or
 limited to a list of allowed addresses; its outputs enter prompts fenced and labelled as data; every second of it is
 recorded in `usage_events`; and each company has a daily limit. We buy sandboxes from a provider rather than build
-them; Slice 3's design picks the provider.
+them; Devesh picks the provider when Slice 3's sandboxed-tasks item is next (decided 2026-10-21).
 
 ## The road from here to the vision
 
