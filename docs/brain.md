@@ -919,7 +919,9 @@ docs/decisions-in-force/ dated that day.
    with its rule-change record. Devesh asked, with it, that every roadmap item with this guardrail be checked: Slice
    1's do-not-call item (built for calls, the console and imports), Slice 2's stop-word item (now says the AI's path
    is this tool, quoting the lead), Slice 2's re-consent item (only a written YES lifts a block), Slice 3's tools item,
-   proof step 5 and its "stop contacting me" test conversation, and Slice 6's legal-floor item agree with it.
+   proof step 5 and its "stop contacting me" test conversation, Slice 4's live-call item (the agent marks the lead
+   do-not-contact from the lead's own quoted words, through the brain's tool registry) and its proof step 7 (a lead
+   marked do-not-call gets a saved refusal and no call), and Slice 6's legal-floor item agree with it.
 
 ## Sources
 
