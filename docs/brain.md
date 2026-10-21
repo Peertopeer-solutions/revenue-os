@@ -8,9 +8,9 @@
 > on main at 3c07459 (2026-10-21), after the Slice 1 pull requests the brain builds on had merged: PR 188
 > (do-not-call, `recordDoNotCall`), PR 189 (the `sends` table, a call or message saved before it is sent), PR 190
 > (`createTask`, `audit()`), PR 192 (the WhatsApp opt-in, guard() split into one file per check), PR 193 (time limits,
-> the old turn in short steps) and PR 194 (one writer for conversations). Three pull requests were still open: PR 195
-> (restarts lose no work), PR 196 (one open run per sequence) and PR 198 (Slice 4 replan: calls on LiveKit and
-> VoiceLink); where this file relies on them it says so. Outside facts carry their source and the date they were
+> the old turn in short steps) and PR 194 (one writer for conversations). Re-checked the same day after PR 195
+> (restarts lose no work), PR 196 (one open run per sequence), PR 198 (Slice 4 replan: calls on LiveKit and
+> VoiceLink) and PR 199 (a lead's sequence never stops silently) merged; where this file relies on them it says so. Outside facts carry their source and the date they were
 > checked.
 
 ## Words used here
@@ -187,7 +187,7 @@ and its dead-letter handler).
 - Adds: `agent_turns`, `turn_steps`, the lease and its expiry in *before*, the snapshot compare in *after*, the
   dead-letter handler.
 - Fixes on the way: the old adapter drops tool-call ids (packages/harness/src/llm/anthropic.ts:92 keeps only the
-  name and arguments), and the model is written into the code (services/worker/src/jobs.ts:57, `claude-opus-4-8`)
+  name and arguments), and the model is written into the code (services/worker/src/jobs.ts:66, `claude-opus-4-8`)
   instead of read from the role. (PR 193 already gave the old loop a 60-second model time limit and took its model
   call out of the transaction, two faults this design listed on 2026-10-19.)
 
@@ -215,7 +215,7 @@ plan calls. Both run on the same `runTurn`.
   cannot answer. These rules can only tighten the company's settings and the legal floor, never loosen them.
 - **Model.** `provider:model-id`, one of the models on the platform's model list (a typed list in code: provider,
   id, context size, price per million tokens). Today the column holds a tier name (`realtime-tier`,
-  supabase/seeds/real_estate.sql:54) and the worker ignores it (jobs.ts:57). The seeded roles default to
+  supabase/seeds/real_estate.sql:54) and the worker ignores it (jobs.ts:66). The seeded roles default to
   `anthropic:claude-sonnet-5-5` (decision 2): a role moves up to Claude Opus 5.5 only when Sonnet fails a test
   conversation that Opus passes, and down to Claude Haiku 5.5 only when Haiku passes the whole set three times.
 - **Which role works a lead.** A new table `agent_assignments` (company, lead, role key, status `active`, `paused`,
@@ -250,7 +250,7 @@ ordinary programming words are not checked.
 (006_harness.sql:3-16), the console's read of it (services/worker/src/routes/agents.ts, `listAgentsAndWorkflows`)
 and the seed pack's sales agent row (the real-estate seed file), which becomes version 1 of the sales role. Replaces
 the tier name in `agents.model` with a `provider:model-id` from the model list, and the model written into the
-worker (jobs.ts:57) with the version's own. Adds the new columns, the `tested` status, the lifecycle trigger,
+worker (jobs.ts:66) with the version's own. Adds the new columns, the `tested` status, the lifecycle trigger,
 `agent_assignments` (with `org_id`, row-level security and a cross-company denial test) and the industry-word guard.
 
 ### 3. Context engineering: what the model reads
@@ -295,7 +295,7 @@ recorded per call.
 
 **One function, a size per channel.** The context is built by one function, which takes a size profile. A chat or
 WhatsApp turn uses the budgets above. A call gets a smaller one, because the voice agent must start speaking within
-about a second: Slice 4 (as PR 198's replan writes it) assembles the call's context with this same function before the
+about a second: Slice 4 (as PR 198's replan wrote it) assembles the call's context with this same function before the
 dial, "within a size limit for calls". The order, the fences and the records stay the same; only the budgets shrink.
 
 **Keeps, replaces, adds.** Keeps the memory fence and its budget idea (retrieval.ts:20, 800 tokens). Replaces
@@ -877,9 +877,10 @@ each hole:
 7. **The sandbox provider.** Vercel publishes no start-up figure and does not say its SDK runs on Bun; one spike
    measures both before the sandbox item is built, and the port keeps a move to Cloud Run Jobs to one adapter.
 8. **Size.** The brain is about 17 PRs. Slice 1 finishes first (decision of 2026-10-18), so the brain starts after it.
-9. **Pull requests open beside it.** PR 195 (restarts lose no work), PR 196 (one open run per sequence) and PR 198
-   (Slice 4 on LiveKit and VoiceLink) were open when this design was agreed. Parts 1, 2, 3, 4 and 7 say what each
-   changes here; if one lands differently, the first Slice 3 item it touches fixes this file in its own PR. (The
+9. **Pull requests that landed beside it.** PR 195 (restarts lose no work), PR 196 (one open run per sequence), PR
+   198 (Slice 4 on LiveKit and VoiceLink) and PR 199 (a lead's sequence never stops silently) merged while this
+   design was agreed. Parts 1, 2, 3, 4 and 7 say what each changes here; where later code differs, the first Slice 3
+   item it touches fixes this file in its own PR. (The
    replan that made Slice 3 the brain merged on 2026-10-18 as f4da637, PR 186.)
 10. **A person and the agent act at once.** A turn takes up to 150 seconds. The commit's re-check (part 1) and the
     step's own lock make a person's change win; the test for it changes the assignment mid-turn.
@@ -923,7 +924,7 @@ docs/decisions-in-force/ dated that day.
 ## Sources
 
 - Code: main at 4d62d5e, read 2026-10-18, at 4299195, read 2026-10-19, and at 3c07459, read 2026-10-21 (PRs 188, 189,
-  190, 192, 193, 194 and 197 merged); the open PRs 195, 196 and 198 at their heads on 2026-10-21; the prototype at
+  190, 192, 193, 194 and 197 merged), then main at 95b089b on 2026-10-21 (PRs 195, 196, 198, 199 and 200 merged); the prototype at
   origin/feat/pi-sales-harness e3c7697; the replan, merged as f4da637 (PR 186).
 - Pi: the earendil-works/pi repository at tag v1.3.0 (commit 71023ae), and npm's records for
   @earendil-works/pi-agent-core and @earendil-works/pi-ai 1.3.0, checked 2026-10-18; the Anthropic TypeScript SDK at

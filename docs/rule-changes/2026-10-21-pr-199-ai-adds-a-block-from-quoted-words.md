@@ -1,1 +1,0 @@
-- 2026-10-21 · [#199](https://github.com/Peertopeer-solutions/revenue-os/pull/199) · AGENTS.md: the one exception to "model output never writes consent or guardrail fields" now lets the AI add a do-not-call block quoted word for word from the lead's own message, not only one heard on a call; it still never removes a block or grants consent · looser
