@@ -9,6 +9,7 @@ export {
   type OrgUnits,
   runTurn,
   type TurnDeps,
+  versionDeps,
 } from "./loop";
 export { emitUsage } from "./meter";
 export { guard } from "./policies";

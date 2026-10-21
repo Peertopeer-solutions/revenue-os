@@ -20,11 +20,12 @@
 // org_id. A read that must look across companies goes through an app.* security-definer function, as app.due_org_ids
 // does.
 //
-// It also holds five tables to one writer each (ONE_WRITER): an insert into tasks, audit_log, org_members, conversations
-// or messages fails anywhere but the file that owns the table in packages/db (createTask; audit; the audited member
-// grant; openConversation and addMessage), so every task is for a lead and every audit row, access grant, conversation
-// and message is written one way. An update or delete of conversations or messages (EVERY_WRITE) fails there too, so a
-// conversation is finished one way (finishConversation). A write's target is always the real table,
+// It also holds six tables to one writer each (ONE_WRITER): an insert into tasks, audit_log, org_members, conversations,
+// messages or agent_assignments fails anywhere but the file that owns the table in packages/db (createTask; audit; the
+// audited member grant; openConversation and addMessage; setAssignment), so every task is for a lead and every audit
+// row, access grant, conversation, message and choice of the role that works a lead is written one way. An update or
+// delete of conversations, messages or agent_assignments (EVERY_WRITE) fails there too, so a conversation is finished
+// one way (finishConversation) and an assignment changes one way. A write's target is always the real table,
 // whatever a common table expression is named, and a merge statement fails anywhere in the SQL.
 //
 // Known limits: it proves the SQL names a company parameter, not that $n holds the request's company (the tests that
@@ -54,9 +55,10 @@ const ONE_WRITER: Record<string, string> = {
   org_members: "packages/db/src/orgs.ts",
   conversations: "packages/db/src/conversations.ts",
   messages: "packages/db/src/conversations.ts",
+  agent_assignments: "packages/db/src/assignments.ts",
 };
 // Tables whose every write, not just an insert, belongs to their one writer.
-const EVERY_WRITE = new Set(["conversations", "messages"]);
+const EVERY_WRITE = new Set(["conversations", "messages", "agent_assignments"]);
 const HOLE = "\u0001"; // a ${…} in a template literal
 const ODD = "\u0002"; // SQL this guard would read differently from the database
 const HOW =

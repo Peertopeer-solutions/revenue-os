@@ -15,6 +15,7 @@ import {
   ToolRegistry,
 } from "@revenue-os/harness";
 import pg from "pg";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import {
   handlePlaceCall,
@@ -56,15 +57,9 @@ async function seedWorkflow(def: unknown, org = orgId): Promise<string> {
   return r.rows[0].id;
 }
 
-/** An active agent version — place_call / agent.turn load system_prompt + tools_allowed from it. */
-async function seedAgent(org = orgId, key = "closer"): Promise<string> {
-  const r = await admin.query(
-    `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-     values ($1, $2, 1, 'active', 'claude-sonnet-4-6', 'You are a scheduler.', '{}') returning id`,
-    [org, key],
-  );
-  return r.rows[0].id;
-}
+/** A live agent version — place_call / agent.turn take its model, prompt, goal, rules and tools from it. */
+const seedAgent = (org = orgId, key = "closer"): Promise<string> =>
+  putLive(admin, org, { key, systemPrompt: "You are a scheduler." });
 
 type RunOpts = {
   currentStep: string;

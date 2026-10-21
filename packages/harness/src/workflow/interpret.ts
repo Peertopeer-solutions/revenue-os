@@ -94,8 +94,9 @@ function nextLocalTime(now: Date, hhmm: string, tz: string): Date {
 }
 
 // The technical results a `call` step's `on` map names directly. Anything else the handler folds
-// (site_visit_agreed, interested, callback, …) is a BUSINESS disposition — the call COMPLETED and
-// carries it — so it routes via the `completed` arm and survives to a downstream `branch`.
+// (interested, callback, or any disposition the company's own rows name) is a BUSINESS disposition —
+// the call COMPLETED and carries it — so it routes via the `completed` arm and survives to a
+// downstream `branch`.
 const CALL_OUTCOMES = new Set(["completed", "no_answer", "busy", "failed"]);
 
 // --- interpreter ------------------------------------------------------------
@@ -185,10 +186,12 @@ export function interpret(
         };
       }
       case "tool": {
-        // Closed side-effect set: create_task drafts a task; book_appointment records an outcome.
-        // The Action kind, the outcome kind and the attribution contact are INTERPRETER-owned:
-        // `args` is spread FIRST so a definition can never repoint an outcome at another tenant's
-        // contact (outcomes.contact_id is an FK, and FK checks bypass RLS) or rewrite the kind.
+        // Closed side-effect set: create_task drafts a task; book_appointment records an outcome,
+        // named by the step's own `outcome` (a row of the company's sequence, as the seed packs
+        // write it; the schema refuses a booking step without one). The Action kind and the
+        // attribution contact are INTERPRETER-owned: `args` is spread FIRST so a definition can
+        // never repoint an outcome at another tenant's contact (outcomes.contact_id is an FK, and
+        // FK checks bypass RLS) or rename it through an args key.
         const target = step.then as string;
         const args = (step.args as Record<string, unknown> | undefined) ?? {};
         const action: Action =
@@ -197,7 +200,7 @@ export function interpret(
                 kind: "write_outcome",
                 outcome: {
                   ...args,
-                  kind: "site_visit_booked",
+                  kind: step.outcome as string,
                   contactId: state.contactId,
                 },
               }

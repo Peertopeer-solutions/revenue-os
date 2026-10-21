@@ -60,13 +60,13 @@ beforeAll(async () => {
   orgA = await makeOrg(userA.token);
   orgB = await makeOrg(userB.token);
 
-  // orgA — two keys, one carrying two versions, to pin (key asc, version desc). Distinctive
+  // orgA — two keys, one carrying two versions, to pin (key asc, version desc); drafts, as every new version starts. Distinctive
   // system_prompt / definition values so the lean-shape asserts prove internals are never shipped.
   await admin.query(
     `insert into agents (org_id, key, version, status, model, system_prompt)
-     values ($1, $2, 1, 'active', 'model-alpha-v1', 'SECRET-PROMPT-ALPHA-1'),
+     values ($1, $2, 1, 'draft',  'model-alpha-v1', 'SECRET-PROMPT-ALPHA-1'),
             ($1, $2, 2, 'draft',  'model-alpha-v2', 'SECRET-PROMPT-ALPHA-2'),
-            ($1, $3, 1, 'active', 'model-beta-v1',  'SECRET-PROMPT-BETA-1')`,
+            ($1, $3, 1, 'draft',  'model-beta-v1',  'SECRET-PROMPT-BETA-1')`,
     [orgA, `${PREFIX}alpha`, `${PREFIX}beta`],
   );
   await admin.query(
@@ -79,7 +79,7 @@ beforeAll(async () => {
   // orgB — rows that must NEVER appear in orgA's response (the load-bearing cross-tenant assert).
   await admin.query(
     `insert into agents (org_id, key, version, status, model, system_prompt)
-     values ($1, $2, 1, 'active', 'ORGB-MODEL-SECRET', 'ORGB-PROMPT-SECRET')`,
+     values ($1, $2, 1, 'draft', 'ORGB-MODEL-SECRET', 'ORGB-PROMPT-SECRET')`,
     [orgB, `${PREFIX}orgb`],
   );
   await admin.query(

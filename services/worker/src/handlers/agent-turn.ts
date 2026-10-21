@@ -4,16 +4,16 @@
 //   1. In one short transaction: reload the conversation FOR UPDATE; NO-OP if this trigger was already processed. The
 //      per-trigger marker is DURABLE and message-derived (NOT the conversation status column): a turn answers the
 //      latest unanswered inbound, so once the agent's reply sits after every contact message there is nothing to
-//      process. Then load the conversation's agent (the company's own or a shared template: system_prompt +
-//      tools_allowed).
+//      process. Then load the live version of the role the conversation's agent belongs to (the company's own or a
+//      shared template), whole: its model, prompt, goal, rules and tools. No role, or none of it live: no turn.
 //   2. runTurn with OrgUnits: each round reads in a short transaction, asks the model (within its time limit) with
 //      none open, and saves in another, so messages + usage_events land. A pg-boss re-delivery that runs at the same
 //      time saves its answer ONCE: the save finds a message added since it read and stops (packages/harness/src/loop.ts).
 
 import type { ToolRegistry } from "@harness/registry";
 import type { LlmProvider } from "@harness/types";
-import { withOrg } from "@revenue-os/db";
-import { runTurn } from "@revenue-os/harness";
+import { liveVersion, withOrg } from "@revenue-os/db";
+import { runTurn, versionDeps } from "@revenue-os/harness";
 import type { Pool } from "pg";
 import { TIME_LIMITS, type TimeLimits } from "../time-limits";
 
@@ -62,13 +62,15 @@ export async function handleAgentTurn(
     );
     if ((pending.rowCount ?? 0) === 0) return; // already processed — exactly-once
 
-    return (
+    // The role the conversation's agent is a version of, played as the version live now: a version put live since
+    // the conversation began reaches its lead at this turn.
+    const role = (
       await tx.query(
-        `select system_prompt, tools_allowed from agents
-          where id = $1 and (org_id = $2 or org_id is null)`,
+        `select key from agents where id = $1 and (org_id = $2 or org_id is null)`,
         [convo.agent_id, orgId],
       )
-    ).rows[0]; // none: the conversation has no resolvable agent
+    ).rows[0]?.key;
+    return typeof role === "string" ? liveVersion(tx, orgId, role) : null; // null: no role, or none of it live
   });
   if (!agent) return;
 
@@ -77,8 +79,7 @@ export async function handleAgentTurn(
     {
       provider: deps.provider,
       registry: deps.registry,
-      toolsAllowed: (agent.tools_allowed as string[] | null) ?? [],
-      systemPrompt: (agent.system_prompt as string | null) ?? "",
+      ...versionDeps(agent),
       modelTimeLimitMs: deps.limits?.model ?? TIME_LIMITS.model,
     },
     {

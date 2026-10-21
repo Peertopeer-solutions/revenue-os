@@ -4,6 +4,7 @@
   "types": "src/index.ts",
   "dependencies": {
     "@revenue-os/db": "workspace:*",
+    "@revenue-os/shared": "workspace:*",
     "zod": "4.4.3"
   }
 }

@@ -4,8 +4,16 @@
 export {
   type AgentRow,
   listAgentsAndWorkflows,
+  liveVersion,
   type WorkflowRow,
 } from "./agents";
+export {
+  type Assignment,
+  type AssignmentResult,
+  lockLead,
+  openAssignment,
+  setAssignment,
+} from "./assignments";
 export { type ActorType, type AuditEntry, audit } from "./audit";
 export { createPool, type Db, type PoolClient, withOrg } from "./client";
 export {

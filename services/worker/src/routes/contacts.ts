@@ -1,16 +1,18 @@
 // A company's leads: the CSV import (how a company brings its own lead list, until any CRM sync), a person marking
-// a lead do-not-call from the console, and recording a lead's WhatsApp opt-in or its withdrawal — validate →
-// authorize → do → audit.
+// a lead do-not-call from the console, recording a lead's WhatsApp opt-in or its withdrawal, and setting which role
+// works a lead — validate → authorize → do → audit.
 import {
   importContacts,
   memberRole,
   type OptInSource,
   recordDoNotCall,
   recordWhatsAppOptIn,
+  setAssignment,
   withdrawWhatsAppOptIn,
   withOrg,
 } from "@revenue-os/db";
 import {
+  AssignmentInputSchema,
   ContactIdSchema,
   OrgIdSchema,
   parseCsv,
@@ -86,6 +88,31 @@ export const contacts = new Hono<AuthEnv>()
     );
     if (said === "not_found") return c.json({ error: "not_found" }, 404);
     return c.json({ do_not_call: true });
+  })
+  // Which role works the lead, and why: operator or admin only. A lead in a sequence is refused (409) unless the
+  // assignment ends, since a lead is enrolled with a role or in a sequence, never both.
+  .put("/orgs/:orgId/contacts/:contactId/assignment", async (c) => {
+    const orgId = OrgIdSchema.parse(c.req.param("orgId"));
+    const contactId = ContactIdSchema.parse(c.req.param("contactId"));
+    const actor = c.get("actor");
+    const role = await memberRole(pool, orgId, actor.userId);
+    if (role !== "operator" && role !== "admin")
+      return c.json({ error: "forbidden" }, 403);
+    const body = AssignmentInputSchema.safeParse(
+      await c.req.json().catch(() => null),
+    );
+    if (!body.success) return c.json({ error: "invalid_request" }, 400);
+    const set = await withOrg(pool, orgId, (tx) =>
+      setAssignment(tx, orgId, contactId, {
+        ...body.data,
+        actor: { type: "user", id: actor.userId },
+      }),
+    );
+    if (set.ok) return c.json({ assignment: set.assignment });
+    if (set.refused === "not_found") return c.json({ error: "not_found" }, 404);
+    if (set.refused === "unknown_role")
+      return c.json({ error: "unknown_role" }, 422);
+    return c.json({ error: "lead_in_sequence", run_id: set.runId }, 409);
   })
   .post("/orgs/:orgId/contacts/:contactId/whatsapp-opt-in", (c) =>
     setOptIn(c, recordWhatsAppOptIn, true),

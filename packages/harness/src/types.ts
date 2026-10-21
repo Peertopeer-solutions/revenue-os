@@ -1,8 +1,9 @@
-// Every type the engine shares lives here, nowhere else (docs/tech-stack.md T26.1).
+// Every type the engine shares lives here, nowhere else (docs/tech-stack.md T26.1, the module map).
 // G1: runtime-agnostic.
+import type { RoleRules } from "@revenue-os/shared";
 import type { z } from "zod";
 
-/** Structural view of packages/db's tx client — the ONLY door to data (docs/tech-stack.md T26.1). */
+/** Structural view of packages/db's tx client — the ONLY door to data (docs/tech-stack.md T26.1, the module map). */
 export interface OrgScopedDb {
   query(
     text: string,
@@ -19,6 +20,10 @@ export interface OrgScopedDb {
 // via conversations.workflow_run_id (AGENTS.md → Conventions: every result traces to its run). Optional: absent outside a turn (unit tests,
 // inline callers) where the tool writes a null link.
 //
+// rules: the rules of the role version the turn runs (packages/shared/src/role.ts), threaded in by runTurn so a tool
+// reads what the role allows from the version, never from words in the engine: book_appointment books the role's kind
+// and records its outcome. Absent outside a turn, where a tool that needs a rule refuses.
+//
 // onGuardEvent: the guard pipeline's observability sink, shaped like the clock seam —
 // optional, so prod may ignore it. A hook that DECLINES to evaluate (quiet-hours fails open when
 // tz:'contact' cannot be resolved) says so here instead of guessing silently.
@@ -27,6 +32,7 @@ export type OrgCtx = {
   db: OrgScopedDb;
   now?: () => Date;
   conversationId?: string;
+  rules?: RoleRules;
   onGuardEvent?: (e: {
     hook: string;
     decision?: string;
@@ -44,7 +50,7 @@ export interface Tool<I = unknown> {
   name: string;
   description: string;
   schema: z.ZodType<I>; // args validated BEFORE anything runs (src/tool-call.ts)
-  autonomy: Autonomy; // what guard()'s approval-level check (autonomyHook) applies; company settings don't change it
+  autonomy: Autonomy; // what guard()'s approval-level check (autonomyHook) applies; the role's rules may tighten it
   execute(ctx: OrgCtx, args: I): Promise<ToolResult>;
 }
 
@@ -67,6 +73,7 @@ export type LlmTurn = {
 
 export interface LlmProvider {
   complete(req: {
+    model: string; // the role version's model: `provider:model-id`, on the platform's list (packages/shared/src/models.ts)
     system: string;
     messages: Msg[];
     tools?: ToolSpec[];

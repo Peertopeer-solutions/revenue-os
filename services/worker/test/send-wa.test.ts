@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { createPool } from "@revenue-os/db";
 import { ToolRegistry } from "@revenue-os/harness";
 import pg, { type Pool } from "pg";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleAgentTurn } from "../src/handlers/agent-turn";
 import { handleSendWa, type SendWaDeps } from "../src/handlers/send-wa";
@@ -665,6 +666,7 @@ describe("send_wa on the lead's thread", () => {
     ]);
   });
 
+  // behaviour already on main: only its agent is now put live the way migration 026 requires, through a passing run of its test set
   it("a send while an AI turn waits for its model goes on the lead's thread as line 2, and the turn, its answer now out of date, adds no line: one thread, every saved line in order", async () => {
     const lead = (
       await admin.query(
@@ -677,13 +679,10 @@ describe("send_wa on the lead's thread", () => {
        values ($1, $2, 'whatsapp', '+919876500088', true)`,
       [orgId, lead],
     );
-    const agentId = (
-      await admin.query(
-        `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-         values ($1, $2, 1, 'active', 'm', 'You reply.', '{}') returning id`,
-        [orgId, `wa-agent-${REF}`],
-      )
-    ).rows[0].id;
+    const agentId = await putLive(admin, orgId, {
+      key: `wa-agent-${REF}`,
+      systemPrompt: "You reply.",
+    });
     const thread = (
       await admin.query(
         `insert into conversations (org_id, contact_id, agent_id, channel, direction, status, provider)

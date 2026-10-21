@@ -112,12 +112,22 @@ const StepSchema = z.discriminatedUnion("kind", [
     kind: z.literal("branch"),
     onDisposition: z.record(z.string(), z.string()),
   }),
-  z.object({
-    kind: z.literal("tool"),
-    tool: z.string(),
-    args: z.record(z.string(), z.unknown()).optional(),
-    then: z.string(),
-  }),
+  z
+    .object({
+      kind: z.literal("tool"),
+      tool: z.string(),
+      // the outcome a booking step records, a row of the sequence (interpret.ts)
+      outcome: z
+        .string()
+        .regex(/^[a-z][a-z0-9_]{0,63}$/)
+        .optional(),
+      args: z.record(z.string(), z.unknown()).optional(),
+      then: z.string(),
+    })
+    .refine((s) => s.tool !== "book_appointment" || s.outcome !== undefined, {
+      message: "a book_appointment step names the outcome it records",
+      path: ["outcome"],
+    }),
   z.object({ kind: z.literal("end") }),
 ]);
 

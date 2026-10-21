@@ -10,6 +10,7 @@ import {
   ToolRegistry,
 } from "@revenue-os/harness";
 import pg from "pg";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleAgentTurn } from "../src/handlers/agent-turn";
 
@@ -42,15 +43,9 @@ async function seedWorkflow(def: unknown, org = orgId): Promise<string> {
   return r.rows[0].id;
 }
 
-/** An active agent version — place_call / agent.turn load system_prompt + tools_allowed from it. */
-async function seedAgent(org = orgId, key = "closer"): Promise<string> {
-  const r = await admin.query(
-    `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-     values ($1, $2, 1, 'active', 'claude-sonnet-4-6', 'You are a scheduler.', '{}') returning id`,
-    [org, key],
-  );
-  return r.rows[0].id;
-}
+/** A live agent version — place_call / agent.turn take its model, prompt, goal, rules and tools from it. */
+const seedAgent = (org = orgId, key = "closer"): Promise<string> =>
+  putLive(admin, org, { key, systemPrompt: "You are a scheduler." });
 
 type RunOpts = {
   currentStep: string;
@@ -218,5 +213,85 @@ describe("agent.turn (run_agent_turn) handler", () => {
 
     expect(afterOne).toBeGreaterThan(before); // the first turn added a message
     expect(afterTwo).toBe(afterOne); // ...the duplicate added nothing
+  });
+});
+
+describe("agent.turn plays the role's version live when the turn starts", () => {
+  /** A model that answers once and says what it was asked with. */
+  function asked() {
+    const seen: { model: string; system: string }[] = [];
+    const provider: LlmProvider = {
+      complete: async (req) => {
+        seen.push({ model: req.model, system: req.system });
+        return { text: "Happy to help.", usage: { in: 4, out: 2 } };
+      },
+    };
+    return { seen, provider };
+  }
+  const turn = (conversationId: string, provider: LlmProvider) =>
+    handleAgentTurn(
+      { pool: appPool, provider, registry: new ToolRegistry() },
+      { orgId, runId: "", action: { kind: "run_agent_turn", conversationId } },
+    );
+  const conversationOn = async (agent: string) =>
+    seedConversation({
+      runId: await seedRun(await seedWorkflow(CALL_WF), {
+        currentStep: "end",
+        state: { contactId },
+      }),
+      agentId: agent,
+    });
+
+  it("reaches a lead already in a conversation with the version put live since, its model, prompt and goal", async () => {
+    const key = `role_${Date.now()}`;
+    const v1 = await putLive(admin, orgId, {
+      key,
+      systemPrompt: "Version one.",
+    });
+    const conversationId = await conversationOn(v1);
+    const v2 = await putLive(admin, orgId, {
+      key,
+      version: 2,
+      model: "anthropic:claude-haiku-5-5",
+      systemPrompt: "Version two.",
+      goal: "Answer within a minute.",
+    });
+    const { seen, provider } = asked();
+    await turn(conversationId, provider);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.model).toBe("anthropic:claude-haiku-5-5");
+    expect(seen[0]?.system).toStartWith(
+      "Version two.\n\nYour goal: Answer within a minute.",
+    );
+    const usage = await admin.query(
+      `select meta ->> 'version' as version from usage_events where org_id = $1 and conversation_id = $2`,
+      [orgId, conversationId],
+    );
+    expect(usage.rows).toEqual([{ version: v2 }]);
+  });
+
+  it("runs no turn, asking no model, when no version of the role is live", async () => {
+    const key = `role_${Date.now()}`;
+    const only = await putLive(admin, orgId, { key });
+    const conversationId = await conversationOn(only);
+    await admin.query(`update agents set status = 'archived' where id = $1`, [
+      only,
+    ]);
+    const { seen, provider } = asked();
+    const before = await countMessages(conversationId);
+    await turn(conversationId, provider);
+    expect(seen).toHaveLength(0);
+    expect(await countMessages(conversationId)).toBe(before);
+  });
+
+  it("fails the turn loudly, asking no model, when the live version names a model off the platform's list", async () => {
+    const key = `role_${Date.now()}`;
+    const bad = await putLive(admin, orgId, { key, model: "realtime-tier" });
+    const conversationId = await conversationOn(bad);
+    const { seen, provider } = asked();
+    await expect(turn(conversationId, provider)).rejects.toThrow(
+      `live version 1 of role ${key} can't be used`,
+    );
+    expect(seen).toHaveLength(0);
   });
 });

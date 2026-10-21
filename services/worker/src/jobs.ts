@@ -57,14 +57,12 @@ const JobEnvelope = z.object({ orgId: OrgIdSchema });
  * Construct the production Claude provider — but ONLY when a key is configured. Returns null with
  * no key so the worker still BOOTS (no LLM until a key is set). Pure construction: no network until
  * .complete() is first called (the raw-fetch adapter only fetches inside complete). Returns the
- * provider itself, not a registry entry — the caller injects it straight into the handler deps.
+ * provider itself, not a registry entry — the caller injects it straight into the handler deps. It names no model:
+ * each turn asks for the one its role version names.
  */
 export function makeProvider(env: Env): LlmProvider | null {
   return env.ANTHROPIC_API_KEY
-    ? createAnthropicProvider({
-        apiKey: env.ANTHROPIC_API_KEY,
-        model: "claude-opus-4-8",
-      })
+    ? createAnthropicProvider({ apiKey: env.ANTHROPIC_API_KEY })
     : null;
 }
 

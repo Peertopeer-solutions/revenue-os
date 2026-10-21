@@ -1,7 +1,9 @@
 // The raw-`fetch` Anthropic (Claude) Messages adapter behind LlmProvider.
-// docs/tech-stack.md T19: "raw fetch, no SDK" — no @anthropic-ai dependency (BOM/T19).
-// One POST to /v1/messages per turn; response content blocks → LlmTurn.
+// docs/tech-stack.md T19: "raw fetch, no SDK" — no @anthropic-ai dependency (scripts/guards/anthropic-sdk.sh holds it).
+// One POST to /v1/messages per model call; response content blocks → LlmTurn. The model is the role version's, named on
+// each call (`provider:model-id`), and only one of Anthropic's on the platform's model list is ever sent, as its own id.
 // G1: runtime-agnostic — no bun:* imports, no Bun.* globals (fetch is a standard global).
+import { modelOf } from "@revenue-os/shared";
 import type { LlmProvider, Msg } from "../types";
 
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
@@ -41,12 +43,16 @@ class AnthropicHttpError extends Error {
 
 export function createAnthropicProvider(config: {
   apiKey: string;
-  model: string;
 }): LlmProvider {
   return {
     async complete(req) {
+      const model = modelOf(req.model);
+      if (model?.provider !== "anthropic")
+        throw new Error(
+          `${req.model || "no model"} is not an Anthropic model on the platform's model list (packages/shared/src/models.ts)`,
+        );
       const body = {
-        model: config.model,
+        model: model.id,
         system: req.system,
         max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
         messages: req.messages.map((m) => ({

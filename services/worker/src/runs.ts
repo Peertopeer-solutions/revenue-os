@@ -3,8 +3,11 @@
 // only DB door is withOrg (docs/security.md, "Tenancy & identity"): one org-scoped tx. The sequence is the company's
 // own or a shared template; another company's sequence is "not found". A lead already in the sequence (an open run:
 // pending, running or waiting) is refused with AlreadyInSequenceError; migration 025's key makes that hold however
-// close together two enrolments come.
-import { withOrg } from "@revenue-os/db";
+// close together two enrolments come. A lead a role works (an assignment that has not ended, migration 026) is refused
+// with LeadHasRoleError: a lead is enrolled with a role or in a sequence, never both. The lead's row is locked first, as
+// the assignment's one writer (setAssignment, packages/db/src/assignments.ts) locks it, so an enrolment and an
+// assignment made at the same moment can't both pass.
+import { lockLead, openAssignment, withOrg } from "@revenue-os/db";
 import { WorkflowDefinitionSchema } from "@revenue-os/harness";
 import type { Pool } from "pg";
 
@@ -22,6 +25,20 @@ export class AlreadyInSequenceError extends Error {
   }
 }
 
+/** An enrolment of a lead a role works: its assignment (`roleKey`, `status`) has not ended. */
+export class LeadHasRoleError extends Error {
+  constructor(
+    readonly contactId: string,
+    readonly roleKey: string,
+    readonly status: string,
+  ) {
+    super(
+      `lead ${contactId} is worked by the role ${roleKey} (${status}), so it can't be enrolled in a sequence too`,
+    );
+    this.name = "LeadHasRoleError";
+  }
+}
+
 /** Input to startRun. `state` seeds the run's WorkflowState jsonb (contactId is always set
  *  from `contactId`; callers may add timezone / vars). */
 export type StartRunInput = {
@@ -36,7 +53,7 @@ export type StartRunInput = {
  * definition.entry, state seeded { …caller state, contactId }, attempts = {} (the per-channel
  * timestamp arrays fill in on the first tick), wake_at = now() so the tick's due-selection can
  * pick it up. Returns the new run id. Runs inside one withOrg(orgId) tx. Throws AlreadyInSequenceError when the lead
- * already has an open run in this sequence.
+ * already has an open run in this sequence, and LeadHasRoleError when a role works the lead.
  */
 export async function startRun(
   pool: Pool,
@@ -44,6 +61,10 @@ export async function startRun(
   input: StartRunInput,
 ): Promise<string> {
   return withOrg(pool, orgId, async (tx) => {
+    await lockLead(tx, orgId, input.contactId); // a lead the company doesn't have fails at the insert, as before
+    const role = await openAssignment(tx, orgId, input.contactId);
+    if (role)
+      throw new LeadHasRoleError(input.contactId, role.roleKey, role.status);
     const wf = await tx.query<{ definition: unknown }>(
       `select definition from workflows where id = $1 and (org_id = $2 or org_id is null)`,
       [input.workflowId, orgId],

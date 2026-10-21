@@ -11,6 +11,7 @@ import {
   type LlmTurn,
 } from "@revenue-os/harness";
 import pg from "pg";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleAgentTurn } from "../src/handlers/agent-turn";
 
@@ -45,11 +46,15 @@ beforeAll(async () => {
     `insert into contacts (org_id, first_name) values ($1, 'Asha') returning id`,
     [a],
   );
-  const agent = await one(
-    `insert into agents (org_id, key, status, model, system_prompt, tools_allowed)
-     values ($1, 'closer', 'active', 'm', 'Book site visits.', '{book_appointment}') returning id`,
-    [a],
-  );
+  const agent = await putLive(admin, a, {
+    key: "closer",
+    systemPrompt: "Book site visits.",
+    toolsAllowed: ["book_appointment"],
+    rules: {
+      outcomes: ["site_visit_booked"],
+      booking: { kind: "site_visit", outcome: "site_visit_booked" },
+    },
+  });
   const workflow = await one(
     `insert into workflows (org_id, key, status, definition) values ($1, 'wf', 'active', '{}') returning id`,
     [a],
@@ -119,16 +124,17 @@ describe("the AI's booking tool naming another company's lead", () => {
 });
 
 describe("the AI's update_contact tool naming another company's lead", () => {
+  // behaviour already on main: only its agent is now put live the way migration 026 requires, through a passing run of its test set
   it("renames nothing, and the turn records the tool's contact_not_found for the model to see", async () => {
     const lead = await one(
       `insert into contacts (org_id, first_name) values ($1, 'Meera') returning id`,
       [a],
     );
-    const agent = await one(
-      `insert into agents (org_id, key, status, model, system_prompt, tools_allowed)
-       values ($1, 'renamer', 'active', 'm', 'Keep names right.', '{update_contact}') returning id`,
-      [a],
-    );
+    const agent = await putLive(admin, a, {
+      key: "renamer",
+      systemPrompt: "Keep names right.",
+      toolsAllowed: ["update_contact"],
+    });
     const conversation = await one(
       `insert into conversations (org_id, contact_id, agent_id, channel, direction, status)
        values ($1, $2, $3, 'whatsapp', 'inbound', 'active') returning id`,

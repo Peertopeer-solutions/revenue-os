@@ -16,6 +16,7 @@ import { buildCatalog, type LlmTurn } from "@revenue-os/harness";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 import { OPTED_IN } from "../../../tests/opted-in";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import {
   handlePlaceCall,
@@ -235,11 +236,15 @@ beforeAll(async () => {
             ($1, $2, 'whatsapp', '+919876500001', false)`,
     [orgId, contactId],
   );
-  await admin.query(
-    `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-     values ($1, 'closer', 1, 'active', 'claude-fake', 'You are a closer.', '{book_appointment}')`,
-    [orgId],
-  );
+  await putLive(admin, orgId, {
+    key: "closer",
+    systemPrompt: "You are a closer.",
+    toolsAllowed: ["book_appointment"],
+    rules: {
+      outcomes: ["site_visit_booked"],
+      booking: { kind: "site_visit", outcome: "site_visit_booked" },
+    },
+  });
   await admin.query(
     `insert into guardrail_policies (org_id, key, config, active)
      values ($1, 'quiet_hours', $2::jsonb, true), ($1, 'attempt_caps', $3::jsonb, true)`,

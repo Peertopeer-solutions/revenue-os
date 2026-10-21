@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { withOrg } from "@revenue-os/db";
 import { type LlmProvider, ToolRegistry } from "@revenue-os/harness";
 import pg from "pg";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleAgentTurn } from "../src/handlers/agent-turn";
 import {
@@ -63,12 +64,9 @@ async function lead(org: string, number: string): Promise<string> {
   return contact;
 }
 
+// A live version: a shared template's run belongs to company A, whose clean-up deletes it.
 const agent = (org: string | null, key: string) =>
-  id(
-    `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-     values ($1, $2, 1, 'active', 'm', 'You book site visits.', '{}') returning id`,
-    [org, key],
-  );
+  putLive(admin, org, { key, systemPrompt: "You book site visits." }, org ?? a);
 
 const sequence = (org: string | null, definition: unknown) =>
   id(

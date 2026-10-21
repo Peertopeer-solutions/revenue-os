@@ -446,6 +446,34 @@ it("lets only conversations.ts write conversations and messages, and fails any o
   expect(code).toBe(1);
 }, 30_000);
 
+// Which role works a lead has one writer, packages/db/src/assignments.ts (setAssignment): every insert, update or delete
+// of agent_assignments anywhere else fails, naming that file; reads pass.
+it("lets only assignments.ts write agent_assignments, and fails any other product file's insert, update or delete", () => {
+  const writes = `export const writes = (db, o, c) => [
+  db.query("insert into agent_assignments (org_id, contact_id, role_key, why) values ($1, $2, 'sales', 'x')", [o, c]),
+  db.query("update agent_assignments set status = 'ended' where org_id = $1 and contact_id = $2", [o, c]),
+  db.query("delete from agent_assignments where org_id = $1 and contact_id = $2", [o, c]),
+  db.query("select status from agent_assignments where org_id = $1 and contact_id = $2", [o, c]),
+];
+`;
+  const { code, own } = guards({
+    "packages/db/src/assignments.ts": writes,
+    "services/worker/src/runs.ts": writes,
+  });
+  const owner = "packages/db/src/assignments.ts";
+  for (const [line, what] of [
+    [2, "inserts into agent_assignments"],
+    [3, "updates agent_assignments"],
+    [4, "deletes from agent_assignments"],
+  ])
+    expect(own).toContain(
+      `services/worker/src/runs.ts:${line}: ${what}, which only ${owner} writes: call its function instead`,
+    );
+  expect(own).not.toContain("services/worker/src/runs.ts:5");
+  expect(own).not.toContain(`${owner}:`);
+  expect(code).toBe(1);
+}, 30_000);
+
 it("fails loudly outside a git checkout, where it can list no files: nothing was checked", () => {
   const { code, own } = guards(
     { "packages/db/src/x.ts": UNFILTERED },

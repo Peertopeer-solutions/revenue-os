@@ -129,12 +129,13 @@ describe("openConversation", () => {
     expect(next).not.toBe(first);
   });
 
+  // behaviour already on main: only its agent fixture changed, to a draft, the status migration 026 has every new version start in
   it("opens one conversation per call id, and a second open only fills in what is missing, keeping the earliest start", async () => {
     const contactId = await lead();
     const agentId = String(
       (
         await admin.query(
-          `insert into agents (org_id, key, version, status, model, system_prompt) values ($1, $2, 1, 'active', 'm', 'p') returning id`,
+          `insert into agents (org_id, key, version, status, model, system_prompt) values ($1, $2, 1, 'draft', 'm', 'p') returning id`,
           [orgA, `a-${randomUUID()}`],
         )
       ).rows[0]?.id,

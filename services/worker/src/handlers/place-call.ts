@@ -4,8 +4,8 @@
 // query also filters by the job's company (the run's sequence and the call's agent may be shared templates).
 //   1. In one short transaction: reload the run FOR UPDATE and NO-OP if stale (it no longer waits for this job's
 //      call: an outcome is folded, status != 'waiting', current_step is no longer a call step, or the run is not the
-//      one this job's call was queued for), look up this job's saved call, and load the active agent and the lead's
-//      number. A call saved before means this job ran before: never dial again — go on from its saved answer, or hand
+//      one this job's call was queued for), look up this job's saved call, and load the role's live version, whole
+//      (liveVersion: its model, prompt, goal, rules and tools), and the lead's number. A call saved before means this job ran before: never dial again — go on from its saved answer, or hand
 //      the lead to a person when none was saved.
 //   2. Send the call at most once (src/sends.ts sendOnce): guard() BEFORE the dial, through the channels voice
 //      doorway (voice.place), the call saved with the guard's verdict; the dial with no transaction open; its answer
@@ -17,7 +17,7 @@
 //      resolve the call OUTCOME via the injected `outcome` port with no transaction open; then, in a last short
 //      transaction that locks the run and finds it still waiting for this call, FOLD the outcome into
 //      state.lastDisposition and RE-ARM (status waiting, wake_at now, current_step UNCHANGED) so the next tick routes it.
-// @revenue-os/channels is an internal workspace dep (no BOM row, like @revenue-os/harness).
+// @revenue-os/channels is an internal workspace dependency, like @revenue-os/harness.
 
 import type { ToolRegistry } from "@harness/registry";
 import type {
@@ -27,8 +27,14 @@ import type {
   Verdict,
 } from "@harness/types";
 import { voice } from "@revenue-os/channels";
-import { leadNumber, openConversation, withOrg } from "@revenue-os/db";
-import { runTurn, withTimeLimit } from "@revenue-os/harness";
+import {
+  leadNumber,
+  liveVersion,
+  openConversation,
+  withOrg,
+} from "@revenue-os/db";
+import { runTurn, versionDeps, withTimeLimit } from "@revenue-os/harness";
+import type { RoleVersion } from "@revenue-os/shared";
 import type { Pool, PoolClient } from "pg";
 import { callHeldBack, handToPerson, NO_NUMBER, noAgent } from "../call-stops";
 import {
@@ -88,11 +94,7 @@ type RunState = { lastDisposition?: string; callSendId?: string } & Record<
   string,
   unknown
 >;
-type Agent = {
-  id: string;
-  system_prompt: string | null;
-  tools_allowed: string[] | null;
-};
+type Agent = RoleVersion;
 
 export async function handlePlaceCall(
   deps: PlaceCallDeps,
@@ -120,14 +122,7 @@ export async function handlePlaceCall(
       return {
         handedOver: await handOver(tx, orgId, send, new Error(UNANSWERED)),
       };
-    const agent = (
-      await tx.query(
-        `select id, system_prompt, tools_allowed from agents
-          where key = $1 and status = 'active' and (org_id = $2 or org_id is null)
-          order by version desc limit 1`,
-        [action.agentKey, orgId],
-      )
-    ).rows[0] as Agent | undefined;
+    const agent = await liveVersion(tx, orgId, action.agentKey);
     // Held back by the guardrails before (an earlier run of this job saved that, then failed before acting on it); no
     // active agent to place the call or drive its turn; no number to call (none on file, or the lead was deleted or
     // merged): nothing is placed.
@@ -213,8 +208,7 @@ async function fold(
       {
         provider: deps.provider,
         registry: deps.registry,
-        toolsAllowed: agent.tools_allowed ?? [],
-        systemPrompt: agent.system_prompt ?? "",
+        ...versionDeps(agent),
         modelTimeLimitMs: deps.limits?.model ?? TIME_LIMITS.model,
       },
       {

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, it } from "bun:test";
 import { createPool } from "@revenue-os/db";
 import { ToolRegistry } from "@revenue-os/harness";
 import pg, { type Pool } from "pg";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import { handlePlaceCall } from "../src/handlers/place-call";
 import { handleSendWa } from "../src/handlers/send-wa";
@@ -26,11 +27,7 @@ let workflowId = "";
 
 beforeAll(async () => {
   orgId = (await companies.add("Lead numbers")).id;
-  await admin.query(
-    `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-     values ($1, 'closer', 1, 'active', 'claude-sonnet-4-6', 'test', '{}')`,
-    [orgId],
-  );
+  await putLive(admin, orgId, { key: "closer", systemPrompt: "test" });
   workflowId = (
     await admin.query(
       `insert into workflows (org_id, key, version, status, definition)

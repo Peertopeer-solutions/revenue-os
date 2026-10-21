@@ -1,12 +1,14 @@
 // The AI's turn loop (docs/tech-stack.md T26.5): build the prompt, ask the model, record usage, run each tool call it
 // asks for (src/tool-call.ts: validate, guard(), run, audit), add the tool's result as a message, and repeat up to
 // MAX_TOOL_ROUNDS times before saving the model's closing message. Every message is written by the database package's
-// one writer, addMessage.
+// one writer, addMessage. The role it plays is the version the caller read (versionDeps): its model, prompt, goal, tools
+// and rules, never anything written here about one role.
 // Stateless: every effect is a row; a crash mid-turn loses nothing that matters. The model gets a time limit, and a
 // caller that passes OrgUnits holds no transaction, so no locked row, while the model thinks.
 // G1: runtime-agnostic.
 
 import { addMessage } from "@revenue-os/db";
+import type { RoleRules, RoleVersion } from "@revenue-os/shared";
 import { assembleContext } from "./context";
 import { emitUsage } from "./meter";
 import type { ToolRegistry } from "./registry";
@@ -19,12 +21,26 @@ const MAX_TOOL_ROUNDS = 5;
 export interface TurnDeps {
   provider: LlmProvider;
   registry: ToolRegistry;
+  model: string; // the version's model, `provider:model-id`
   toolsAllowed: readonly string[]; // agents.tools_allowed — docs/security.md S8.1 capability boundary
   systemPrompt: string;
+  goal?: string; // the version's goal, told to the model after its prompt
+  rules?: RoleRules; // the version's rules, which its tools read (src/types.ts, OrgCtx)
+  versionId?: string; // the version, named on each round's usage row
   pipeline?: PolicyHook[];
   providerName?: string;
   modelTimeLimitMs?: number; // the longest the turn waits for the model (MODEL_TIME_LIMIT_MS when unset)
 }
+
+/** What a turn takes from the role version it runs: everything that makes this role differ from another. */
+export const versionDeps = (v: RoleVersion) => ({
+  model: v.model,
+  systemPrompt: v.prompt,
+  goal: v.goal,
+  toolsAllowed: v.tools,
+  rules: v.rules,
+  versionId: v.id,
+});
 
 /** The seq the conversation's next line would take: a turn's answer is out of date once it moves. */
 async function nextSeq(ctx: OrgCtx, conversationId: string): Promise<number> {
@@ -65,14 +81,18 @@ export async function runTurn(
       ? at.inTransaction
       : <T>(work: (ctx: OrgCtx) => Promise<T>) => work(at);
   const limit = deps.modelTimeLimitMs ?? MODEL_TIME_LIMIT_MS;
+  const prompt = deps.goal
+    ? `${deps.systemPrompt}\n\nYour goal: ${deps.goal}`
+    : deps.systemPrompt;
 
   for (let round = 1; round <= MAX_TOOL_ROUNDS; round++) {
     const { input, seen } = await step(async (ctx) => ({
-      input: await assembleContext(ctx, conversationId, deps.systemPrompt),
+      input: await assembleContext(ctx, conversationId, prompt),
       seen: await nextSeq(ctx, conversationId),
     }));
     const turn = await withTimeLimit("the AI model", limit, (signal) =>
       deps.provider.complete({
+        model: deps.model,
         system: input.system,
         messages: input.messages,
         tools: deps.registry.specs(deps.toolsAllowed),
@@ -107,7 +127,12 @@ async function saveRound(
     provider: providerName,
     quantity: turn.usage.in + turn.usage.out,
     unit: "tokens",
-    meta: { in: turn.usage.in, out: turn.usage.out, round },
+    meta: {
+      in: turn.usage.in,
+      out: turn.usage.out,
+      round,
+      ...(deps.versionId ? { version: deps.versionId } : {}),
+    },
   });
   if ((await nextSeq(ctx, conversationId)) !== seen) return false; // a message came meanwhile: this answer is stale
 

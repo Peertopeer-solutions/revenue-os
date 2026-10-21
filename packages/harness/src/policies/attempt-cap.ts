@@ -5,7 +5,7 @@ import type { PolicyHook } from "../types";
 /**
  * Attempt-cap guardrail: blocks a SEND once a contact has hit the per-channel cap within its
  * rolling window (guardrail_policies key 'attempt_caps', config {"<channel>":{max,per_hours}},
- * as the seed packs real_estate.sql and b2b_wholesale.sql set it). Attempts are per-channel
+ * as each seed pack in supabase/seeds/ sets it). Attempts are per-channel
  * ISO-timestamp ARRAYS on workflow_runs.attempts (migration 006_harness.sql), read from the
  * company's newest run of the contact through the runs_contact index (org_id, contact_id,
  * created_at desc). An unconfigured channel = no cap. FAILS CLOSED on a read error to

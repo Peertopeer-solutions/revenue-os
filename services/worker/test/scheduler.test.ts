@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { ToolRegistry } from "@revenue-os/harness";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import { handlePlaceCall } from "../src/handlers/place-call";
 import { startRun } from "../src/runs";
@@ -320,6 +321,7 @@ describe("scheduler tick + run writer", () => {
     expect((await jobsFor(`${runId}:c:0`)).length).toBe(1); // still exactly one job
   });
 
+  // behaviour already on main: only its agent is now put live the way migration 026 requires, through a passing run of its test set
   it("a re-poll of the still-parked call step keeps the run waiting for the call job still queued, which then dials once", async () => {
     const lead = (
       await admin.query(
@@ -332,11 +334,7 @@ describe("scheduler tick + run writer", () => {
        values ($1, $2, 'phone', '+919800033344', true)`,
       [orgId, lead],
     );
-    await admin.query(
-      `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-       values ($1, 'repoll', 1, 'active', 'm', 'You call.', '{}')`,
-      [orgId],
-    );
+    await putLive(admin, orgId, { key: "repoll", systemPrompt: "You call." });
     const runId = await seedRun(
       await seedWorkflow({
         entry: "c",

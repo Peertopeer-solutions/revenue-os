@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { createPool } from "@revenue-os/db";
 import { type LlmProvider, ToolRegistry } from "@revenue-os/harness";
 import pg from "pg";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import { handleAgentTurn } from "../src/handlers/agent-turn";
 import { handlePlaceCall } from "../src/handlers/place-call";
@@ -28,13 +29,10 @@ let contactId = "";
 
 beforeAll(async () => {
   orgId = (await companies.add("Turn Steps Org")).id;
-  agentId = (
-    await admin.query(
-      `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-       values ($1, 'closer', 1, 'active', 'm', 'You are a scheduler.', '{}') returning id`,
-      [orgId],
-    )
-  ).rows[0].id;
+  agentId = await putLive(admin, orgId, {
+    key: "closer",
+    systemPrompt: "You are a scheduler.",
+  });
   contactId = (
     await admin.query(
       `insert into contacts (org_id, first_name) values ($1, 'Asha') returning id`,

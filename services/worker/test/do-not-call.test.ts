@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { createPool } from "@revenue-os/db";
 import { guard, ToolRegistry } from "@revenue-os/harness";
 import pg from "pg";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import { type TestUser, testUser } from "../../../tests/test-users";
 import { pool } from "../src/db";
@@ -252,11 +253,7 @@ beforeAll(async () => {
   orgB = await createOrg(stranger, "Do-not-call other");
   await invite(operator.userId, "operator");
   await invite(viewer.userId, "viewer");
-  await admin.query(
-    `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-     values ($1, 'closer', 1, 'active', 'claude-sonnet-4-6', 'You call leads.', '{}')`,
-    [orgId],
-  );
+  await putLive(admin, orgId, { key: "closer", systemPrompt: "You call leads." });
 }, 30_000);
 
 afterAll(async () => {

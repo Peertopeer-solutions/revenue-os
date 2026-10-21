@@ -5,9 +5,22 @@
 // G1: runtime-agnostic.
 
 import { audit, createTask } from "@revenue-os/db";
+import type { RoleRules } from "@revenue-os/shared";
 import { guard } from "./policies";
 import type { ToolRegistry } from "./registry";
-import type { GuardedAction, OrgCtx, PolicyHook, ToolResult } from "./types";
+import type {
+  Autonomy,
+  GuardedAction,
+  OrgCtx,
+  PolicyHook,
+  ToolResult,
+} from "./types";
+
+// A role's approval rule only tightens a tool's own level: it may ask for a person's approval or forbid the tool,
+// never let it act alone (RoleRulesSchema, packages/shared/src/role.ts).
+const STRICTNESS: readonly Autonomy[] = ["auto", "approval", "forbidden"];
+const tighter = (own: Autonomy, role?: Autonomy): Autonomy =>
+  role && STRICTNESS.indexOf(role) > STRICTNESS.indexOf(own) ? role : own;
 
 // What guard() is told about a tool call. The do-not-call, calling-hours and attempt-limit checks all key on
 // action.channel, so a send that arrives without a channel is a send nobody guards (AGENTS.md: guardrails run before
@@ -85,6 +98,7 @@ export async function runToolCall(
   deps: {
     registry: ToolRegistry;
     toolsAllowed: readonly string[];
+    rules?: RoleRules;
     pipeline?: PolicyHook[];
   },
   ctx: OrgCtx,
@@ -108,7 +122,7 @@ export async function runToolCall(
   const action: GuardedAction = {
     kind: "tool",
     toolName: tool.name,
-    autonomy: tool.autonomy,
+    autonomy: tighter(tool.autonomy, deps.rules?.approval[tool.name]),
     channel,
     contactId:
       strField(parsed.data, "contactId") ??
@@ -119,9 +133,9 @@ export async function runToolCall(
   let result: ToolResult;
   if (verdict.ok) {
     // Thread the turn's conversationId so a tool write attributes to the run (book_appointment's
-    // outcome → conversations.workflow_run_id). Additive: tools that ignore it are unaffected.
+    // outcome → conversations.workflow_run_id), and the role's rules, which a tool reads what the role allows from.
     result = await tool.execute(
-      { ...ctx, conversationId },
+      { ...ctx, conversationId, rules: deps.rules },
       parsed.data as never,
     );
     await audit(ctx.db, ctx.orgId, {

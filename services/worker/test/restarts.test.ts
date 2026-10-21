@@ -12,6 +12,7 @@ import { join } from "node:path";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 import { OPTED_IN } from "../../../tests/opted-in";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import { startJobs, stopJobs } from "../src/jobs";
 import { testJobSchema } from "./fixtures/test-job-schema";
@@ -96,11 +97,10 @@ const said = (w: Worker, key: string, to: string) =>
 
 beforeAll(async () => {
   orgId = (await companies.add("Restarts Org")).id;
-  await admin.query(
-    `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-     values ($1, 'closer', 1, 'active', 'm', 'You are a scheduler.', '{}')`,
-    [orgId],
-  );
+  await putLive(admin, orgId, {
+    key: "closer",
+    systemPrompt: "You are a scheduler.",
+  });
   workflowId = (
     await admin.query(
       `insert into workflows (org_id, key, version, status, definition)

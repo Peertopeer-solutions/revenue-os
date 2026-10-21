@@ -19,6 +19,7 @@ import {
   demo,
   type JourneyStage,
 } from "../../../scripts/demo";
+import { putLive } from "../../../tests/live-version";
 import { testCompanies } from "../../../tests/test-companies";
 import app from "../src/index";
 import {
@@ -93,11 +94,15 @@ beforeAll(async () => {
     // idempotent across reruns
   }
   orgId = (await companies.add("Demo Org")).id;
-  await admin.query(
-    `insert into agents (org_id, key, version, status, model, system_prompt, tools_allowed)
-     values ($1, 'qualifier', 1, 'active', 'claude-fake', 'You are a qualifier.', '{book_appointment}')`,
-    [orgId],
-  );
+  await putLive(admin, orgId, {
+    key: "qualifier",
+    systemPrompt: "You are a qualifier.",
+    toolsAllowed: ["book_appointment"],
+    rules: {
+      outcomes: ["site_visit_booked"],
+      booking: { kind: "site_visit", outcome: "site_visit_booked" },
+    },
+  });
   await admin.query(
     `insert into guardrail_policies (org_id, key, config, active)
      values ($1, 'quiet_hours', $2::jsonb, true), ($1, 'attempt_caps', $3::jsonb, true)`,
