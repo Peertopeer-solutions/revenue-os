@@ -43,8 +43,8 @@ A schema used inside one module stays next to it: each AI tool declares its argu
     );
 ```
 **Do not copy a tool's argument schema yet:** today's tools take the lead's id (`contactId`) from the model's
-arguments, so a lead's message can steer a write onto another lead of the same company. Slice 3 · "The AI's tools
-act only on the lead of the conversation they run in" removes it and gives this file its agent-tool example.
+arguments, so a lead's message can steer a write onto another lead of the same company. Slice 3 · "Tools have one
+registry and one contract" removes it (no tool takes a lead's id) and gives this file its agent-tool example.
 
 Rules: request and webhook shapes live in packages/shared (`packages/shared/src/schemas.ts`), never re-declared
 where they are used; a schema used inside one module lives next to it · `.strict()` when the shape is closed · the

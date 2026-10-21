@@ -302,7 +302,7 @@ settings) · `bun run dev` · `bun run db:reset`
 - **Agent harness**: tool arguments are validated before execute · `guard()` before any side
   effect · job handlers first reload the row and no-op if stale · retrieved text (memories,
   knowledge) enters prompts fenced and labelled as data · model output never writes consent or
-  guardrail fields (one exception: it may add a do-not-call block heard on a call, never remove one or grant consent; only the lead's own written YES lifts a block) · no in-memory agent state (rows or it didn't happen) · no per-vertical code
+  guardrail fields (one exception: it may add a do-not-call block heard on a call or quoted word for word from the lead's own message, never remove one or grant consent; only the lead's own written YES lifts a block) · no in-memory agent state (rows or it didn't happen) · no per-vertical code
   in `packages/harness` (verticals are seed/config rows).
 - Logs are pino JSON with `org_id`, `run_id`, `conversation_id` where known.
 - G1: no `bun:*` imports or `Bun.` globals in `packages/**` (imports are lint-enforced).

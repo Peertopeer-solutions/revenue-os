@@ -1,0 +1,1 @@
+- 2026-10-21 · **A new live role version reaches each lead at its next turn** (Devesh): every turn uses the role's version that is live when the turn starts and records it on the turn's row, so a fix reaches leads already in a conversation at their next message; only a test lead may pin a draft version (docs/brain.md → A role is rows).
